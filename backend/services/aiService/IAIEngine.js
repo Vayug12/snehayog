@@ -31,4 +31,13 @@ export class IAIEngine {
   async synthesize(text, language = 'hindi', outputPath) {
     throw new Error('IAIEngine: synthesize(text, language, outputPath) not implemented');
   }
+
+  /**
+   * Summarizes a long text transcript into a short summary.
+   * @param {string} text 
+   * @returns {Promise<string>}
+   */
+  async summarize(text) {
+    throw new Error('IAIEngine: summarize(text) not implemented');
+  }
 }

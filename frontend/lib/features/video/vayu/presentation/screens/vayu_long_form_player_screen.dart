@@ -1030,7 +1030,11 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: BannerAdSection(
-        adData: {...ad, 'creatorId': _videos[index].uploader.id},
+        adData: {
+          ...ad, 
+          'creatorId': _videos[index].uploader.id,
+          'videoId': _videos[index].id,
+        },
         adService: _activeAdsService,
         onVideoPause: () => _controllers[index]?.pause(),
         onVideoResume: () => _controllers[index]?.play(),

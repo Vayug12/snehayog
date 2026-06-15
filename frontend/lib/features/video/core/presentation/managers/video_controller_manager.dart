@@ -155,7 +155,7 @@ class VideoControllerManager {
     final controller =
         await VideoControllerFactory.createController(videoWithSignedUrl);
 
-    try {
+      try {
       // **WEB FIX: Web video player initialization may need longer timeout or different handling**
      const timeoutDuration =
           kIsWeb ? Duration(seconds: 15) : Duration(seconds: 10);
@@ -175,7 +175,37 @@ class VideoControllerManager {
         throw error;
       });
 
+      // **DIAGNOSTIC: Log player error state after successful init**
+      if (controller.value.hasError) {
+        AppLogger.log(
+          '🔴 EXO-DIAG: Post-init error detected! '
+          'hasError=${controller.value.hasError}, '
+          'errorDescription=${controller.value.errorDescription}, '
+          'videoId=${video.id}, url=$finalUrl',
+          isError: true,
+        );
+      }
+
       controller.setLooping(true);
+
+      // **DIAGNOSTIC: Add error listener for full ExoPlayer exception logging**
+      controller.addListener(() {
+        if (controller.value.hasError) {
+          AppLogger.log(
+            '🔴 EXO-ERROR: Player error during playback! '
+            'videoId=${video.id}, '
+            'index=$index, '
+            'errorDescription=${controller.value.errorDescription}, '
+            'position=${controller.value.position}, '
+            'duration=${controller.value.duration}, '
+            'isInitialized=${controller.value.isInitialized}, '
+            'isPlaying=${controller.value.isPlaying}, '
+            'url=$finalUrl',
+            isError: true,
+          );
+        }
+      });
+
       _controllers[index] = controller;
       _controllerSourceUrl[index] = finalUrl;
       _controllerVideoIds[index] =
@@ -193,9 +223,14 @@ class VideoControllerManager {
       AppLogger.log(
           '✅ VideoControllerManager: Successfully created controller using VideoControllerFactory for ${video.videoName} with position caching');
       return controller;
-    } catch (e) {
+    } catch (e, stack) {
       AppLogger.log(
-          '❌ VideoControllerManager: Failed to initialize controller for ${video.videoName}: $e');
+        '🔴 EXO-DIAG: Controller initialization FAILED for ${video.videoName}: '
+        'videoId=${video.id}, url=$finalUrl, '
+        'errorType=${e.runtimeType}, error=$e',
+        isError: true,
+      );
+      AppLogger.log('🔴 EXO-DIAG: Stack trace: $stack', isError: true);
 
       // Try fallback URL if this is an HLS URL
       if (finalUrl.contains('.m3u8')) {

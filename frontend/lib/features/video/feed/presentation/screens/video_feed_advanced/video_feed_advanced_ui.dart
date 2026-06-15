@@ -19,7 +19,7 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
 
   Widget _buildVideoFeed() {
     return VisibilityDetector(
-      key: const Key('yug_feed_visibility'),
+      key: ObjectKey(this),
       onVisibilityChanged: (visibilityInfo) {
         final double visibleFraction = visibilityInfo.visibleFraction;
         // Determine if screen is truly visible to the user
@@ -104,6 +104,138 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
   // **NEW: Individual Video Error State widget**
   Widget _buildVideoErrorState(int index, String error) {
     final String videoId = index < _videos.length ? _videos[index].id : '';
+    final String errorLower = error.toLowerCase();
+    final bool isE2eeError = errorLower.contains('decoding error') ||
+        errorLower.contains('e2ee') ||
+        errorLower.contains('decrypt') ||
+        errorLower.contains('symmetric key') ||
+        errorLower.contains('video-key') ||
+        errorLower.contains('e2ee_error');
+
+    if (isE2eeError) {
+      // Determine if this is a "still loading" vs "access denied" error
+      final bool isStillLoading = errorLower.contains('still loading') ||
+          errorLower.contains('timeout') ||
+          errorLower.contains('source');
+
+      return Container(
+        color: AppColors.backgroundPrimary,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: isStillLoading
+                        ? AppColors.primary.withValues(alpha: 0.1)
+                        : const Color(0xFFFBBF24).withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isStillLoading
+                          ? AppColors.primary.withValues(alpha: 0.2)
+                          : const Color(0xFFFBBF24).withValues(alpha: 0.2),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Icon(
+                    isStillLoading ? Icons.hourglass_top_rounded : Icons.lock_outline_rounded,
+                    color: isStillLoading ? AppColors.primary : const Color(0xFFFBBF24),
+                    size: 56,
+                  ),
+                ),
+                AppSpacing.vSpace24,
+                Text(
+                  isStillLoading ? 'Video Still Loading' : 'End-to-End Encrypted',
+                  style: const TextStyle(
+                    color: AppColors.white,
+                    fontSize: 20,
+                    fontWeight: AppTypography.weightBold,
+                    letterSpacing: 0.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                AppSpacing.vSpace12,
+                Text(
+                  isStillLoading
+                      ? 'The secure video is taking longer to download. This may happen on slower connections.'
+                      : _getUserFriendlyErrorMessage(error),
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: AppTypography.fontSizeBase,
+                    fontWeight: AppTypography.weightSemiBold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                AppSpacing.vSpace8,
+                Text(
+                  isStillLoading
+                      ? 'Try again in a moment, or swipe up/down to continue watching other videos.'
+                      : 'This content is secured with E2EE. Only authorized devices and active subscribers can decrypt and play this video.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: AppTypography.fontSizeSM,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                AppSpacing.vSpace32,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.swap_vert_rounded,
+                        color: AppColors.textTertiary,
+                        size: 16,
+                      ),
+                      AppSpacing.hSpace8,
+                      Text(
+                        'Swipe up or down to continue watching',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: AppTypography.fontSizeXS,
+                          fontWeight: AppTypography.weightMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                AppSpacing.vSpace24,
+                AppButton(
+                  onPressed: () {
+                    safeSetState(() {
+                      _videoErrors.remove(videoId);
+                      _e2eeDecryptingVideos.remove(videoId);
+                      _preloadRetryCount.remove(videoId);
+                      _loadingVideos.add(videoId);
+                      _isBuffering[videoId] = false;
+                      _isBufferingVN[videoId]?.value = false;
+                    });
+                    _preloadVideo(index).then((_) {
+                      if (mounted && index == _currentIndex) {
+                        _tryAutoplayCurrentImmediate(index);
+                      }
+                    });
+                  },
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: isStillLoading ? 'Retry Loading' : 'Retry Decryption',
+                  variant: AppButtonVariant.secondary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
       color: AppColors.backgroundPrimary,
       child: Center(
@@ -131,18 +263,53 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (error.toLowerCase().contains('source')) ...[
+              AppSpacing.vSpace8,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  'This may happen on slow connections. Try again or check your network.',
+                  style: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: AppTypography.fontSizeXS),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+            AppSpacing.vSpace8,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                child: SelectableText(
+                  error,
+                  style: const TextStyle(
+                    color: Color(0xFFEF4444),
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
             AppSpacing.vSpace16,
             AppButton(
               onPressed: () {
-                // Retry logic: clear error and reload
                 safeSetState(() {
                   _videoErrors.remove(videoId);
+                  _e2eeDecryptingVideos.remove(videoId);
+                  _preloadRetryCount.remove(videoId);
                   _loadingVideos.add(videoId); // Show spinner
                   _isBuffering[videoId] = false; // Reset buffering state
                   _isBufferingVN[videoId]?.value = false;
                 });
-                // Force reload (Use fallback for manual retry to ensure success)
-                _preloadVideo(index, bypassProxy: true).then((_) {
+                // Always use proxy on manual retry (proxy needed for HLS manifest rewriting)
+                _preloadVideo(index).then((_) {
                   if (mounted && index == _currentIndex) {
                     _tryAutoplayCurrentImmediate(index);
                   }
@@ -154,6 +321,169 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildE2eeDecryptingState(VideoModel video) {
+    // Get download progress for this video
+    final originalUrl = _getActingUrl(video);
+    final progressNotifier = videoCacheProxy.getDownloadProgress(originalUrl);
+    final bool isDownloading = videoCacheProxy.isDownloadActive(originalUrl);
+
+    return Container(
+      color: AppColors.backgroundPrimary,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Blurred thumbnail background
+          if (video.thumbnailUrl.isNotEmpty)
+            ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20, tileMode: TileMode.clamp),
+              child: CachedNetworkImage(
+                imageUrl: video.thumbnailUrl,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+              ),
+            ),
+          Container(color: Colors.black.withValues(alpha: 0.6)),
+          // Decrypting indicator with progress
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (progressNotifier != null)
+                  ValueListenableBuilder<E2eeDownloadProgress>(
+                    valueListenable: progressNotifier,
+                    builder: (context, progress, _) {
+                      final showProgress = progress.downloadedBytes > 0 && !progress.isComplete;
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Circular progress or shield icon
+                          if (showProgress)
+                            SizedBox(
+                              width: 56,
+                              height: 56,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                    value: progress.fraction > 0 ? progress.fraction.clamp(0.0, 1.0) : null,
+                                    color: AppColors.primary,
+                                    backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                                  ),
+                                  Icon(
+                                    Icons.lock_outline_rounded,
+                                    color: AppColors.primary,
+                                    size: 22,
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            SizedBox(
+                              width: 56,
+                              height: 56,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 3,
+                                color: AppColors.primary,
+                                backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                              ),
+                            ),
+                          AppSpacing.vSpace24,
+                          Text(
+                            showProgress ? 'Downloading secure video...' : 'Preparing video...',
+                            style: const TextStyle(
+                              color: AppColors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          AppSpacing.vSpace8,
+                          if (showProgress) ...[
+                            Text(
+                              '${progress.downloadedFormatted}${progress.totalFormatted != null ? ' / ${progress.totalFormatted}' : ''}',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: AppTypography.fontSizeSM,
+                              ),
+                            ),
+                            if (progress.estimatedTimeFormatted != null) ...[
+                              AppSpacing.vSpace4,
+                              Text(
+                                'Estimated: ${progress.estimatedTimeFormatted}',
+                                style: TextStyle(
+                                  color: AppColors.textTertiary,
+                                  fontSize: AppTypography.fontSizeXS,
+                                ),
+                              ),
+                            ],
+                            AppSpacing.vSpace12,
+                            // Progress bar
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 60),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(2),
+                                child: LinearProgressIndicator(
+                                  value: progress.fraction > 0 ? progress.fraction.clamp(0.0, 1.0) : null,
+                                  minHeight: 3,
+                                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                                ),
+                              ),
+                            ),
+                          ] else ...[
+                            Text(
+                              'Loading secure content',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: AppTypography.fontSizeSM,
+                              ),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
+                  )
+                else
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: AppColors.primary,
+                          backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                        ),
+                      ),
+                      AppSpacing.vSpace24,
+                      const Text(
+                        'Preparing video...',
+                        style: TextStyle(
+                          color: AppColors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      AppSpacing.vSpace8,
+                      Text(
+                        'Loading secure content',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: AppTypography.fontSizeSM,
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -409,9 +739,18 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
       controller = null;
     }
 
+    // **E2EE PREBUFFER STATE: Show "Decrypting..." while waiting for enough bytes**
+    if (_e2eeDecryptingVideos.contains(videoId)) {
+      return _buildE2eeDecryptingState(video);
+    }
+
     // **NEW: Check for error state**
     // **ZOMBIE AUDIO FIX: Check if error is real or if controller recovered**
     bool showError = _videoErrors.containsKey(videoId);
+    // Don't show error while E2EE is still decrypting — prebuffer may resolve it
+    if (showError && _e2eeDecryptingVideos.contains(videoId)) {
+      showError = false;
+    }
     if (showError &&
         controllerUsable &&
         controller != null &&

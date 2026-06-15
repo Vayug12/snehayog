@@ -16,6 +16,7 @@ import 'package:vayug/shared/services/platform_id_service.dart';
 import 'package:vayug/shared/services/notification_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:vayug/core/interfaces/i_auth_service.dart';
+import 'package:vayug/shared/di/dependency_injection.dart';
 
 class AuthService implements IAuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn(
@@ -279,6 +280,9 @@ class AuthService implements IAuthService {
             AppLogger.log('🔑 Refresh Token received and saved');
           }
 
+          // **NEW: Register E2EE Keys**
+          _registerE2eeKeysNonBlocking();
+
           // **OPTIMIZED: Retry saving FCM token non-blocking (fire and forget)**
           unawaited(() async {
             try {
@@ -461,6 +465,9 @@ class AuthService implements IAuthService {
               // **CRITICAL: ALWAYS store device ID after successful retry authentication**
               await _ensurePlatformIdStored(deviceId);
 
+              // **NEW: Register E2EE Keys**
+              _registerE2eeKeysNonBlocking();
+
               return {
                 'id': googleUser.id,
                 'googleId': googleUser.id,
@@ -512,6 +519,9 @@ class AuthService implements IAuthService {
 
       // **CRITICAL: ALWAYS store platform ID even in fallback mode**
       await _ensurePlatformIdStored(await PlatformIdService().getPlatformId());
+
+      // **NEW: Register E2EE Keys**
+      _registerE2eeKeysNonBlocking();
 
       AppLogger.log('✅ Fallback session created successfully');
 
@@ -572,6 +582,33 @@ class AuthService implements IAuthService {
     }
   }
 
+  // **NEW: Hook to register E2EE keys after successful login/registration**
+  void _registerE2eeKeysNonBlocking() {
+    unawaited(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('jwt_token');
+        if (token == null || token.isEmpty) {
+          AppLogger.log('🔐 AuthService: No active token. Skipping E2EE keys registration.');
+          return;
+        }
+
+        AppLogger.log('🔐 AuthService: Checking/Registering E2EE keys...');
+        final e2ee = serviceLocator.e2eeService;
+        final hasKeys = await e2ee.hasKeyPair();
+        String pubKey;
+        if (!hasKeys) {
+          pubKey = await e2ee.generateAndStoreKeyPair();
+        } else {
+          pubKey = (await e2ee.getPublicKey())!;
+        }
+        await e2ee.uploadPublicKey(pubKey);
+      } catch (e) {
+        AppLogger.log('⚠️ AuthService: Failed to register E2EE keys: $e');
+      }
+    }());
+  }
+
   // Check if user is already logged in
   @override
   Future<bool> isLoggedIn() async {
@@ -593,6 +630,10 @@ class AuthService implements IAuthService {
           AppLogger.log('ℹ️ Access token expired but refresh token exists. Staying optimistic.');
           // Start background refresh immediately
           unawaited(refreshAccessToken());
+          
+          // Register E2EE keys in background
+          _registerE2eeKeysNonBlocking();
+          
           return true; 
         }
         AppLogger.log('⚠️ Token found but is invalid/expired and no refresh token exists.');
@@ -603,6 +644,10 @@ class AuthService implements IAuthService {
       AppLogger.log('✅ Token exists and is locally valid');
       // Verify token in background (non-blocking)
       unawaited(_verifyTokenInBackground(token));
+      
+      // Register E2EE keys in background
+      _registerE2eeKeysNonBlocking();
+      
       return true;
     } catch (e) {
       AppLogger.log('❌ Error checking login status: $e');

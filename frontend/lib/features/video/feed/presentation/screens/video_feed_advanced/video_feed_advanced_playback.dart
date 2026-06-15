@@ -25,7 +25,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
             return;
           }
           final value = controller.value;
-          if (value.isInitialized && value.isPlaying) {
+          if (value.isInitialized) {
             controller.pause();
             _controllerStates[videoId] = false;
           }
@@ -49,7 +49,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
           return;
         }
         final value = controller.value;
-        if (value.isInitialized && value.isPlaying) {
+        if (value.isInitialized) {
           controller.pause();
           _controllerStates[videoId] = false;
         }
@@ -151,7 +151,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
           try {
             if (!SharedVideoControllerPool().isControllerDisposed(controller)) {
               final value = controller.value;
-              if (value.isInitialized && value.isPlaying) {
+              if (value.isInitialized) {
                 controller.pause();
                 _controllerStates[videoId] = false;
               }
@@ -175,7 +175,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
       try {
         if (!SharedVideoControllerPool().isControllerDisposed(controller)) {
           final value = controller.value;
-          if (value.isInitialized && value.isPlaying) {
+          if (value.isInitialized) {
             controller.pause();
             _controllerStates[videoId] = false;
           }

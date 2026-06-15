@@ -22,7 +22,7 @@ class AppConfig {
 
   // Find your IP: Windows: ipconfig | Linux/Mac: ifconfig or ip address
   // Make sure your phone/emulator is on the same Wi‑Fi network
-  static const String _currentMobileIp = 'http://192.168.0.198:5001';
+  static const String _currentMobileIp = 'http://192.168.0.186:5001';
   static const String _currentMobileIp2 = 'http://172.20.10.2:5001';
   static const String _localIpBaseUrl = _currentMobileIp;
 

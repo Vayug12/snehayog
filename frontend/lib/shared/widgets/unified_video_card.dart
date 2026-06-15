@@ -81,6 +81,32 @@ class UnifiedVideoCard extends StatelessWidget {
     );
   }
 
+  Widget _buildPlaceholder() {
+    if (video.isSubscriberOnly) {
+      return Center(
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFB300).withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: const Color(0xFFFFB300).withValues(alpha: 0.2),
+              width: 1.5,
+            ),
+          ),
+          child: const Icon(
+            Icons.lock_outline_rounded,
+            color: Color(0xFFFFB300),
+            size: 28,
+          ),
+        ),
+      );
+    }
+    return const Center(
+      child: Icon(Icons.lock_outline_rounded, color: Color(0xFF9CA3AF), size: 32),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -113,20 +139,20 @@ class UnifiedVideoCard extends StatelessWidget {
                 child: Container(
                   width: double.infinity,
                   height: double.infinity,
-                  color: _isProcessing ? AppColors.backgroundSecondary : const Color(0xFFF3F4F6),
+                  color: _isProcessing
+                      ? AppColors.backgroundSecondary
+                      : (video.isSubscriberOnly
+                          ? AppColors.backgroundSecondary
+                          : const Color(0xFFF3F4F6)),
                   child: video.thumbnailUrl.isNotEmpty
                       ? CachedNetworkImage(
                           imageUrl: video.thumbnailUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,
                           height: double.infinity,
-                          errorWidget: (context, url, error) => const Center(
-                            child: Icon(Icons.video_library, color: Color(0xFF9CA3AF), size: 32),
-                          ),
+                          errorWidget: (context, url, error) => _buildPlaceholder(),
                         )
-                      : const Center(
-                          child: Icon(Icons.video_library, color: Color(0xFF9CA3AF), size: 32),
-                        ),
+                      : _buildPlaceholder(),
                 ),
               ),
 

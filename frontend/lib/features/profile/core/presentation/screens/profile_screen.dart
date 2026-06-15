@@ -1840,14 +1840,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     }
   }
 
-  /// Get cache key for current profile
-  String _getProfileCacheKey() {
-    if (widget.userId != null) {
-      return widget.userId!;
-    }
-    // For own profile, use a consistent key
-    return 'own_profile';
-  }
+
 
   /// **SIMPLIFIED: Cache earnings - simple timestamp only**
   Future<void> _cacheEarningsData(Map<String, dynamic> earningsData) async {

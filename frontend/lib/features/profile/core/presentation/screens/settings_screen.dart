@@ -8,7 +8,6 @@ import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/widgets/vayu_bottom_sheet.dart';
-import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
 import 'package:vayug/features/profile/core/data/services/user_service.dart';
 
 import 'package:vayug/features/profile/core/presentation/screens/creator_tools_screen.dart';
@@ -136,6 +135,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showSubscriptionAlertsSettings(BuildContext context) {
+    // Hoist the future so it doesn't get re-fetched on every Consumer rebuild
+    final followingFuture = UserService().getFollowingList();
+
     VayuBottomSheet.show(
       context: context,
       title: 'Manage Alerts',
@@ -146,16 +148,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Global Alerts', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                subtitle: const Text('Enable/disable all creator notifications', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                value: manager.isGlobalAlertsEnabled,
-                activeTrackColor: AppColors.primary,
-                activeColor: Colors.white,
-                onChanged: (value) async {
-                  await manager.updateNotificationPreference(globalEnabled: value);
-                },
+              Builder(
+                builder: (context) {
+                  bool isGlobalEnabled = manager.isGlobalAlertsEnabled;
+                  return StatefulBuilder(
+                    builder: (context, setGlobalState) {
+                      return SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Global Alerts', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                        subtitle: const Text('Enable/disable all creator notifications', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                        value: isGlobalEnabled,
+                        activeTrackColor: AppColors.primary,
+                        activeThumbColor: Colors.white,
+                        onChanged: (value) {
+                          setGlobalState(() {
+                            isGlobalEnabled = value;
+                          });
+                          manager.updateNotificationPreference(globalEnabled: value);
+                        },
+                      );
+                    }
+                  );
+                }
               ),
               
               const Padding(
@@ -169,7 +183,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(height: 16),
  
               FutureBuilder<List<Map<String, dynamic>>>(
-                future: UserService().getFollowingList(),
+                future: followingFuture,
                 builder: (context, snapshot) {
                   // Debugging the list
                   if (snapshot.hasData) {
@@ -212,45 +226,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     itemBuilder: (context, index) {
                       final creator = following[index];
                       final creatorId = creator['id']?.toString() ?? creator['_id']?.toString() ?? '';
-                      final isMuted = manager.disabledCreatorIds.contains(creatorId);
+                      bool isMuted = manager.disabledCreatorIds.contains(creatorId);
  
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.03),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: SwitchListTile.adaptive(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          secondary: CircleAvatar(
-                            radius: 18,
-                            backgroundColor: Colors.white10,
-                            backgroundImage: creator['profilePic'] != null 
-                              ? NetworkImage(creator['profilePic']) 
-                              : null,
-                            child: creator['profilePic'] == null 
-                              ? const Icon(Icons.person, color: Colors.white24, size: 20) 
-                              : null,
-                          ),
-                          title: Text(
-                            creator['name'] ?? 'Creator',
-                            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
-                          ),
-                          subtitle: Text(
-                            isMuted ? 'Muted' : 'Alerts On',
-                            style: TextStyle(color: isMuted ? Colors.white38 : AppColors.primary, fontSize: 11),
-                          ),
-                          value: !isMuted,
-                          activeTrackColor: AppColors.primary,
-                          activeColor: Colors.white,
-                          onChanged: (bool value) async {
-                            if (value) {
-                              await manager.updateNotificationPreference(enabledCreatorId: creatorId);
-                            } else {
-                              await manager.updateNotificationPreference(disabledCreatorId: creatorId);
-                            }
-                          },
-                        ),
+                      return StatefulBuilder(
+                        builder: (context, setLocalState) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.03),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: SwitchListTile.adaptive(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              secondary: CircleAvatar(
+                                radius: 18,
+                                backgroundColor: Colors.white10,
+                                backgroundImage: creator['profilePic'] != null 
+                                  ? NetworkImage(creator['profilePic']) 
+                                  : null,
+                                child: creator['profilePic'] == null 
+                                  ? const Icon(Icons.person, color: Colors.white24, size: 20) 
+                                  : null,
+                              ),
+                              title: Text(
+                                creator['name'] ?? 'Creator',
+                                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+                              ),
+                              subtitle: Text(
+                                isMuted ? 'Muted' : 'Alerts On',
+                                style: TextStyle(color: isMuted ? Colors.white38 : AppColors.primary, fontSize: 11),
+                              ),
+                              value: !isMuted,
+                              activeTrackColor: AppColors.primary,
+                              activeThumbColor: Colors.white,
+                              onChanged: (bool value) {
+                                // Optimistic UI update locally
+                                setLocalState(() {
+                                  isMuted = !value;
+                                });
+                                // API call runs in background without blocking UI
+                                if (value) {
+                                  manager.updateNotificationPreference(enabledCreatorId: creatorId);
+                                } else {
+                                  manager.updateNotificationPreference(disabledCreatorId: creatorId);
+                                }
+                              },
+                            ),
+                          );
+                        }
                       );
                     },
                   );
@@ -260,53 +283,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-
-  void _showSendAlertDialog(BuildContext context, ProfileStateManager manager) {
-    final messageController = TextEditingController();
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.backgroundSecondary,
-        title: const Text('Send Direct Alert', style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: messageController,
-          maxLines: 3,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Type your message here...',
-            hintStyle: TextStyle(color: Colors.white38),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppColors.primary)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (messageController.text.trim().isEmpty) return;
-              
-              try {
-                await manager.sendCreatorAlert(message: messageController.text.trim());
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Alert sent successfully!')),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error: $e')),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: const Text('Send Alert'),
-          ),
-        ],
       ),
     );
   }

@@ -135,4 +135,47 @@ export class OpenAIAIEngine extends IAIEngine {
       throw error;
     }
   }
+
+  /**
+   * Summarizes a long text transcript using GPT-4o-mini
+   */
+  async summarize(text) {
+    if (!this.apiKey) {
+      console.warn('⚠️ [OpenAI AI Engine] API Key missing, failing summarization');
+      throw new Error('OPENAI_API_KEY is missing');
+    }
+
+    try {
+      console.log(`📝 [OpenAI AI Engine] Sending text to GPT-4o-mini for summarization (${text.length} chars)...`);
+
+      const response = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert at summarizing long video transcripts. Provide a concise, clear summary of the main points in a short paragraph.'
+            },
+            {
+              role: 'user',
+              content: text
+            }
+          ],
+          temperature: 0.3
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data?.choices?.[0]?.message?.content?.trim() || '';
+    } catch (error) {
+      console.error('❌ [OpenAI AI Engine] Summarization error:', error.message);
+      throw error;
+    }
+  }
 }

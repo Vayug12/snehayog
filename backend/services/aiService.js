@@ -44,6 +44,13 @@ class AIServiceProxy {
   async synthesize(text, language, outputPath) {
     return activeAIEngine.synthesize(text, language, outputPath);
   }
+
+  /**
+   * Summarizes text using the active engine.
+   */
+  async summarize(text) {
+    return activeAIEngine.summarize(text);
+  }
 }
 
 export default new AIServiceProxy();

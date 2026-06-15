@@ -9,7 +9,7 @@
     "worker:dubbing": "node workers/dubbingWorker.js",
     "worker:social": "node workers/socialWorker.js",
     "dev": "nodemon server.js",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs --forceExit",
     "setup": "npm install && npm run setup:ffmpeg",
     "setup:ffmpeg": "node scripts/setup-ffmpeg.js"
   },

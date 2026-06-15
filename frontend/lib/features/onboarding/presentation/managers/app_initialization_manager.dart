@@ -10,6 +10,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:vayug/shared/services/notification_service.dart';
 import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/shared/services/hls_warmup_service.dart';
+import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'dart:async'; // For unawaited;
 /// **AppInitializationManager**
 /// 
@@ -210,8 +211,12 @@ class AppInitializationManager {
        try {
          await SmartCacheManager().initialize();
          AppLogger.log('✅ InitManager: SmartCache initialized');
+         
+         // Initialize Video Cache Proxy Server for E2EE decryption & caching
+         await videoCacheProxy.initialize();
+         AppLogger.log('✅ InitManager: VideoCacheProxyService initialized');
        } catch (e) {
-         AppLogger.log('⚠️ InitManager: SmartCache Init Error: $e');
+         AppLogger.log('⚠️ InitManager: SmartCache/Proxy Init Error: $e');
        }
 
        // 2. Notifications (Firebase already initialized in Stage 1)

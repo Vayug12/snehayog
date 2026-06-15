@@ -23,6 +23,8 @@ import appConfigRoutes from '../routes/appConfigRoutes.js';
 import youtubeAuthRoutes from '../routes/youtubeAuthRoutes.js';
 import systemRoutes from '../routes/systemRoutes.js';
 import dubbingRoutes from '../routes/dubbingRoutes.js';
+import e2eeRoutes from '../routes/e2ee/e2eeRoutes.js';
+import agentRoutes from '../routes/agentRoutes.js';
 
 // Import middleware
 import { errorHandler, notFoundHandler } from '../middleware/errorHandler.js';
@@ -66,8 +68,6 @@ export default async ({ app }) => {
       const allowedOrigins = [
         'https://snehayog.site',
         'https://vayug.fly.dev',
-        'https://cerulean-kashata-b8a907.netlify.app',
-        /^https:\/\/.*\.netlify\.app$/,
         'http://localhost',
         'http://localhost:5001',
         'http://localhost:8080',
@@ -77,10 +77,8 @@ export default async ({ app }) => {
         'http://10.164.35.18/:5001',
         'http://172.20.10.2:5001',
         'http://10.78.84.104:5001',
-        'http://192.168.0.197:5001',
+        'http://192.168.0.186:5001',
         'http://10.78.84.18:5001',
-        'http://172.19.176.1:5001',
-        'http://172.25.112.1:5001',
         /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
         'http://10.0.2.2:5001',
       ];
@@ -183,6 +181,8 @@ export default async ({ app }) => {
   apiRouter.use('/notifications', notificationRoutes);
   apiRouter.use('/search', searchRoutes);
   apiRouter.use('/dubbing', dubbingRoutes);
+  apiRouter.use('/e2ee', e2eeRoutes);
+  apiRouter.use('/agent', agentRoutes);
 
   // Apply Passive Auth BEFORE Rate Limiter
   app.use('/api', apiVersioning, passiveVerifyToken, versionTracking, apiLimiter, apiRouter);

@@ -4,10 +4,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/core/providers/navigation_providers.dart';
+import 'package:vayug/shared/di/dependency_injection.dart';
 
 import 'package:vayug/core/providers/user_data_providers.dart';
 import 'package:video_player/video_player.dart';
@@ -102,7 +103,7 @@ class VideoFeedAdvanced extends ConsumerStatefulWidget {
     this.initialVideos,
     this.initialVideoId,
     this.videoType,
-    this.isMainYugTab = false, // **NEW: Flag to identify the primary Yug feed**
+    this.isMainYugTab = false,
     this.parentTabIndex,
     this.dubbingService,
     this.adService,
@@ -207,12 +208,11 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       final controller = _controllerPool[video.id];
       if (controller != null && controller.value.isInitialized) {
         try {
-          if (controller.value.isPlaying) {
-            controller.pause();
-            _controllerStates[video.id] = false;
-            _ensureWakelockForVisibility();
-            AppLogger.log('⏸️ VideoFeedAdvanced: Paused current video at index $_currentIndex');
-          }
+          // Always call pause to override/cancel any pending or buffering play states
+          controller.pause();
+          _controllerStates[video.id] = false;
+          _ensureWakelockForVisibility();
+          AppLogger.log('⏸️ VideoFeedAdvanced: Paused current video at index $_currentIndex');
         } catch (e) {
           AppLogger.log('⚠️ VideoFeedAdvanced: Error pausing current video: $e');
         }
@@ -518,8 +518,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         // Screen became hidden - pause current video
         _pauseCurrentVideo();
 
-        // **BANDWIDTH FIX: Cancel all prefetches to prioritize Profile screen**
-        videoCacheProxy.cancelAllPrefetches();
+        // **BANDWIDTH FIX: Cancel all prefetches to prioritize Profile screen (except active E2EE downloads)**
+        videoCacheProxy.cancelAllPrefetchesExcept([]);
 
         // **NEW: Stop background profile preloading**
         _profilePreloader.stopBackgroundPreloading();
@@ -1212,6 +1212,20 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     }
 
     final errorString = error.toString().toLowerCase();
+
+    if (errorString.contains('decoding error') ||
+        errorString.contains('e2ee') ||
+        errorString.contains('decrypt') ||
+        errorString.contains('symmetric key') ||
+        errorString.contains('video-key')) {
+      return "You can't access this video. It is End-to-End Encrypted (E2EE).";
+    }
+
+    // E2EE source error — video was still downloading when player tried to play
+    if (errorString.contains('e2ee_error') ||
+        (errorString.contains('source') && errorString.contains('error'))) {
+      return 'Secure video is still loading. Please wait a moment and try again.';
+    }
 
     if (errorString.contains('timeout')) {
       return 'Request timed out. Please check your internet connection.';

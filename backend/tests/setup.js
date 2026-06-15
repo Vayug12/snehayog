@@ -2,6 +2,7 @@ import 'dotenv/config';
 import databaseManager from '../config/database.js';
 import redisService from '../services/caching/redisService.js';
 import FeedQueueService from '../services/yugFeedServices/queueService.js';
+import socialPublishingQueue from '../services/socialQueue.js';
 import mongoose from 'mongoose';
 
 /**
@@ -46,6 +47,11 @@ afterAll(async () => {
   
   // 2. Disconnect Redis & Queues
   await FeedQueueService.close();
+  try {
+    await socialPublishingQueue.close();
+  } catch (error) {
+    // Silently fail if already closed
+  }
   if (redisService.getConnectionStatus()) {
     await redisService.disconnect();
   }

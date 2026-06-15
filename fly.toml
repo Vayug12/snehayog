@@ -31,8 +31,17 @@ primary_region = "bom"
   path = "/health"
   timeout = "5s"
 
+# Web API ke liye Free Tier RAM
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  processes = ["app"]
+
+# FFmpeg Worker ke liye 2GB RAM
 [[vm]]
   memory = '2gb'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 2048
+  processes = ["worker"]

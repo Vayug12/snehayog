@@ -20,6 +20,8 @@ class VayuChannelInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Padding(
       padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
       child: Row(
@@ -50,7 +52,7 @@ class VayuChannelInfo extends StatelessWidget {
                 Text(
                   video.uploader.name,
                   style: AppTypography.bodyMedium.copyWith(
-                    color: Theme.of(context).brightness == Brightness.dark
+                    color: isDark
                         ? AppColors.textPrimary
                         : Colors.black87,
                     fontWeight: FontWeight.bold,
@@ -61,7 +63,7 @@ class VayuChannelInfo extends StatelessWidget {
                   Text(
                     '${video.uploader.totalVideos} videos',
                     style: AppTypography.bodySmall.copyWith(
-                      color: Theme.of(context).brightness == Brightness.dark
+                      color: isDark
                           ? AppColors.textSecondary
                           : Colors.black54,
                       fontSize: 10,
@@ -73,6 +75,22 @@ class VayuChannelInfo extends StatelessWidget {
           FollowButtonWidget(
             uploaderId: video.uploader.id,
             uploaderName: video.uploader.name,
+            backgroundColor: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
+            followingBackgroundColor: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
+            textColor: AppColors.textSecondary,
+            followingTextColor: AppColors.textSecondary,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.1),
+              width: 0.5,
+            ),
+            followingBorder: Border.all(
+              color: Colors.white.withValues(alpha: 0.1),
+              width: 0.5,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            borderRadius: 20,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
         ],
       ),

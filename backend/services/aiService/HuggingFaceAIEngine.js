@@ -18,6 +18,7 @@ export class HuggingFaceAIEngine extends IAIEngine {
     this.ttsHindiModel = `${base}/facebook/mms-tts-hin`;
     this.ttsEnglishModel = `${base}/facebook/mms-tts-eng`;
     this.translationModel = `${base}/facebook/mbart-large-50-many-to-many-mmt`;
+    this.summarizationModel = `${base}/facebook/bart-large-cnn`;
   }
 
   /**
@@ -61,7 +62,7 @@ export class HuggingFaceAIEngine extends IAIEngine {
           'Content-Type': mimeType,
           'Accept': 'application/json'
         },
-        timeout: 60000
+        timeout: 300000 // Increased to 5 minutes to allow free tier API enough time
       });
 
       if (response.data && response.data.text) {
@@ -94,6 +95,35 @@ export class HuggingFaceAIEngine extends IAIEngine {
       return outputPath;
     } catch (error) {
       console.error(`❌ [HF AI Engine] Synthesis error:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Summarizes a long text transcript using BART Large CNN
+   */
+  async summarize(text) {
+    if (!this.hfToken) throw new Error('HF_TOKEN is missing');
+
+    try {
+      console.log(`📝 [HF AI Engine] Sending text to BART for summarization (${text.length} chars)...`);
+      
+      const response = await axios.post(this.summarizationModel, 
+        { inputs: text },
+        {
+          headers: { 'Authorization': `Bearer ${this.hfToken}` },
+          timeout: 60000
+        }
+      );
+
+      if (response.data && response.data.length > 0 && response.data[0].summary_text) {
+        console.log(`✅ [HF AI Engine] Summarization success: "${response.data[0].summary_text.substring(0, 50)}..."`);
+        return response.data[0].summary_text;
+      }
+      
+      throw new Error('Summarization response format invalid');
+    } catch (error) {
+      this._handleError(error, 'Summarization');
       throw error;
     }
   }

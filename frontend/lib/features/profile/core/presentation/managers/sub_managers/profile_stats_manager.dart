@@ -122,6 +122,8 @@ class ProfileStatsManager extends ChangeNotifier {
       final data = await _notificationService.getCreatorAlertStats();
       _creatorAlertStats = data['stats'] ?? [];
       _remainingAlerts = data['remainingToday'] ?? 2;
+    } catch (e) {
+      AppLogger.log('⚠️ ProfileStatsManager: Error fetching creator stats: $e');
     } finally {
       _isAlertStatsLoading = false;
       notifyListenersSafe();

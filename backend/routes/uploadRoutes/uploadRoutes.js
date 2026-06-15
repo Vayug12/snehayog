@@ -213,6 +213,8 @@ router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, re
       console.log(`✅ direct-complete: Resolved ${resolvedSubscriberIds.length}/${allowedSubscribers.length} subscriber IDs to ObjectIds`);
     }
 
+    const isSubOnly = resolvedSubscriberIds.length > 0;
+
     // 1. Create Video Record (Processing State)
     const newVideo = new Video({
       uploader: user._id,
@@ -223,9 +225,11 @@ router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, re
       videoType: videoType || 'yog',
       link: link || '',
       videoUrl: cloudflareR2Service.getPublicUrl(key),
-      thumbnailUrl: thumbnailKey ? cloudflareR2Service.getPublicUrl(thumbnailKey) : '',
-      processingStatus: 'processing',
-      processingProgress: 0,
+      thumbnailUrl: isSubOnly 
+        ? 'https://placehold.co/600x400/1e1e24/ffffff?text=Subscriber+Only+🔒' 
+        : (thumbnailKey ? cloudflareR2Service.getPublicUrl(thumbnailKey) : ''),
+      processingStatus: isSubOnly ? 'completed' : 'processing',
+      processingProgress: isSubOnly ? 100 : 0,
       processingError: null,
       originalSize: size || 0,
       views: 0,
@@ -236,7 +240,7 @@ router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, re
       quizzes: Array.isArray(quizzes) ? quizzes : [],
       // **FIX: Store resolved ObjectIds so subscriber-videos query works correctly**
       allowedSubscribers: resolvedSubscriberIds,
-      isSubscriberOnly: resolvedSubscriberIds.length > 0
+      isSubscriberOnly: isSubOnly
     });
 
     if (crossPostPlatforms && Array.isArray(crossPostPlatforms)) {
@@ -268,15 +272,19 @@ router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, re
     }
 
     // 2. Trigger Background Processing via BullMQ
-    // We add the job to the queue instead of processing it locally
-    await queueService.addVideoJob({
-      videoId: newVideo._id.toString(),
-      rawVideoKey: key,
-      videoName: videoName,
-      userId: userId,
-      crossPostPlatforms: crossPostPlatforms || [],
-      thumbnailKey: thumbnailKey
-    });
+    // We add the job to the queue instead of processing it locally, unless subscriber-only
+    if (!newVideo.isSubscriberOnly) {
+      await queueService.addVideoJob({
+        videoId: newVideo._id.toString(),
+        rawVideoKey: key,
+        videoName: videoName,
+        userId: userId,
+        crossPostPlatforms: crossPostPlatforms || [],
+        thumbnailKey: thumbnailKey
+      });
+    } else {
+      console.log(`🔒 Video ${newVideo._id} is subscriber-only/E2EE. Bypassing processing queue and publishing immediately.`);
+    }
 
     // 3. Return success immediately
     res.status(201).json({

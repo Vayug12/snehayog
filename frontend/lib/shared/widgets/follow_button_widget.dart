@@ -13,6 +13,16 @@ class FollowButtonWidget extends ConsumerStatefulWidget {
   final VoidCallback? onFollowChanged;
   final String? followText;
   final String? followingText;
+  final Color? backgroundColor;
+  final Color? followingBackgroundColor;
+  final Color? textColor;
+  final Color? followingTextColor;
+  final Border? border;
+  final Border? followingBorder;
+  final EdgeInsetsGeometry? padding;
+  final double? borderRadius;
+  final double? fontSize;
+  final FontWeight? fontWeight;
 
   const FollowButtonWidget({
     super.key,
@@ -21,6 +31,16 @@ class FollowButtonWidget extends ConsumerStatefulWidget {
     this.onFollowChanged,
     this.followText,
     this.followingText,
+    this.backgroundColor,
+    this.followingBackgroundColor,
+    this.textColor,
+    this.followingTextColor,
+    this.border,
+    this.followingBorder,
+    this.padding,
+    this.borderRadius,
+    this.fontSize,
+    this.fontWeight,
   });
 
   @override
@@ -263,8 +283,9 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
                 width: 60,
                 height: 24,
                 decoration: BoxDecoration(
-                  color: AppColors.backgroundSecondary.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  color: widget.backgroundColor ?? AppColors.backgroundSecondary.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(widget.borderRadius ?? AppRadius.pill),
+                  border: widget.border,
                 ),
                 child: const Center(
                   child: SizedBox(
@@ -292,15 +313,15 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
                           behavior: HitTestBehavior.opaque,
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
-                            padding: const EdgeInsets.symmetric(
+                            padding: widget.padding ?? const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: effectiveIsFollowing
-                                  ? AppColors.backgroundTertiary
-                                  : AppColors.backgroundSecondary
-                                      .withValues(alpha: 0.7),
+                                  ? (widget.followingBackgroundColor ?? AppColors.backgroundTertiary)
+                                  : (widget.backgroundColor ?? AppColors.backgroundSecondary.withValues(alpha: 0.7)),
                               borderRadius:
-                                  BorderRadius.circular(AppRadius.pill),
+                                  BorderRadius.circular(widget.borderRadius ?? AppRadius.pill),
+                              border: effectiveIsFollowing ? widget.followingBorder : widget.border,
                             ),
                             child: isLoading
                                 ? const SizedBox(
@@ -322,9 +343,11 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
                                     softWrap: false,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      color: AppColors.white,
-                                      fontSize: AppTypography.fontSizeSM,
-                                      fontWeight: AppTypography.weightBold,
+                                      color: effectiveIsFollowing
+                                          ? (widget.followingTextColor ?? AppColors.white)
+                                          : (widget.textColor ?? AppColors.white),
+                                      fontSize: widget.fontSize ?? AppTypography.fontSizeSM,
+                                      fontWeight: widget.fontWeight ?? AppTypography.weightBold,
                                     ),
                                   ),
                           ),

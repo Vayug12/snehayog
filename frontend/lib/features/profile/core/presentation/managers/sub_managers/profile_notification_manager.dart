@@ -49,6 +49,8 @@ class ProfileNotificationManager extends ChangeNotifier {
     try {
       _activeNotice = await _noticeService.getActiveNotice();
       if (_activeNotice != null) _scheduleNoticeRemoval();
+    } catch (e) {
+      AppLogger.log('⚠️ ProfileNotificationManager: Error fetching active notice: $e');
     } finally {
       _isNoticeLoading = false;
       notifyListenersSafe();

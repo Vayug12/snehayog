@@ -140,7 +140,7 @@ class ProfileStateManager extends ChangeNotifier {
       statsManager.loadEarnings(videoManager.userVideos, forceRefresh: forceRefresh, silent: silent, userData: infoManager.userData);
     }));
     
-    if (isOwner) {
+    if (isOwner && isSignedIn) {
       notificationManager.fetchActiveNotice();
       statsManager.fetchCreatorAlertStats();
     }

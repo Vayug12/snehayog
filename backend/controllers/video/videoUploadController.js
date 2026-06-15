@@ -161,6 +161,8 @@ export const uploadVideo = async (req, res) => {
       uploadedAt: new Date()
     });
 
+    const isSubOnly = Array.isArray(allowedSubscribers) && allowedSubscribers.length > 0;
+
     const video = new Video({
       videoName: videoName,
       description: description || '',
@@ -171,8 +173,9 @@ export const uploadVideo = async (req, res) => {
       aspectRatio: (detectedWidth && detectedHeight) ? detectedWidth / detectedHeight : undefined,
       duration: detectedDuration || 0,
       originalResolution: { width: detectedWidth || 0, height: detectedHeight || 0 },
-      processingStatus: 'pending',
-      processingProgress: 0,
+      thumbnailUrl: isSubOnly ? 'https://placehold.co/600x400/1e1e24/ffffff?text=Subscriber+Only+🔒' : '',
+      processingStatus: isSubOnly ? 'completed' : 'pending',
+      processingProgress: isSubOnly ? 100 : 0,
       isHLSEncoded: false,
       videoHash: videoHash,
       likes: 0, views: 0, shares: 0, likedBy: [], comments: [],
@@ -184,7 +187,7 @@ export const uploadVideo = async (req, res) => {
       finalScore: initialScore,
       // **NEW: Subscriber-only access control**
       allowedSubscribers: Array.isArray(allowedSubscribers) ? allowedSubscribers : [],
-      isSubscriberOnly: Array.isArray(allowedSubscribers) && allowedSubscribers.length > 0
+      isSubscriberOnly: isSubOnly
     });
 
     await video.save();
@@ -213,33 +216,41 @@ export const uploadVideo = async (req, res) => {
           invalidateCache(cacheKeysToInvalidate).catch(err => console.error('⚠️ Upload: Cache invalidation failed:', err.message));
         }
 
-        // **NEW: Generate AI embedding in background (prevents 20s timeouts during model loading)**
-        if (embeddingText) {
-          try {
-            const { default: aiSemanticService } = await import('../../services/yugFeedServices/aiSemanticService.js');
-            const embedding = await aiSemanticService.getEmbedding(embeddingText);
-            if (embedding) {
-               await Video.findByIdAndUpdate(video._id, { 
-                 vectorEmbedding: embedding,
-                 embeddingVersion: 'v1_minilm'
-               });
-               console.log(`🤖 Upload: AI Embedding generated and saved for video ${video._id}`);
+        if (video.isSubscriberOnly) {
+          // E2EE: Upload file directly to R2 and set videoUrl
+          await cloudflareR2Service.uploadFileToR2(tempFilePath, rawVideoKey, tempMimeType);
+          const finalVideoUrl = cloudflareR2Service.getPublicUrl(rawVideoKey);
+          await Video.findByIdAndUpdate(video._id, { videoUrl: finalVideoUrl });
+          console.log(`🔒 E2EE: Uploaded subscriber-only file to R2 and updated videoUrl for ${video._id}`);
+        } else {
+          // **NEW: Generate AI embedding in background (prevents 20s timeouts during model loading)**
+          if (embeddingText) {
+            try {
+              const { default: aiSemanticService } = await import('../../services/yugFeedServices/aiSemanticService.js');
+              const embedding = await aiSemanticService.getEmbedding(embeddingText);
+              if (embedding) {
+                 await Video.findByIdAndUpdate(video._id, { 
+                   vectorEmbedding: embedding,
+                   embeddingVersion: 'v1_minilm'
+                 });
+                 console.log(`🤖 Upload: AI Embedding generated and saved for video ${video._id}`);
+              }
+            } catch (e) {
+              console.warn('⚠️ Upload: Background embedding failed:', e.message);
             }
-          } catch (e) {
-            console.warn('⚠️ Upload: Background embedding failed:', e.message);
           }
+
+          await cloudflareR2Service.uploadFileToR2(tempFilePath, rawVideoKey, tempMimeType);
+          
+          await queueService.addVideoJob({
+              videoId: video._id,
+              rawVideoKey: rawVideoKey,
+              videoName: videoName,
+              userId: user._id.toString()
+          });
+
+          console.log(`✅ Upload: Background processing started for video ${video._id}`);
         }
-
-        await cloudflareR2Service.uploadFileToR2(tempFilePath, rawVideoKey, tempMimeType);
-        
-        await queueService.addVideoJob({
-            videoId: video._id,
-            rawVideoKey: rawVideoKey,
-            videoName: videoName,
-            userId: user._id.toString()
-        });
-
-        console.log(`✅ Upload: Background processing started for video ${video._id}`);
       } catch (bgError) {
         console.error(`❌ Upload: Background processing failed for video ${video._id}:`, bgError);
       } finally {
@@ -256,12 +267,14 @@ export const uploadVideo = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Video upload received! Processing will begin in background.',
+      message: video.isSubscriberOnly 
+        ? 'Subscriber-only E2EE video uploaded successfully!' 
+        : 'Video upload received! Processing will begin in background.',
       video: {
         id: video._id,
         videoName: video.videoName,
-        processingStatus: 'queued',
-        estimatedTime: '2-5 minutes',
+        processingStatus: video.isSubscriberOnly ? 'completed' : 'queued',
+        estimatedTime: video.isSubscriberOnly ? 'immediate' : '2-5 minutes',
         costBreakdown: { processing: '$0 (FREE!)', storage: '$0.015/GB/month (R2)', bandwidth: '$0 (FREE forever!)' },
         isSubscriberOnly: video.isSubscriberOnly || false
       }

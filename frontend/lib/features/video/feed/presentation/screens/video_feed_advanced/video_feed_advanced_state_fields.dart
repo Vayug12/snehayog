@@ -178,6 +178,11 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   // Stores error messages for videos that failed to load or play
   final Map<String, String> _videoErrors = {};
 
+  /// Tracks videos currently in E2EE prebuffer phase —
+  /// key is registered, prefetch is running, waiting for enough bytes on disk
+  /// before creating VideoPlayerController.
+  final Set<String> _e2eeDecryptingVideos = {};
+
   // Playback StateMANAGEMENT: Limit videos in memory to prevent memory issues**
   // Keep max 300 videos (15 pages) - removes old videos automatically
   // Each VideoModel ~5-10KB, so 300 videos = ~1.5-3MB (safe)

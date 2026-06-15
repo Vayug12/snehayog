@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:video_compress/video_compress.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/ads/data/ad_model.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
@@ -15,6 +16,8 @@ import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/services/connectivity_service.dart';
 import 'package:vayug/shared/services/http_client_service.dart';
 import 'package:vayug/core/interfaces/i_video_service.dart';
+import 'package:vayug/core/interfaces/i_e2ee_service.dart';
+import 'package:vayug/shared/di/dependency_injection.dart';
 
 /// Eliminates code duplication and provides consistent API
 class VideoService implements IVideoService {
@@ -777,8 +780,18 @@ class VideoService implements IVideoService {
     List<String>? allowedSubscribers,
     File? thumbnailFile,
   }) async {
+    File? encryptedTempFile;
     try {
       AppLogger.log('🚀 VideoService: Starting Direct R2 Upload...');
+
+      final bool isE2ee = allowedSubscribers != null && allowedSubscribers.isNotEmpty;
+      Uint8List? symmetricKey;
+
+      if (isE2ee) {
+        symmetricKey = serviceLocator.e2eeService.generateSymmetricKey();
+        encryptedTempFile = await _encryptVideoFile(videoFile, symmetricKey);
+        videoFile = encryptedTempFile;
+      }
 
       // 1. Get Presigned URL
       AppLogger.log('🔑 Requesting presigned URL...');
@@ -810,7 +823,7 @@ class VideoService implements IVideoService {
         throw Exception('Failed to get upload URL');
       }
 
-      AppLogger.log('✅ Got presigned URL. Uploading raw file to R2...');
+      AppLogger.log('✅ Got presigned URL. Uploading ${isE2ee ? "ENCRYPTED" : "raw"} file to R2...');
 
       // 2. Upload to R2 (Directly)
       // Note: We use a separate Dio instance to avoid default interceptors/headers causing issues with R2
@@ -891,12 +904,96 @@ class VideoService implements IVideoService {
         },
       );
 
+      // **NEW: Key Distribution (if E2EE)**
+      if (isE2ee && symmetricKey != null) {
+        final videoData = completeResponse.data['video'] ?? completeResponse.data;
+        final videoId = videoData['_id']?.toString() ?? videoData['id']?.toString();
+        if (videoId != null) {
+          AppLogger.log('🔐 E2EE: Distributing keys for video $videoId...');
+          final e2ee = serviceLocator.e2eeService;
+          final subKeys = await e2ee.fetchSubscriberPublicKeys();
+          
+          final List<EncryptedKeyEntry> entries = [];
+          for (final sub in subKeys) {
+            if (allowedSubscribers.contains(sub.subscriberId)) {
+              final encKey = await e2ee.encryptSymmetricKeyForSubscriber(symmetricKey, sub.publicKey);
+              entries.add(EncryptedKeyEntry(
+                subscriberId: sub.subscriberId,
+                encryptedSymmetricKey: encKey,
+              ));
+            }
+          }
+
+          // Also encrypt the key for the creator (uploader) themselves so they can decrypt and watch it
+          final userData = await _authService.getUserData();
+          final creatorId = userData?['_id']?.toString() ?? userData?['id']?.toString();
+          final creatorPublicKey = await e2ee.getPublicKey();
+          if (creatorId != null && creatorPublicKey != null) {
+            AppLogger.log('🔐 E2EE: Encrypting symmetric key for creator $creatorId...');
+            final creatorEncKey = await e2ee.encryptSymmetricKeyForSubscriber(symmetricKey, creatorPublicKey);
+            entries.add(EncryptedKeyEntry(
+              subscriberId: creatorId,
+              encryptedSymmetricKey: creatorEncKey,
+            ));
+          }
+          
+          if (entries.isNotEmpty) {
+            await e2ee.uploadEncryptedVideoKeys(videoId: videoId, encryptedKeys: entries);
+          } else {
+            AppLogger.log('⚠️ E2EE: No active subscribers found with public keys for key distribution.');
+          }
+        }
+      }
+
       if (onProgress != null) onProgress(1.0);
 
       return completeResponse.data;
     } catch (e) {
       rethrow;
+    } finally {
+      if (encryptedTempFile != null && await encryptedTempFile.exists()) {
+        try {
+          await encryptedTempFile.delete();
+          AppLogger.log('🧹 E2EE: Deleted temporary encrypted video file.');
+        } catch (e) {
+          AppLogger.log('⚠️ E2EE: Failed to delete temporary file: $e');
+        }
+      }
     }
+  }
+
+  Future<File> _encryptVideoFile(File rawFile, Uint8List symmetricKey) async {
+    AppLogger.log('🔐 E2EE: Encrypting video file locally...');
+    final tempDir = await getTemporaryDirectory();
+    final tempFile = File('${tempDir.path}/enc_${DateTime.now().millisecondsSinceEpoch}.tmp');
+    
+    final e2ee = serviceLocator.e2eeService;
+    final raf = await tempFile.open(mode: FileMode.write);
+    final inputStream = rawFile.openRead();
+    
+    const int chunkSize = 2 * 1024 * 1024;
+    List<int> buffer = [];
+
+    await for (final chunk in inputStream) {
+      buffer.addAll(chunk);
+      while (buffer.length >= chunkSize) {
+        final toEncrypt = Uint8List.fromList(buffer.sublist(0, chunkSize));
+        buffer = buffer.sublist(chunkSize);
+        
+        final encryptedChunk = await e2ee.encryptChunk(toEncrypt, symmetricKey);
+        await raf.writeFrom(encryptedChunk);
+      }
+    }
+
+    if (buffer.isNotEmpty) {
+      final toEncrypt = Uint8List.fromList(buffer);
+      final encryptedChunk = await e2ee.encryptChunk(toEncrypt, symmetricKey);
+      await raf.writeFrom(encryptedChunk);
+    }
+
+    await raf.close();
+    AppLogger.log('🔐 E2EE: Encryption complete. Encrypted file size: ${await tempFile.length()} bytes');
+    return tempFile;
   }
 
   Future<VideoModel> updateVideoMetadata(String videoId, String videoName,

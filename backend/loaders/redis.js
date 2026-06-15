@@ -1,6 +1,11 @@
 import redisService from '../services/caching/redisService.js';
 
 export default async () => {
+  // In test mode, setup.js handles the redis connection
+  if (process.env.NODE_ENV === 'test') {
+    return redisService;
+  }
+
   try {
     const redisConnected = await redisService.connect();
     if (redisConnected) {

@@ -107,6 +107,9 @@ dependencies:
   ffmpeg_kit_flutter_new: ^4.1.0
   google_generative_ai: ^0.4.7
   gal: ^2.3.2
+  # **NEW: E2EE (End-to-End Encryption) dependencies**
+  pointycastle: ^3.9.1
+  shelf: ^1.4.2
 
 
 dev_dependencies:

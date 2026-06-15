@@ -6,6 +6,11 @@ const UserSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
+  // **NEW: Ed25519 Public Key for E2EE**
+  publicKey: {
+    type: String,
+    default: null
+  },
   name: {
     type: String,
     required: true

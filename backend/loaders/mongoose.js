@@ -12,6 +12,11 @@ export default async () => {
   // Set the environment variable for consistency if it was only MONGO_URI
   process.env.MONGO_URI = mongoUri;
 
+  // In test mode, setup.js handles the database connection and URI mutation
+  if (process.env.NODE_ENV === 'test') {
+    return databaseManager;
+  }
+
   try {
     // Database connection happens in background (non-blocking in the main loop)
     // but the loader returns the promise for orchestration if needed.

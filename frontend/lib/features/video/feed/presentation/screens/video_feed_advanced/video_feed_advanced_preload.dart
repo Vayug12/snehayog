@@ -31,9 +31,18 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
   void _preloadNearbyVideos() {
     if (_videos.isEmpty) return;
     
-    // **CRITICAL BANDWIDTH FIX: Kill all previous background downloads**
-    // This ensures that when user scrolls, we stop downloading old stuff IMMEDIATELY.
-    videoCacheProxy.cancelAllPrefetches();
+    // **CRITICAL BANDWIDTH FIX: Kill all previous background downloads except active window**
+    final List<String> urlsToKeep = [];
+    if (_currentIndex < _videos.length) {
+      urlsToKeep.add(_getActingUrl(_videos[_currentIndex]));
+    }
+    if (_currentIndex + 1 < _videos.length) {
+      urlsToKeep.add(_getActingUrl(_videos[_currentIndex + 1]));
+    }
+    if (_currentIndex - 1 >= 0) {
+      urlsToKeep.add(_getActingUrl(_videos[_currentIndex - 1]));
+    }
+    videoCacheProxy.cancelAllPrefetchesExcept(urlsToKeep);
 
     final bool isScrollingDown = _currentIndex >= _previousIndex;
     
@@ -181,6 +190,36 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     }
   }
 
+  void _logPlayableControllerReady(
+    VideoPlayerController controller, {
+    required String videoId,
+    required String label,
+  }) {
+    try {
+      final value = controller.value;
+      final duration = value.duration;
+      final size = value.size;
+      if (value.isInitialized &&
+          duration > Duration.zero &&
+          size.width > 0 &&
+          size.height > 0) {
+        AppLogger.log(
+          '✅ VideoPreloader: PLAYABLE confirmed [$label] video=$videoId — '
+          'duration=${duration.inMilliseconds}ms, '
+          'size=${size.width.toStringAsFixed(0)}x${size.height.toStringAsFixed(0)}, '
+          'aspect=${value.aspectRatio.toStringAsFixed(3)}',
+        );
+      } else {
+        AppLogger.log(
+          '⚠️ VideoPreloader: PLAYABLE-CHECK [$label] video=$videoId — '
+          'initialized=${value.isInitialized}, duration=$duration, size=$size',
+        );
+      }
+    } catch (e) {
+      AppLogger.log('⚠️ VideoPreloader: PLAYABLE-CHECK failed for $videoId: $e');
+    }
+  }
+
   /// **PRELOAD SINGLE VIDEO**
   Future<void> _preloadVideo(int index, {bool bypassProxy = false}) async {
     final video = _videos[index];
@@ -226,6 +265,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     if (mounted && (index - _currentIndex).abs() > 2) {
 
       _loadingVideos.remove(videoId); // Ensure we clear the loading flag
+      _e2eeDecryptingVideos.remove(videoId);
       return;
     }
 
@@ -246,24 +286,132 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
 
       final video = _videos[index];
 
+      // **E2EE SETUP: Fetch and register symmetric key if subscriber-only**
+      if (video.isSubscriberOnly && !kIsWeb) {
+        try {
+          // Ensure proxy server is initialized and running for E2EE decryption
+          await videoCacheProxy.initialize();
+          
+          final e2ee = serviceLocator.e2eeService;
+          final encKey = await e2ee.fetchEncryptedVideoKey(video.id);
+          if (encKey != null) {
+            final symmetricKey = await e2ee.decryptSymmetricKey(encKey);
+            videoCacheProxy.registerSymmetricKey(video.id, symmetricKey);
+
+            final originalUrl = _getActingUrl(video);
+            videoCacheProxy.markUrlAsPlayable(originalUrl);
+            final isAlreadyCached = await videoCacheProxy.isCached(originalUrl);
+            final isDecryptedReady = await videoCacheProxy.isDecryptedReady(originalUrl);
+
+            AppLogger.log(
+              '🔐 VideoPreloader: Cache status for ${video.id}: '
+              'cached=$isAlreadyCached, decrypted=$isDecryptedReady',
+            );
+
+            if (!isAlreadyCached) {
+              AppLogger.log('🔐 VideoPreloader: Starting E2EE prefetch for ${video.id}...');
+              unawaited(videoCacheProxy.prefetchFullFile(originalUrl, videoId: video.id));
+
+              // **PREBUFFER GATE: Wait for enough encrypted bytes on disk
+              // before creating ExoPlayer — prevents "Source error" on slow networks.**
+              // **IMPORTANT: Don't remove _e2eeDecryptingVideos here — keep it alive
+              // until the controller is fully initialized. This ensures the progress
+              // bar stays visible throughout the entire download + init process.**
+              if (mounted) {
+                safeSetState(() {
+                  _e2eeDecryptingVideos.add(videoId);
+                });
+              }
+
+              final ready = await videoCacheProxy.waitForE2eePrebuffer(
+                originalUrl,
+                minBytes: 512 * 1024, // 512 KB ≈ 2-3 seconds of video
+                timeout: Duration(seconds: _isLowEndDevice ? 12 : 8),
+              );
+
+              // Don't remove _e2eeDecryptingVideos here — it stays until controller init completes
+
+              if (!ready) {
+                AppLogger.log('⚠️ VideoPreloader: E2EE prebuffer timed out for ${video.id}, proceeding anyway');
+              } else {
+                AppLogger.log('✅ VideoPreloader: E2EE prebuffer ready for ${video.id}');
+              }
+            } else if (!isDecryptedReady) {
+              // **FIX: Cache exists but .dec not ready — wait for background decrypt**
+              // Without this, ExoPlayer hits on-the-fly decrypt which is slow → Source error
+              AppLogger.log(
+                '🔐 VideoPreloader: E2EE cache exists but .dec not ready for ${video.id}, '
+                'triggering and waiting for background decrypt...',
+              );
+              unawaited(videoCacheProxy.prefetchFullFile(originalUrl, videoId: video.id));
+              // **IMPORTANT: Keep _e2eeDecryptingVideos alive until controller init completes**
+              if (mounted) {
+                safeSetState(() {
+                  _e2eeDecryptingVideos.add(videoId);
+                });
+              }
+
+              // Wait for .dec to become ready (background decrypt)
+              final decReady = await videoCacheProxy.waitForE2eePrebuffer(
+                originalUrl,
+                minBytes: 1024 * 1024, // 1MB of decrypted data
+                timeout: Duration(seconds: _isLowEndDevice ? 15 : 10),
+              );
+
+              // Don't remove _e2eeDecryptingVideos here — it stays until controller init completes
+
+              if (decReady) {
+                AppLogger.log('✅ VideoPreloader: E2EE .dec ready for ${video.id}');
+              } else {
+                AppLogger.log(
+                  '⚠️ VideoPreloader: E2EE .dec not ready for ${video.id} after timeout, '
+                  'will use on-the-fly decrypt (may be slow)',
+                );
+              }
+            } else {
+              AppLogger.log('✅ VideoPreloader: E2EE fully cached and decrypted for ${video.id}');
+            }
+          } else {
+            AppLogger.log('⚠️ VideoFeed: No E2EE key available for video ${video.id}');
+          }
+        } catch (e) {
+          AppLogger.log('❌ VideoFeed: E2EE decryption setup failed for ${video.id}: $e');
+          if (mounted) {
+            safeSetState(() {
+              _e2eeDecryptingVideos.remove(videoId);
+              _loadingVideos.remove(videoId);
+              _videoErrors[videoId] = 'e2ee_error: $e';
+            });
+          }
+          return;
+        }
+      }
+
       // **NEW: Use effective URL (Original or Dubbed)**
       videoUrl = _getActingUrl(video);
       
-      // **PROXY LOGIC: Apply proxy URL unless bypassing due to previous error**
-      if (!bypassProxy) {
-          videoUrl = videoCacheProxy.proxyUrl(videoUrl);
+      // **PROXY LOGIC: Only E2EE (subscriber-only) videos go through the local proxy.**
+      // Public/global feed videos play directly from CDN — no proxy overhead needed,
+      // and bypassing the proxy avoids any manifest-rewriting edge cases that can
+      // trigger ExoPlayer Source errors on non-encrypted content.
+      if (!bypassProxy && video.isSubscriberOnly) {
+          videoUrl = videoCacheProxy.proxyUrl(videoUrl, videoId: video.id);
+      } else if (!bypassProxy) {
+          AppLogger.log('🌐 VideoPreloader: Direct CDN playback for public video $videoId (no proxy)');
       } else {
           AppLogger.log('🛡️ Fallback: Loading $videoId directly from CDN (Bypassing Proxy)');
       }
       if (videoUrl.isEmpty) {
         AppLogger.log('❌ Invalid video URL for $index: ${video.videoUrl}');
         _loadingVideos.remove(videoId);
+        _e2eeDecryptingVideos.remove(videoId);
         return;
       }
 
       // **RELEVANCY CHECKPOINT #1: After URL resolution**
       if (mounted && (index - _currentIndex).abs() > 1 && index != _currentIndex) {
         _loadingVideos.remove(videoId);
+        _e2eeDecryptingVideos.remove(videoId);
         return;
       }
 
@@ -310,9 +458,19 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
             ),
           );
         } else {
-          final Map<String, String> headers = videoUrl.contains('.m3u8')
-              ? const {'Accept': 'application/vnd.apple.mpegurl,application/x-mpegURL'}
-              : const {};
+          final bool isE2eeProxy =
+              video.isSubscriberOnly && videoUrl.contains('127.0.0.1');
+          final Map<String, String> headers;
+          if (videoUrl.contains('.m3u8')) {
+            headers = const {'Accept': 'application/vnd.apple.mpegurl,application/x-mpegURL'};
+          } else if (isE2eeProxy) {
+            headers = const {
+              'Connection': 'keep-alive',
+              'Cache-Control': 'public, max-age=3600',
+            };
+          } else {
+            headers = const {};
+          }
 
           controller = VideoPlayerController.networkUrl(
             Uri.parse(videoUrl),
@@ -328,6 +486,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       // **RELEVANCY CHECKPOINT #2: Before initialization**
       if (!isReused && mounted && (index - _currentIndex).abs() > 1 && index != _currentIndex) {
         _loadingVideos.remove(videoId);
+        _e2eeDecryptingVideos.remove(videoId);
         controller.dispose(); 
         return;
       }
@@ -339,16 +498,35 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
           if (videoUrl.contains('.m3u8')) {
             // **VIP: Increase timeout for low-end hardware/network combinations**
             final timeoutSeconds = _isLowEndDevice ? 25 : 15;
+            AppLogger.log('🎬 VideoPreloader: Starting controller.initialize() for HLS video. Timeout: $timeoutSeconds seconds. URL: $videoUrl');
             await controller.initialize().timeout(
               Duration(seconds: timeoutSeconds),
-              onTimeout: () => throw Exception('HLS timeout'),
+              onTimeout: () {
+                AppLogger.log('🎬 VideoPreloader: HLS timeout reached for $videoUrl');
+                throw Exception('HLS timeout');
+              },
             );
+            AppLogger.log('🎬 VideoPreloader: Finished controller.initialize() successfully for HLS video: $videoUrl');
+            _logPlayableControllerReady(controller, videoId: videoId, label: 'hls');
           } else {
-            final timeoutSeconds = _isLowEndDevice ? 15 : 10;
+            final bool isE2eeProxy =
+                video.isSubscriberOnly && videoUrl.contains('127.0.0.1');
+            final timeoutSeconds = isE2eeProxy
+                ? (_isLowEndDevice ? 45 : 30)
+                : (_isLowEndDevice ? 15 : 10);
+            AppLogger.log(
+              '🎬 VideoPreloader: Starting controller.initialize() for binary video. '
+              'Timeout: $timeoutSeconds seconds. E2EE proxy: $isE2eeProxy. URL: $videoUrl',
+            );
             await controller.initialize().timeout(
               Duration(seconds: timeoutSeconds),
-              onTimeout: () => throw Exception('Video timeout'),
+              onTimeout: () {
+                AppLogger.log('🎬 VideoPreloader: Video timeout reached for $videoUrl');
+                throw Exception('Video timeout');
+              },
             );
+            AppLogger.log('🎬 VideoPreloader: Finished controller.initialize() successfully for binary video: $videoUrl');
+            _logPlayableControllerReady(controller, videoId: videoId, label: 'binary');
           }
           
           if (index != _currentIndex) {
@@ -358,6 +536,9 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
               }
             } catch (_) {}
           }
+        } catch (e, stack) {
+          AppLogger.log('🎬 VideoPreloader: Error initializing controller for $videoUrl: $e\n$stack');
+          rethrow;
         } finally {
           _initializingVideos.remove(videoId);
         }
@@ -365,6 +546,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
         // **LIFECYCLE CHECK: Ensure controller is still valid after async initialization**
         if (!mounted || (index - _currentIndex).abs() > 1 && index != _currentIndex) {
           _loadingVideos.remove(videoId);
+          _e2eeDecryptingVideos.remove(videoId);
           controller.dispose();
           return;
         }
@@ -377,6 +559,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
         } catch (_) {
           // Controller might be disposed already
           _loadingVideos.remove(videoId);
+          _e2eeDecryptingVideos.remove(videoId);
           return;
         }
       }
@@ -388,6 +571,12 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
           _preloadedVideos.add(videoId);
           _loadingVideos.remove(videoId);
           _lastAccessedLocal[videoId] = DateTime.now();
+          // Clear retry count on successful preload
+          _preloadRetryCount.remove(videoId);
+          // **FIX: Remove E2EE decrypting state ONLY after controller is fully initialized.
+          // This keeps the progress bar visible throughout download + init, preventing
+          // premature "Source error" when ExoPlayer reads beyond prebuffered bytes.**
+          _e2eeDecryptingVideos.remove(videoId);
         });
 
         sharedPool.addController(video.id, controller, index: index);
@@ -431,6 +620,8 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
         safeSetState(() {
            _loadingVideos.remove(videoId);
            _videoErrors[videoId] = e.toString();
+           // **FIX: Also clean up E2EE decrypting state on failure**
+           _e2eeDecryptingVideos.remove(videoId);
         });
       }
       
@@ -442,57 +633,76 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       }
       
       final retryCount = _preloadRetryCount[videoId] ?? 0;
-      if (retryCount < 1) { 
+      if (retryCount < 2) { 
         _preloadRetryCount[videoId] = retryCount + 1;
-        AppLogger.log('🔄 Video $index failed, retrying... Error: $e');
+        AppLogger.log('🔄 Video $index failed, retrying (attempt ${retryCount + 1}/2)... Error: $e');
         
-        Future.delayed(const Duration(seconds: 3), () {
+        // Always retry WITH proxy — proxy is needed for HLS manifest rewriting.
+        // Do NOT bypass proxy on retry; the root cause is usually a transient
+        // network/CDN hiccup, not the proxy itself.
+        Future.delayed(const Duration(milliseconds: 1500), () {
           if (mounted && !_preloadedVideos.contains(videoId) && (index - _currentIndex).abs() <= 1) {
             _preloadVideo(index);
           }
         });
       } else {
-        AppLogger.log('❌ Video $index failed after retry: $e');
+        AppLogger.log('❌ Video $index failed after retries: $e');
         _preloadRetryCount.remove(videoId);
       }
     }
   }
 
-
-  String? _validateAndFixVideoUrl(String url) {
+  String? _validateAndFixVideoUrl(String url, {String? videoId}) {
     if (url.isEmpty) return null;
 
     String finalUrl = url;
 
-    if (!url.startsWith('http')) {
+    // **IP REWRITE LOGIC: Correct any old/wrong local development IPs in absolute URLs to the current baseUrl**
+    if (url.startsWith('http://192.168.') || 
+        url.startsWith('http://10.') || 
+        url.startsWith('http://172.') || 
+        url.startsWith('http://localhost:5001') || 
+        url.startsWith('http://127.0.0.1:5001')) {
+      final currentBase = VideoService.baseUrl;
+      try {
+        final uri = Uri.parse(url);
+        final currentBaseUri = Uri.parse(currentBase);
+        finalUrl = uri.replace(
+          scheme: currentBaseUri.scheme,
+          host: currentBaseUri.host,
+          port: currentBaseUri.port,
+        ).toString();
+        AppLogger.log('🔄 Proxy: Rewrote local development IP from ${uri.host} to ${currentBaseUri.host}');
+      } catch (e) {
+        AppLogger.log('⚠️ Proxy: Failed to rewrite local IP in URL: $e');
+      }
+    }
+
+    if (!finalUrl.startsWith('http')) {
       // **NEW: Check if it's already a local file path**
-      if (url.startsWith('/') || url.contains(':/') || url.contains(':\\')) {
+      if (finalUrl.startsWith('/') || finalUrl.contains(':/') || finalUrl.contains(':\\')) {
         // Absolute local path, don't prefix with baseUrl
-        return url;
+        return finalUrl;
       }
       
-      String cleanUrl = url;
+      String cleanUrl = finalUrl;
       if (cleanUrl.startsWith('/')) {
         cleanUrl = cleanUrl.substring(1);
       }
       finalUrl = '${VideoService.baseUrl}/$cleanUrl';
     } else {
       try {
-        final uri = Uri.parse(url);
+        final uri = Uri.parse(finalUrl);
         if (uri.scheme == 'http' || uri.scheme == 'https') {
-          finalUrl = url;
+          // Valid URL
         }
       } catch (e) {
-        AppLogger.log('❌ Invalid URL format: $url');
+        AppLogger.log('❌ Invalid URL format: $finalUrl');
         return null;
       }
     }
 
-    // **OPTIMIZATION: Hybrid Caching Strategy**
-    // 1. HLS (.m3u8): Now routed through proxy-hls for advanced rewriting & caching.
-    // 2. MP4: Proxied via standard file proxy.
-    // This ensures BOTH formats are cached to disk to prevent re-downloading.
-    return videoCacheProxy.proxyUrl(finalUrl);
+    return finalUrl;
   }
 
   /// **NEW: Get acting URL representing original or dubbed state**
@@ -518,10 +728,9 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       return targetUrl;
     }
 
-    final fixedUrl = _validateAndFixVideoUrl(targetUrl);
-    final finalUrl = videoCacheProxy.proxyUrl(fixedUrl ?? targetUrl);
+    final fixedUrl = _validateAndFixVideoUrl(targetUrl, videoId: video.isSubscriberOnly ? video.id : null);
     
-    return finalUrl;
+    return fixedUrl ?? targetUrl;
   }
 
 
@@ -558,6 +767,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
 
           _initializingVideos.remove(videoId);
           _loadingVideos.remove(videoId);
+          _e2eeDecryptingVideos.remove(videoId);
           
           if (_controllerPool.containsKey(videoId)) {
              try {
@@ -662,6 +872,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       _controllerStates.remove(videoId);
       _preloadedVideos.remove(videoId);
       _isBuffering.remove(videoId);
+      _e2eeDecryptingVideos.remove(videoId);
       
 
       _bufferingListeners.remove(videoId);
@@ -756,6 +967,18 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
         
         final value = controller.value;
         if (!value.isInitialized) return;
+
+        // **BUFFER WATCHDOG: Ensure we pause if the video is playing but it shouldn't be**
+        if (value.isPlaying && _shouldPauseVideo(index, videoId)) {
+          AppLogger.log('🛡️ Buffer Watchdog: Video $index ($videoId) is playing but should not be. Pausing.');
+          try {
+            controller.pause();
+            _controllerStates[videoId] = false;
+          } catch (e) {
+            AppLogger.log('❌ Buffer Watchdog pause failed: $e');
+          }
+          return;
+        }
 
         final bool isBuffering = value.isBuffering;
       
@@ -892,6 +1115,67 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
           if (_videoErrors[videoId] != errorMessage) {
             AppLogger.log('❌ Runtime Video Error for video $videoId: $errorMessage');
             
+            // **E2EE RETRY LOGIC: For subscriber-only videos, retry preload before showing error.**
+            // ExoPlayer throws "Source error" when the encrypted download hasn't finished
+            // and not enough bytes are available on disk. Retry with fresh controller.
+            if (_videos[index].isSubscriberOnly) {
+              final e2eeRetryCount = _preloadRetryCount[videoId] ?? 0;
+              if (e2eeRetryCount < 3) {
+                _preloadRetryCount[videoId] = e2eeRetryCount + 1;
+                AppLogger.log(
+                  '🔄 E2EE Retry: Retrying video $videoId (attempt ${e2eeRetryCount + 1}/3). '
+                  'Error: $errorMessage',
+                );
+
+                // Show "downloading" state instead of error
+                safeSetState(() {
+                  _videoErrors.remove(videoId);
+                  _e2eeDecryptingVideos.add(videoId);
+                  _loadingVideos.add(videoId);
+                  _isBuffering[videoId] = false;
+                  _isBufferingVN[videoId]?.value = false;
+                });
+
+                // Dispose failed controller
+                try {
+                  controller.pause();
+                  _controllerPool.remove(videoId);
+                } catch (_) {}
+
+                // Wait briefly then retry preload (will wait for more bytes)
+                Future.delayed(const Duration(milliseconds: 1500), () {
+                  if (mounted && !_preloadedVideos.contains(videoId) &&
+                      (index - _currentIndex).abs() <= 1) {
+                    _preloadVideo(index).then((_) {
+                      if (mounted && index == _currentIndex) {
+                        _tryAutoplayCurrentImmediate(index);
+                      }
+                    });
+                  } else {
+                    safeSetState(() {
+                      _e2eeDecryptingVideos.remove(videoId);
+                    });
+                  }
+                });
+                return;
+              }
+
+              // Exhausted retries — show the actual E2EE error UI
+              _preloadRetryCount.remove(videoId);
+              safeSetState(() {
+                 _videoErrors[videoId] = 'e2ee_error: $errorMessage';
+                 _e2eeDecryptingVideos.remove(videoId);
+                 _loadingVideos.remove(videoId);
+                 _isBuffering[videoId] = false;
+                 _isBufferingVN[videoId]?.value = false;
+              });
+              try {
+                 controller.pause();
+                 _controllerPool.remove(videoId);
+              } catch (_) {}
+              return;
+            }
+
             // **VIP FALLBACK: If proxy fails on old phone, retry with Raw URL**
             bool handledByFallback = false;
             if (videoCacheProxy.isProxyUrl(controller.dataSource)) {
@@ -907,8 +1191,8 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
                _controllerPool[videoId]?.dispose();
                _controllerPool.remove(videoId);
                
-               // Trigger direct load (bypass proxy completely)
-               _preloadVideo(index, bypassProxy: true).then((_) {
+               // Trigger direct load (bypass proxy completely for normal videos)
+               _preloadVideo(index, bypassProxy: !_videos[index].isSubscriberOnly).then((_) {
                    if (mounted && index == _currentIndex) {
                       _tryAutoplayCurrentImmediate(index);
                    }
@@ -1200,5 +1484,35 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
 
     _quizListeners[videoId] = handleQuizCheck;
     controller.addListener(handleQuizCheck);
+  }
+
+  bool _shouldPauseVideo(int index, String videoId) {
+    if (index != _currentIndex) return true;
+    if (_userPaused[videoId] == true) return true;
+    if (_lifecyclePaused) return true;
+    
+    final bool isStandalone = _openedFromProfile || _openedFromDeepLink;
+    if (!isStandalone) {
+      if (!_isScreenVisible) return true;
+      
+      // Tab checks
+      if (_mainController != null) {
+        final currentTabIndex = _mainController!.currentIndex;
+        if (widget.parentTabIndex != null) {
+          if (currentTabIndex != widget.parentTabIndex) return true;
+        } else if (widget.isMainYugTab && currentTabIndex != 0) {
+          // Main feed should only play if Yug tab (index 0) is active
+          return true;
+        }
+      }
+    }
+    
+    // Route check
+    if (mounted) {
+      final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
+      if (!isCurrentRoute) return true;
+    }
+    
+    return false;
   }
 }
