@@ -300,7 +300,7 @@ if (process.env.FLY_APP_NAME && process.env.DISABLE_AUTO_SHUTDOWN !== 'true') {
       } else {
         console.log(`ℹ️ Worker: Shutdown cancelled. Active: ${activeJobsCount}`);
       }
-    }, 120000); // 2 minutes (120,000 ms) idle buffer
+    }, 600000); // 10 minutes (600,000 ms) idle buffer
   });
 }
 
