@@ -9,7 +9,9 @@ import {
   recoverSession
 } from '../controllers/authController.js';
 import { authLimiter, refreshLimiter } from '../middleware/rateLimiter.js';
-import { verifyToken } from '../utils/verifytoken.js';
+import { phoneOtpSendLimiter, phoneOtpVerifyLimiter } from '../middleware/rateLimiter.js';
+import { verifyToken, passiveVerifyToken } from '../utils/verifytoken.js';
+import { requestPhoneOtp, verifyPhoneOtp } from '../controllers/phoneAuthController.js';
 
 const router = express.Router();
 
@@ -20,6 +22,11 @@ const router = express.Router();
 // Google Sign-In (first-time login / re-authentication)
 router.post('/', authLimiter, googleSignIn);
 router.post('/google', authLimiter, googleSignIn);
+
+// Phone Sign-In. Verification accepts an optional existing Vayu JWT so a
+// signed-in Google user can link the verified number instead of creating a duplicate.
+router.post('/phone/request', phoneOtpSendLimiter, requestPhoneOtp);
+router.post('/phone/verify', phoneOtpVerifyLimiter, passiveVerifyToken, verifyPhoneOtp);
 
 // Silent session recovery using Google Refresh Token (Tier 4)
 router.post('/recover-session', authLimiter, recoverSession);

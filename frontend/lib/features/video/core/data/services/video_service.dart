@@ -836,6 +836,7 @@ class VideoService implements IVideoService {
           headers: {
             'Content-Type': mimeType,
             'Content-Length': fileSize,
+            'Cache-Control': 'public, max-age=31536000, immutable, stale-while-revalidate=604800',
           },
         ),
         cancelToken: cancelToken,
@@ -876,6 +877,7 @@ class VideoService implements IVideoService {
               headers: {
                 'Content-Type': thumbMimeType,
                 'Content-Length': await thumbnailFile.length(),
+                'Cache-Control': 'public, max-age=31536000, immutable, stale-while-revalidate=604800',
               },
             ),
           );
@@ -1048,6 +1050,7 @@ class VideoService implements IVideoService {
               headers: {
                 'Content-Type': thumbMimeType,
                 'Content-Length': await thumbnailFile.length(),
+                'Cache-Control': 'public, max-age=31536000, immutable, stale-while-revalidate=604800',
               },
             ),
           );
@@ -1083,38 +1086,6 @@ class VideoService implements IVideoService {
       if (e is TimeoutException) {
         throw Exception('Request timed out. Please try again.');
       }
-      rethrow;
-    }
-  }
-
-  /// **Generate a vertical clip from an existing horizontal video**
-  Future<Map<String, dynamic>> generateClip({
-    required String videoId,
-    required double startTime,
-    required double duration,
-  }) async {
-    try {
-      final baseUrl = await getBaseUrlWithFallback();
-      final url = '$baseUrl/api/videos/generate-clip';
-
-      final response = await httpClientService.post(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'videoId': videoId,
-          'startTime': startTime,
-          'duration': duration,
-        }),
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return json.decode(response.body);
-      } else {
-        final error = json.decode(response.body);
-        throw Exception(error['error'] ?? 'Failed to generate clip');
-      }
-    } catch (e) {
-      AppLogger.log('❌ VideoService: Error generating clip: $e');
       rethrow;
     }
   }

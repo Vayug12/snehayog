@@ -6,7 +6,6 @@ import 'package:vayug/core/providers/auth_providers.dart';
 
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
-import 'package:vayug/shared/config/app_config.dart';
 import 'package:vayug/features/ads/data/services/ad_service.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/features/auth/data/services/logout_service.dart';
@@ -619,7 +618,8 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
   Widget _buildRevenueOverviewCard() {
     final thisMonth = (_revenueData?['thisMonth'] as num?)?.toDouble() ?? 0.0;
     final lastMonth = (_revenueData?['lastMonth'] as num?)?.toDouble() ?? 0.0;
-    final totalPoints = thisMonth > 0 ? thisMonth / AppConfig.creatorRevenueShare : 0.0;
+    final lifetimeReward =
+        (_revenueData?['availableForPayout'] as num?)?.toDouble() ?? 0.0;
 
     return Container(
       padding: EdgeInsets.all(AppSpacing.spacing5),
@@ -630,17 +630,17 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
       ),
       child: Column(
         children: [
-          const Text("Creator Performance Points", style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
+          const Text("Lifetime Reward", style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
           AppSpacing.vSpace8,
           Text(
-            thisMonth.toStringAsFixed(2),
+            lifetimeReward.toStringAsFixed(2),
             style: AppTypography.displaySmall.copyWith(color: AppColors.success, fontWeight: FontWeight.bold),
           ),
           AppSpacing.vSpace24,
           Row(
             children: [
               Expanded(
-                child: _buildRevenueStat("Total Points", totalPoints.toStringAsFixed(2), Icons.stars),
+                child: _buildRevenueStat("This Month", thisMonth.toStringAsFixed(2), Icons.calendar_month),
               ),
               Expanded(
                 child: _buildRevenueStat("Last Period", lastMonth.toStringAsFixed(2), Icons.history),

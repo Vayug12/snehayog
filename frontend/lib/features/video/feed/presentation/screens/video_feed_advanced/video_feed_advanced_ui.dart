@@ -375,7 +375,7 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                                     color: AppColors.primary,
                                     backgroundColor: AppColors.primary.withValues(alpha: 0.15),
                                   ),
-                                  Icon(
+                                  const Icon(
                                     Icons.lock_outline_rounded,
                                     color: AppColors.primary,
                                     size: 22,
@@ -431,7 +431,7 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                                   value: progress.fraction > 0 ? progress.fraction.clamp(0.0, 1.0) : null,
                                   minHeight: 3,
                                   backgroundColor: Colors.white.withValues(alpha: 0.1),
-                                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                                  valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
                                 ),
                               ),
                             ),

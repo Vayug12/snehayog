@@ -9,6 +9,7 @@ import 'package:vayug/features/video/core/presentation/managers/video_controller
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/utils/url_utils.dart';
 
 class VideoInfoWidget extends StatefulWidget {
   final VideoModel video;
@@ -274,7 +275,12 @@ class _VisitNowButton extends StatelessWidget {
       margin: const EdgeInsets.only(right: 8),
       child: AppButton(
         onPressed: () async {
-          final Uri uri = Uri.parse(link);
+          final enrichedUrl = UrlUtils.enrichUrl(
+            link,
+            medium: 'video_link',
+            campaign: 'creator_visit',
+          );
+          final Uri uri = Uri.parse(enrichedUrl);
           if (await canLaunchUrl(uri)) {
             await launchUrl(uri, mode: LaunchMode.externalApplication);
           } else {

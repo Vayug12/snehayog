@@ -78,7 +78,7 @@ class AiAnalysisStep extends IBaseStep {
       
       if (metadata) {
         await Video.findByIdAndUpdate(videoId, { 
-          aiContext: metadata.summary,
+          aiSummary: metadata.summary,
           language: metadata.language,
           detectedRegion: metadata.region,
           tags: [...new Set([...(video.tags || []), ...(metadata.keywords || [])])],

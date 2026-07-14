@@ -18,6 +18,8 @@ import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/features/video/upload/presentation/screens/upload_advanced_settings_screen.dart';
+// AI Video generation is not completed yet — screen hidden from UI.
+// import 'package:vayug/features/video/upload/presentation/screens/ai_video_generate_screen.dart';
 import 'package:vayug/shared/constants/interests.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/core/design/spacing.dart';
@@ -325,6 +327,15 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
               Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateAdScreenRefactored()));
             },
           ),
+          // AI Video generation is not completed yet — hidden from UI.
+          // _buildChoiceCard(
+          //   icon: Icons.auto_awesome,
+          //   title: 'AI Video',
+          //   color: AppColors.primary,
+          //   onTap: () {
+          //     Navigator.push(context, MaterialPageRoute(builder: (context) => const AiVideoGenerateScreen()));
+          //   },
+          // ),
           SizedBox(height: AppSpacing.spacing10),
           TextButton.icon(
             onPressed: _showWhatToUploadDialog,

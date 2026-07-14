@@ -150,17 +150,24 @@ class ProfileSkeleton extends StatelessWidget {
 }
 
 class ProfileSignInView extends StatelessWidget {
+  // Phone verification is not ready for release yet.
+  static const bool _showPhoneVerification = false;
+
   final VoidCallback onGoogleSignIn;
+  final VoidCallback? onPhoneSignIn;
   final bool sessionExpired;
 
   const ProfileSignInView({
     super.key,
     required this.onGoogleSignIn,
+    this.onPhoneSignIn,
     this.sessionExpired = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final showPhoneSignIn = _showPhoneVerification && onPhoneSignIn != null;
+
     return RepaintBoundary(
       child: Center(
         child: Padding(
@@ -171,18 +178,35 @@ class ProfileSignInView extends StatelessWidget {
               const SizedBox(height: 8),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 300),
-                child: AppButton(
-                  onPressed: onGoogleSignIn,
-                  icon: Image.network(
-                    'https://www.google.com/favicon.ico',
-                    height: 20,
-                  ),
-                  label: sessionExpired
-                      ? 'Sign In Again'
-                      : AppText.get('profile_sign_in_button'),
-                  isFullWidth: true,
-                  variant: AppButtonVariant.primary,
-                  size: AppButtonSize.large,
+                child: Column(
+                  children: [
+                    if (showPhoneSignIn) ...[
+                      AppButton(
+                        onPressed: onPhoneSignIn!,
+                        icon: const Icon(Icons.phone_android, size: 20),
+                        label: 'Continue with phone number',
+                        isFullWidth: true,
+                        variant: AppButtonVariant.primary,
+                        size: AppButtonSize.large,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    AppButton(
+                      onPressed: onGoogleSignIn,
+                      icon: Image.network(
+                        'https://www.google.com/favicon.ico',
+                        height: 20,
+                      ),
+                      label: sessionExpired
+                          ? 'Sign In Again with Google'
+                          : AppText.get('profile_sign_in_button'),
+                      isFullWidth: true,
+                      variant: !showPhoneSignIn
+                          ? AppButtonVariant.primary
+                          : AppButtonVariant.secondary,
+                      size: AppButtonSize.large,
+                    ),
+                  ],
                 ),
               ),
             ],

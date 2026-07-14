@@ -51,7 +51,7 @@ class AnalyticsStatCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: (growth! >= 0 ? Colors.green : Colors.red).withOpacity(0.1),
+                      color: (growth! >= 0 ? Colors.green : Colors.red).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Row(

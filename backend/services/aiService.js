@@ -1,6 +1,16 @@
 import { HuggingFaceAIEngine } from './aiService/HuggingFaceAIEngine.js';
+import { OpenAIAIEngine } from './aiService/OpenAIAIEngine.js';
 
 let activeAIEngine = new HuggingFaceAIEngine();
+const translationProvider =
+  process.env.DUBBING_TRANSLATION_PROVIDER?.trim().toLowerCase() || 'openai';
+let openAITranslationEngine;
+
+if (!['openai', 'huggingface'].includes(translationProvider)) {
+  throw new Error(
+    `Unsupported DUBBING_TRANSLATION_PROVIDER: ${translationProvider}`,
+  );
+}
 
 /**
  * Orchestrator acting as a proxy to the active IAIEngine implementation.
@@ -25,10 +35,23 @@ class AIServiceProxy {
   }
 
   /**
-   * Translates text using the active engine.
+   * Gets the engine used exclusively for dubbing translations. Speech-to-text
+   * and text-to-speech continue to use the active engine above.
+   */
+  getTranslationEngine() {
+    if (translationProvider === 'openai') {
+      openAITranslationEngine ??= new OpenAIAIEngine();
+      return openAITranslationEngine;
+    }
+
+    return activeAIEngine;
+  }
+
+  /**
+   * Translates text using the configured dubbing translation engine.
    */
   async translate(text, targetLang) {
-    return activeAIEngine.translate(text, targetLang);
+    return this.getTranslationEngine().translate(text, targetLang);
   }
 
   /**

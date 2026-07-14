@@ -92,6 +92,27 @@ export const authLimiter = rateLimit({
   handler: handler,
 });
 
+// Phone OTP sends cost money, so keep this substantially stricter than Google login.
+export const phoneOtpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: getStore('phone_otp_send'),
+  message: 'Too many OTP requests. Please wait before trying again.',
+  handler: handler,
+});
+
+export const phoneOtpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: getStore('phone_otp_verify'),
+  message: 'Too many OTP verification attempts. Please wait before trying again.',
+  handler: handler,
+});
+
 // 3.1 REFRESH LIMITER: More lenient for background token rotation
 export const refreshLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

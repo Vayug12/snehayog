@@ -196,7 +196,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                 Positioned.fill(
                                   child: Container(
                                     decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.5),
+                                      color: Colors.black.withValues(alpha: 0.5),
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Center(child: CircularProgressIndicator()),
@@ -290,14 +290,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       hintText: hint,
       hintStyle: AppTypography.bodyMedium.copyWith(color: AppColors.textTertiary),
       filled: true,
-      fillColor: AppColors.backgroundSecondary.withOpacity(0.3),
+      fillColor: AppColors.backgroundSecondary.withValues(alpha: 0.3),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.borderPrimary.withOpacity(0.5)),
+        borderSide: BorderSide(color: AppColors.borderPrimary.withValues(alpha: 0.5)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.borderPrimary.withOpacity(0.5)),
+        borderSide: BorderSide(color: AppColors.borderPrimary.withValues(alpha: 0.5)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),

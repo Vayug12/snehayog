@@ -28,19 +28,39 @@ export class HuggingFaceAIEngine extends IAIEngine {
     if (!this.hfToken) throw new Error('HF_TOKEN is missing');
     
     try {
+      const isHindiInput = /[\u0900-\u097F]/.test(text);
+      const srcLang = isHindiInput ? "hi_IN" : "en_XX";
+
+      // Map incoming target language string to target code
+      let tgtLang = "hi_IN"; // Default target is Hindi
+      if (targetLang === 'english' || targetLang === 'en_XX') {
+        tgtLang = "en_XX";
+      } else if (targetLang === 'hindi' || targetLang === 'hi_IN') {
+        tgtLang = "hi_IN";
+      } else {
+        tgtLang = isHindiInput ? "en_XX" : "hi_IN";
+      }
+
+      console.log(`🔄 [HF AI Engine] Translating from ${srcLang} to ${tgtLang}...`);
+
       const response = await axios.post(this.translationModel, 
         { 
           inputs: text,
-          parameters: { src_lang: "en_XX", tgt_lang: targetLang === 'hindi' ? "hi_IN" : "en_XX" }
+          parameters: { src_lang: srcLang, tgt_lang: tgtLang }
         }, 
         {
           headers: { 'Authorization': `Bearer ${this.hfToken}` }
         }
       );
-      return response.data[0]?.translation_text || text;
+      const translatedText = response.data?.[0]?.translation_text?.trim();
+      if (!translatedText) {
+        throw new Error('Translation provider returned an invalid response');
+      }
+
+      return translatedText;
     } catch (error) {
       this._handleError(error, 'Translation');
-      return text; // Fallback to original
+      throw error;
     }
   }
 
@@ -87,7 +107,7 @@ export class HuggingFaceAIEngine extends IAIEngine {
       console.log(`🔊 [HF AI Engine] Synthesizing ${language} voice with Edge TTS (${voice}) for: "${text.substring(0, 30)}..."`);
       
       const safeText = text.replace(/"/g, '\\"');
-      const command = `edge-tts --text "${safeText}" --voice ${voice} --write-media "${outputPath}"`;
+      const command = `python -m edge_tts --text "${safeText}" --voice ${voice} --write-media "${outputPath}"`;
       
       await execPromise(command);
       

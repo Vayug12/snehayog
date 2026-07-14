@@ -121,7 +121,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
                             Icon(
                               Icons.link,
                               size: 14,
-                              color: Colors.white.withOpacity(0.7),
+                              color: Colors.white.withValues(alpha: 0.7),
                             ),
                             const SizedBox(width: 4),
                             Flexible(

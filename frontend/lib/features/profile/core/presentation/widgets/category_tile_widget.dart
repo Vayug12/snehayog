@@ -25,7 +25,7 @@ class CategoryTileWidget extends StatelessWidget {
           color: AppColors.backgroundSecondary,
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(
-            color: Colors.white.withOpacity(0.05),
+            color: Colors.white.withValues(alpha: 0.05),
             width: 1,
           ),
         ),
@@ -45,7 +45,7 @@ class CategoryTileWidget extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.15),
+                          color: AppColors.primary.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(

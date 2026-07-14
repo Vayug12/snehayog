@@ -81,13 +81,30 @@ export const synthesizeSpeech = async (req, res) => {
 export const translateText = async (req, res) => {
   try {
     const { text, targetLang } = req.body;
-    if (!text) return res.status(400).json({ error: 'Text is required' });
+    const validTargetLanguages = new Set(['hindi', 'english', 'hi_IN', 'en_XX']);
+
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    if (targetLang != null && !validTargetLanguages.has(targetLang)) {
+      return res.status(422).json({ error: 'Unsupported target language' });
+    }
 
     const translatedText = await AIService.translate(text, targetLang || 'hindi');
+    if (typeof translatedText !== 'string' || translatedText.trim().length === 0) {
+      throw new Error('Translation provider returned empty text');
+    }
+
     res.json({ success: true, translatedText });
   } catch (error) {
-    console.error('❌ [Dubbing Controller] Translation error:', error);
-    res.status(500).json({ error: 'Translation failed', details: error.message });
+    const status = error.message === 'MODEL_LOADING' ? 503 : 502;
+    console.error('❌ [Dubbing Controller] Translation error:', {
+      targetLang: req.body?.targetLang,
+      textLength: typeof req.body?.text === 'string' ? req.body.text.length : 0,
+      message: error.message,
+    });
+    res.status(status).json({ error: 'Translation failed' });
   }
 };
 
@@ -97,9 +114,11 @@ import { OpenAIAIEngine } from '../../services/aiService/OpenAIAIEngine.js';
 export const getActiveAIEngine = async (req, res) => {
   try {
     const engine = AIService.getAIEngine();
+    const translationEngine = AIService.getTranslationEngine();
     res.json({
       success: true,
       activeEngine: engine.constructor.name,
+      translationEngine: translationEngine.constructor.name,
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to retrieve active AI Engine', details: error.message });

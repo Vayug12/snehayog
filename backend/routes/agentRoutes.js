@@ -46,6 +46,8 @@ const handleMulterError = (err, req, res, next) => {
 
 router.get('/upload/presigned-url', verifyToken, agentUploadController.getPresignedUrl);
 
+router.get('/upload/download-url', verifyToken, agentUploadController.getDownloadPresignedUrl);
+
 router.post('/upload/register', verifyToken, agentUploadLimiter, agentUploadController.registerUpload);
 
 router.post('/upload/direct',

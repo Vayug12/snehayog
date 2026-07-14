@@ -16,6 +16,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
+import 'package:vayug/features/auth/presentation/widgets/auth_options_sheet.dart';
 import 'package:vayug/shared/managers/carousel_ad_manager.dart';
 import 'package:like_button/like_button.dart';
 import 'package:vayug/shared/constants/app_constants.dart';
@@ -51,6 +52,7 @@ import 'package:vayug/shared/services/share_service.dart';
 import 'package:vayug/shared/widgets/episode_grid_widget.dart';
 import 'video_feed_advanced/widgets/throttled_progress_bar.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/utils/url_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vayug/features/onboarding/presentation/managers/app_initialization_manager.dart';
 import 'package:visibility_detector/visibility_detector.dart';
@@ -1264,12 +1266,6 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       _forceShowOverlayVN[video.id]?.value = false;
     });
 
-    // Check if valid user
-    if (_currentUserId == null) {
-      _triggerGoogleSignIn();
-      return;
-    }
-
     // If the video is already liked by the current user, only show animation
     // Check our specific notifier first for most up-to-date state
     final isLikedNotifier = _isLikedVN.putIfAbsent(
@@ -1305,6 +1301,14 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // Guard against multiple rapid taps
     if (_likeInProgress[video.id] == true) {
       return;
+    }
+
+    // Authenticate before the optimistic update so guest taps never flash a
+    // false like count while the sign-in UI is open.
+    final authController = ref.read(googleSignInProvider);
+    if (!authController.isSignedIn) {
+      final signedIn = await _triggerSignInOptions();
+      if (!signedIn) return;
     }
 
     // **FIX: Proceed to VideoService even if local _currentUserId is null**
@@ -1378,9 +1382,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       if (errorString.contains('sign in') ||
           errorString.contains('authenticated')) {
         errorMessage = 'Please sign in again to like videos';
-        Future.delayed(const Duration(milliseconds: 500), () {
-          _triggerGoogleSignIn();
-        });
+        Future.delayed(const Duration(milliseconds: 500), _triggerSignInOptions);
       }
       _showSnackBar(errorMessage, isError: true);
     } finally {
@@ -1391,19 +1393,28 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
 
   /// **NEW: Trigger Google Sign-In directly (shows account picker popup)**
-  Future<void> _triggerGoogleSignIn() async {
+  Future<bool> _triggerSignInOptions() async {
     try {
       final authController = ref.read(googleSignInProvider);
-      final user = await authController.signIn();
+      if (authController.isSignedIn) return true;
+      final user = await showAuthOptionsSheet(
+        context: context,
+        authController: authController,
+      );
       if (user != null) {
         AppLogger.log('✅ Sign-in successful after like/comment action');
-        // User is now signed in, they can retry the action
+        final userId = (user['googleId'] ?? user['id'] ?? user['_id'])?.toString();
+        if (userId != null && userId.isNotEmpty && mounted) {
+          setState(() => _currentUserId = userId);
+        }
       } else {
         AppLogger.log('ℹ️ User cancelled sign-in');
       }
+      return user != null;
     } catch (e) {
       AppLogger.log('❌ Error triggering sign-in: $e');
       _showSnackBar('Failed to sign in. Please try again.', isError: true);
+      return false;
     }
   }
 
@@ -1426,7 +1437,13 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   /// **LAUNCH EXTERNAL URL: Helper method for ads and video links**
   Future<void> _launchExternalUrl(String urlString) async {
     try {
-      final Uri? uri = Uri.tryParse(urlString);
+      // Enrich with UTM params so website owners can attribute traffic to vayug
+      final enrichedUrl = UrlUtils.enrichUrl(
+        urlString,
+        medium: 'video_feed',
+        campaign: 'creator_visit',
+      );
+      final Uri? uri = Uri.tryParse(enrichedUrl);
       if (uri != null) {
         // Use url_launcher to open the link
         if (await canLaunchUrl(uri)) {

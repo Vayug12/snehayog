@@ -193,7 +193,7 @@ router.get('/profile', verifyToken, async (req, res) => {
     // **IDENTITY OPTIMIZATION: Use req.user._id if available**
     const query = req.user?._id ? { _id: req.user._id } : { googleId: currentUserId };
     const currentUser = await User.findOne(query)
-      .select('_id googleId name email profilePic websiteUrl videos followingCount followerCount preferredCurrency preferredPaymentMethod country')
+      .select('_id googleId name email profilePic websiteUrl videos followingCount followerCount preferredCurrency preferredPaymentMethod country authProvider phoneNumber phoneVerifiedAt isSyntheticEmail')
       .lean();
     
     if (!currentUser) {
@@ -236,8 +236,13 @@ router.get('/profile', verifyToken, async (req, res) => {
       id: currentUser.googleId,
       googleId: currentUser.googleId,
       name: currentUser.name,
-      email: currentUser.email,
+      email: currentUser.isSyntheticEmail ? '' : currentUser.email,
       profilePic: currentUser.profilePic,
+      authProvider: currentUser.authProvider || 'google',
+      phoneNumber: currentUser.phoneNumber
+        ? `${currentUser.phoneNumber.substring(0, 3)}******${currentUser.phoneNumber.slice(-4)}`
+        : null,
+      phoneVerified: !!currentUser.phoneVerifiedAt,
       websiteUrl: currentUser.websiteUrl, // Adding websiteUrl to payload
       videos: currentUser.videos,
       preferredCurrency: currentUser.preferredCurrency,

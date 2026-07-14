@@ -164,21 +164,6 @@ async function handleVideoProcessing(job) {
 }
 
 
-import clippingPipeline from '../services/videoProcessing/ClippingPipeline.js';
-
-/**
- * Handle generating a vertical clip
- */
-async function handleClipGeneration(data) {
-  try {
-    return await clippingPipeline.run(data);
-  } catch (error) {
-    console.error('❌ Clip generation failed:', error);
-    // Error tracking & DB update is handled within the pipeline steps or here if needed
-    throw error;
-  }
-}
-
 /**
  * Handle AI Video Analysis asynchronously in the background
  */
@@ -209,7 +194,7 @@ async function handleVideoAnalysis(data) {
     
     if (metadata) {
       await Video.findByIdAndUpdate(videoId, { 
-        aiContext: metadata.summary,
+        aiSummary: metadata.summary,
         language: metadata.language,
         detectedRegion: metadata.region,
         tags: [...new Set([...(video.tags || []), ...(metadata.keywords || [])])],
@@ -248,10 +233,6 @@ const videoWorker = new Worker('video-processing', async (job) => {
         await recommendationService._calculateAndCacheRanks();
         return { status: 'completed' };
 
-      case 'generate-clip':
-        console.log('🎬 Worker: Generating vertical clip...');
-        return await handleClipGeneration(job.data);
-        
       case 'analyze-video':
         return await handleVideoAnalysis(job.data);
         

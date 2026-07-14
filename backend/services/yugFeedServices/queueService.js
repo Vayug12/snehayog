@@ -196,31 +196,6 @@ class FeedQueueService {
     }
 
     /**
-     * Add a clip generation job to the queue
-     * @param {Object} data - { originalVideoId, startTime, duration, userId, videoName }
-     */
-    async addClipJob(data) {
-        try {
-            console.log('📥 QueueService: Adding clip job for video:', data.originalVideoId);
-            await videoQueue.add('generate-clip', data, {
-                attempts: 2,
-                backoff: { type: 'exponential', delay: 10000 },
-                removeOnComplete: true,
-                removeOnFail: false,
-                priority: 1 // High Priority
-            });
-            
-            // Wake up background worker on Fly.io (async - don't block API response)
-            this._wakeWorker().catch(err => console.error('Error waking worker:', err));
-
-            return true;
-        } catch (error) {
-            console.error('❌ QueueService: Failed to add clip job:', error);
-            throw error;
-        }
-    }
-
-    /**
      * Add a background video analysis job (Gemini)
      * @param {Object} data - { videoId }
      */

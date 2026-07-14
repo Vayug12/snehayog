@@ -215,8 +215,7 @@ class _SubscriberSelectionScreenState extends State<SubscriberSelectionScreen> {
 
               final query = _searchController.text.toLowerCase().trim();
               final filtered = _subscribers.value.where((s) =>
-                  s.name.toLowerCase().contains(query) ||
-                  s.email.toLowerCase().contains(query)).toList();
+                  s.name.toLowerCase().contains(query)).toList();
 
               if (filtered.isEmpty) {
                 return SliverFillRemaining(
@@ -278,7 +277,6 @@ class _SubscriberSelectionScreenState extends State<SubscriberSelectionScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(sub.name, style: AppTypography.titleSmall.copyWith(fontWeight: FontWeight.w600)),
-                    Text(sub.email, style: AppTypography.bodySmall.copyWith(fontSize: 11)),
                   ],
                 ),
               ),

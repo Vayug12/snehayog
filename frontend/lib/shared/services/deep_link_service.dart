@@ -68,8 +68,17 @@ class DeepLinkService {
         final videoId = segments[1];
         AppLogger.log('🔗 DeepLinkService: Handling deep link for video: $videoId');
         
-        // Smart Routing: Fetch metadata first to decide between Yug and Vayu
-        _routeToVideoSmartly(videoId);
+        // Smart Routing: Fetch metadata first to decide between Yug and Vayu.
+        // `t` and `end` are seconds in a section-share link.
+        final startAt = _parseTimestampSeconds(uri.queryParameters['t']);
+        final sectionEnd = _parseTimestampSeconds(uri.queryParameters['end']);
+        _routeToVideoSmartly(
+          videoId,
+          initialPosition: startAt == null ? null : Duration(seconds: startAt),
+          sectionEnd: sectionEnd != null && (startAt == null || sectionEnd > startAt)
+              ? Duration(seconds: sectionEnd)
+              : null,
+        );
         return;
       }
     }
@@ -99,7 +108,16 @@ class DeepLinkService {
     }
   }
 
-  void _routeToVideoSmartly(String videoId) async {
+  int? _parseTimestampSeconds(String? value) {
+    final seconds = int.tryParse(value ?? '');
+    return seconds != null && seconds >= 0 ? seconds : null;
+  }
+
+  void _routeToVideoSmartly(
+    String videoId, {
+    Duration? initialPosition,
+    Duration? sectionEnd,
+  }) async {
     try {
       AppLogger.log('🔗 DeepLinkService: Fetching metadata for smart routing: $videoId');
       
@@ -120,7 +138,11 @@ class DeepLinkService {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => VayuLongFormPlayerScreen(video: video),
+            builder: (context) => VayuLongFormPlayerScreen(
+              video: video,
+              initialPosition: initialPosition,
+              sectionEnd: sectionEnd,
+            ),
             settings: const RouteSettings(name: '/vayu_video'),
           ),
         );
@@ -129,7 +151,11 @@ class DeepLinkService {
         Navigator.pushNamed(
           context,
           '/video',
-          arguments: {'videoId': videoId},
+          arguments: {
+            'videoId': videoId,
+            if (initialPosition != null) 'startAtSeconds': initialPosition.inSeconds,
+            if (sectionEnd != null) 'endAtSeconds': sectionEnd.inSeconds,
+          },
         );
       }
     } catch (e) {
@@ -137,7 +163,11 @@ class DeepLinkService {
       // Fallback: Just push the standard /video route if fetch fails
       AuthService.navigatorKey.currentState?.pushNamed(
         '/video',
-        arguments: {'videoId': videoId},
+        arguments: {
+          'videoId': videoId,
+          if (initialPosition != null) 'startAtSeconds': initialPosition.inSeconds,
+          if (sectionEnd != null) 'endAtSeconds': sectionEnd.inSeconds,
+        },
       );
     }
   }

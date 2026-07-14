@@ -15,6 +15,7 @@ import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/services/platform_id_service.dart';
 import 'package:vayug/shared/services/notification_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:vayug/core/interfaces/i_auth_service.dart';
 import 'package:vayug/shared/di/dependency_injection.dart';
 
@@ -491,6 +492,113 @@ class AuthService implements IAuthService {
       AppLogger.log('❌ Google Sign-In Error: $e');
       throw Exception('Sign-in failed: $e');
     }
+  }
+
+  // Request an SMS OTP through the Vayu backend. Provider credentials never
+  // leave the server.
+  @override
+  Future<Map<String, dynamic>> requestPhoneOtp(String phoneNumber) async {
+    final response = await http
+        .post(
+          Uri.parse('${NetworkHelper.authEndpoint}/phone/request'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'phoneNumber': phoneNumber}),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    final data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
+    if (response.statusCode != 201) {
+      throw Exception(data['error'] ?? 'Could not send OTP');
+    }
+    return data;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> verifyPhoneOtp({
+    required String challengeId,
+    required String otp,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final platformIdService = PlatformIdService();
+    final deviceId = await platformIdService.getPlatformId();
+    final deviceName = await platformIdService.getDeviceName();
+    final platform = platformIdService.getPlatformType();
+    final existingToken = prefs.getString('jwt_token');
+
+    final response = await http
+        .post(
+          Uri.parse('${NetworkHelper.authEndpoint}/phone/verify'),
+          headers: {
+            'Content-Type': 'application/json',
+            if (existingToken != null && existingToken.isNotEmpty)
+              'Authorization': 'Bearer $existingToken',
+          },
+          body: jsonEncode({
+            'challengeId': challengeId,
+            'otp': otp,
+            'deviceId': deviceId,
+            'deviceName': deviceName,
+            'platform': platform,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    final data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Phone verification failed');
+    }
+
+    final token = data['accessToken'] ?? data['token'];
+    final backendUser = data['user'] as Map<String, dynamic>?;
+    if (token == null || backendUser == null) {
+      throw Exception('Invalid phone authentication response');
+    }
+
+    await prefs.setString('jwt_token', token.toString());
+    if (data['refreshToken'] != null) {
+      await prefs.setString('refresh_token', data['refreshToken'].toString());
+      await _markSlidingRefreshActivity(prefs);
+    }
+
+    final identityId = (backendUser['googleId'] ?? backendUser['id']).toString();
+    await prefs.setString('google_id', identityId);
+    await prefs.setBool('auth_needs_login', false);
+
+    final fallbackData = <String, dynamic>{
+      'id': identityId,
+      'googleId': identityId,
+      '_id': backendUser['_id'],
+      'name': backendUser['name'] ?? 'Vayu User',
+      'email': backendUser['email'] ?? '',
+      'profilePic': backendUser['profilePic'],
+      'phoneNumber': backendUser['phoneNumber'],
+      'phoneVerified': backendUser['phoneVerified'] == true,
+      'authProvider': backendUser['authProvider'] ?? 'phone',
+    };
+    await prefs.setString('fallback_user', jsonEncode(fallbackData));
+
+    final result = <String, dynamic>{
+      ...fallbackData,
+      'token': token.toString(),
+    };
+    _cachedProfile = result;
+    _lastProfileFetch = DateTime.now();
+
+    _registerE2eeKeysNonBlocking();
+    unawaited(() async {
+      try {
+        final notificationService = NotificationService();
+        if (notificationService.isInitialized) {
+          await notificationService.retrySaveToken();
+        }
+      } catch (_) {}
+    }());
+
+    return result;
   }
 
   // **NEW: Create fallback session when backend is unavailable**
@@ -1009,6 +1117,9 @@ class AuthService implements IAuthService {
             'name': userData['name'],
             'email': userData['email'],
             'profilePic': userData['profilePic'],
+            'authProvider': userData['authProvider'],
+            'phoneNumber': userData['phoneNumber'],
+            'phoneVerified': userData['phoneVerified'] == true,
           };
           await prefs.setString('fallback_user', jsonEncode(fallbackData));
           AppLogger.log('✅ Updated fallback_user with fresh backend data');
@@ -1021,6 +1132,9 @@ class AuthService implements IAuthService {
             'name': userData['name'],
             'email': userData['email'],
             'profilePic': userData['profilePic'],
+            'authProvider': userData['authProvider'],
+            'phoneNumber': userData['phoneNumber'],
+            'phoneVerified': userData['phoneVerified'] == true,
             'token': token,
           };
         } else {
@@ -1204,6 +1318,22 @@ class AuthService implements IAuthService {
 
       AppLogger.log('🔄 Refresh token exists: ${refreshToken != null && refreshToken.isNotEmpty}');
 
+      // **CONNECTIVITY CHECK: Skip refresh if offline to avoid revoking tokens on network failure**
+      try {
+        final connectivityResult = await Connectivity().checkConnectivity();
+        final isOffline = connectivityResult.isEmpty || connectivityResult.every((r) => r == ConnectivityResult.none);
+        if (isOffline) {
+          AppLogger.log('🔄 No network connectivity, skipping refresh attempt');
+          return null;
+        }
+      } catch (e) {
+        AppLogger.log('⚠️ Connectivity check failed, proceeding with refresh attempt: $e');
+      }
+
+      // Track whether any failure was due to network (to avoid setting auth_needs_login on network errors)
+      bool encounteredNetworkError = false;
+      bool refreshEndpointExplicitlyRequiresLogin = false;
+
       // 1. Try Refresh Token first (fast, server-side)
       if (refreshToken != null && refreshToken.isNotEmpty) {
         try {
@@ -1259,6 +1389,7 @@ class AuthService implements IAuthService {
               if (requiresLogin) {
                 AppLogger.log('🔐 Backend requires login. Removing refresh token from local storage.');
                 await prefs.remove('refresh_token');
+                refreshEndpointExplicitlyRequiresLogin = true;
               } else {
                 AppLogger.log('ℹ️ Refresh rejected but login not explicitly required; keeping refresh token for retry.');
               }
@@ -1266,6 +1397,7 @@ class AuthService implements IAuthService {
           }
         } catch (e) {
           AppLogger.log('⚠️ Refresh token endpoint error (likely network): $e');
+          encounteredNetworkError = true;
         }
       }
 
@@ -1281,6 +1413,7 @@ class AuthService implements IAuthService {
         AppLogger.log('🔄 Google Silent Sign-In result: ${googleToken != null ? "Success" : "Failed"}');
       } catch (e) {
         AppLogger.log('⚠️ Google Silent Sign-In error (likely network): $e');
+        encounteredNetworkError = true;
       }
 
       if (googleToken != null) {
@@ -1332,33 +1465,49 @@ class AuthService implements IAuthService {
           }
         } catch (e) {
           AppLogger.log('⚠️ Tier 4: Recovery error: $e');
+          encounteredNetworkError = true;
         }
       }
 
       // **CRITICAL: Only set auth_needs_login if we are sure it's not a network error**
-      // If we are here, both methods failed.
-      // We only force logout if Google specifically told us the session is dead (googleUser == null)
-      // and NOT because of a timeout or network error.
-      
-      // If Google sign-in was attempted and it didn't return a user, but it wasn't a timeout,
-      // then we can assume the session is truly dead.
-      // For now, let's be conservative: only set needs_login if we have internet but refresh still fails.
-      AppLogger.log('❌ All automatic refresh methods failed');
-      
-      // We'll keep it as is but add a log to track why it's failing
-      // In a real-world app, you might use Connectivity package here.
-      await prefs.setBool('auth_needs_login', true);
-      
-      // **NEW: Notify the UI immediately so it shows sign-in screen instead of "0" data**
-      // This triggers GoogleSignInController.refreshAuthState() via homescreen callback
-      try {
-        final httpService = httpClientService;
-        if (httpService.onSessionExpired != null) {
-          AppLogger.log('🚨 AuthService: Triggering session expired callback for UI update');
-          httpService.onSessionExpired!();
+      // If all methods failed due to network issues, keep the session alive for retry.
+      // Only force login when the server explicitly says the session is dead (401/403 + requiresLogin).
+      AppLogger.log('❌ All automatic refresh methods failed. Network error: $encounteredNetworkError, Explicit requiresLogin: $refreshEndpointExplicitlyRequiresLogin');
+
+      if (refreshEndpointExplicitlyRequiresLogin) {
+        // Server explicitly told us the session is dead — safe to force login
+        AppLogger.log('🔐 Server explicitly requires login, setting auth_needs_login = true');
+        await prefs.setBool('auth_needs_login', true);
+
+        // Notify the UI immediately so it shows sign-in screen instead of "0" data
+        try {
+          final httpService = httpClientService;
+          if (httpService.onSessionExpired != null) {
+            AppLogger.log('🚨 AuthService: Triggering session expired callback for UI update');
+            httpService.onSessionExpired!();
+          }
+        } catch (e) {
+          AppLogger.log('⚠️ AuthService: Error calling session expired callback: $e');
         }
-      } catch (e) {
-        AppLogger.log('⚠️ AuthService: Error calling session expired callback: $e');
+      } else if (!encounteredNetworkError) {
+        // Non-network failure but no explicit requiresLogin — likely a real auth failure
+        // (e.g., Google sign-in returned null without a timeout)
+        AppLogger.log('🔐 Non-network auth failure, setting auth_needs_login = true');
+        await prefs.setBool('auth_needs_login', true);
+
+        try {
+          final httpService = httpClientService;
+          if (httpService.onSessionExpired != null) {
+            AppLogger.log('🚨 AuthService: Triggering session expired callback for UI update');
+            httpService.onSessionExpired!();
+          }
+        } catch (e) {
+          AppLogger.log('⚠️ AuthService: Error calling session expired callback: $e');
+        }
+      } else {
+        // Network error — do NOT set auth_needs_login. Token and refresh token remain valid.
+        // Next API call or app resume will retry automatically.
+        AppLogger.log('ℹ️ Network error during refresh, session preserved for retry');
       }
       
       return null;

@@ -6,6 +6,36 @@ const UserSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
+  // Authentication provider used when the account was first created.
+  // `googleId` remains the legacy system-wide identity key for compatibility;
+  // phone accounts receive a non-PII `phone:<hash>` value in that field.
+  authProvider: {
+    type: String,
+    enum: ['google', 'phone'],
+    default: 'google',
+    index: true
+  },
+  authMethods: {
+    type: [{
+      type: String,
+      enum: ['google', 'phone']
+    }],
+    default: ['google']
+  },
+  phoneNumber: {
+    type: String,
+    trim: true,
+    unique: true,
+    sparse: true
+  },
+  phoneVerifiedAt: {
+    type: Date,
+    default: null
+  },
+  isSyntheticEmail: {
+    type: Boolean,
+    default: false
+  },
   // **NEW: Ed25519 Public Key for E2EE**
   publicKey: {
     type: String,

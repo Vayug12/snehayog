@@ -90,15 +90,23 @@ class OnDeviceDubbingServiceImpl implements IDubbingService {
 
       // 3. Translate via Backend
       if (_cancellationTokens[videoPath] == true) throw Exception('Cancelled');
-      yield DubbingResult(status: DubbingStatus.synthesizing, progress: 50, language: targetLang);
       
-      AppLogger.log('🔄 DubbingService: Translating via Backend');
-      final String translatedText = await _translateViaBackend(fullTranscript, targetLang);
+      final hasDevanagari = RegExp(r'[\u0900-\u097F]').hasMatch(fullTranscript);
+      final String detectedSourceLang = hasDevanagari ? 'hindi' : 'english';
+      String effectiveTargetLang = targetLang;
+      if (detectedSourceLang == targetLang) {
+        effectiveTargetLang = (targetLang == 'hindi') ? 'english' : 'hindi';
+      }
+
+      yield DubbingResult(status: DubbingStatus.synthesizing, progress: 50, language: effectiveTargetLang);
+
+      AppLogger.log('🔄 DubbingService: Translating via Backend to $effectiveTargetLang');
+      final String translatedText = await _translateViaBackend(fullTranscript, effectiveTargetLang);
 
       // 4. Synthesize via Backend (High Quality AI4Bharat Voice)
-      AppLogger.log('🔊 DubbingService: Synthesizing via Backend');
+      AppLogger.log('🔊 DubbingService: Synthesizing via Backend for $effectiveTargetLang');
       final String synthesizedAudioPath = p.join(isolationDir.path, 'synthesized_voice.wav');
-      await _synthesizeViaBackend(translatedText, targetLang, synthesizedAudioPath);
+      await _synthesizeViaBackend(translatedText, effectiveTargetLang, synthesizedAudioPath);
 
       // 5. Mux Video + New Audio
       if (_cancellationTokens[videoPath] == true) throw Exception('Cancelled');
@@ -114,7 +122,7 @@ class OnDeviceDubbingServiceImpl implements IDubbingService {
           status: DubbingStatus.completed,
           progress: 100,
           dubbedUrl: finalVideoPath,
-          language: targetLang,
+          language: effectiveTargetLang,
         );
       } else {
         throw Exception('Muxing failed');
@@ -143,12 +151,33 @@ class OnDeviceDubbingServiceImpl implements IDubbingService {
 
   Future<String> _translateViaBackend(String text, String targetLang) async {
     final dio = Dio();
-    final response = await dio.post('${NetworkHelper.apiBaseUrl}/dubbing/translate', data: {
-      'text': text,
-      'targetLang': targetLang
-    });
-    if (response.statusCode == 200) return response.data['translatedText'];
-    return text;
+    try {
+      final response = await dio.post(
+        '${NetworkHelper.apiBaseUrl}/dubbing/translate',
+        data: {
+          'text': text,
+          'targetLang': targetLang,
+        },
+      );
+      final translatedText = response.data is Map<String, dynamic>
+          ? response.data['translatedText']
+          : null;
+
+      if (response.statusCode != 200 ||
+          translatedText is! String ||
+          translatedText.trim().isEmpty) {
+        throw Exception('Translation service returned an invalid response');
+      }
+
+      return translatedText;
+    } on DioException catch (error) {
+      final statusCode = error.response?.statusCode;
+      throw Exception(
+        statusCode == 503
+            ? 'Translation service is warming up. Please try again shortly.'
+            : 'Translation service is unavailable. Please try again.',
+      );
+    }
   }
 
   Future<void> _synthesizeViaBackend(String text, String language, String outputPath) async {

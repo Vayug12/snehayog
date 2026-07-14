@@ -131,6 +131,48 @@ class GoogleSignInController extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>> requestPhoneOtp(String phoneNumber) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      return await _authService.requestPhoneOtp(phoneNumber);
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<Map<String, dynamic>?> verifyPhoneOtp({
+    required String challengeId,
+    required String otp,
+  }) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final userInfo = await _authService.verifyPhoneOtp(
+        challengeId: challengeId,
+        otp: otp,
+      );
+      if (userInfo != null) {
+        _userData = userInfo;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('auth_needs_login', false);
+      }
+      return userInfo;
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> signOut() async {
     try {
 

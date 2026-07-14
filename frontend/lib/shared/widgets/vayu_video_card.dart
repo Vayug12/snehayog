@@ -46,7 +46,7 @@ class VayuVideoCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
+                        color: Colors.black.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -96,7 +96,7 @@ class VayuVideoCard extends StatelessWidget {
                       Text(
                         '${video.uploader.name}  •  ${FormatUtils.formatViews(video.views)} views  •  ${FormatUtils.formatTimeAgo(video.uploadedAt)}',
                         style: AppTypography.bodySmall.copyWith(
-                          color: Colors.white.withOpacity(0.6),
+                          color: Colors.white.withValues(alpha: 0.6),
                         ),
                       ),
                     ],

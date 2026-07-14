@@ -48,8 +48,8 @@ export default class MongoSearchProvider extends ISearchProvider {
         }
       }
 
-      // 3. Perform Traditional Atlas Compound text search
-      console.log(`🔎 MongoSearchProvider: Executing Traditional Text Search...`);
+      // 3. Perform Traditional Atlas Compound text search (Content-Aware)
+      console.log(`🔎 MongoSearchProvider: Executing Content-Aware Text Search...`);
       const textVideos = await Video.aggregate([
         {
           $search: {
@@ -63,7 +63,22 @@ export default class MongoSearchProvider extends ISearchProvider {
                   text: { query: q, path: 'videoName', fuzzy: { maxEdits: 1, prefixLength: 1 }, score: { boost: { value: 2 } } }
                 },
                 {
-                  text: { query: q, path: 'tags', score: { boost: { value: 1 } } }
+                  text: { query: q, path: 'aiContext', score: { boost: { value: 4 } } }
+                },
+                {
+                  text: { query: q, path: 'aiContext', fuzzy: { maxEdits: 1, prefixLength: 2 }, score: { boost: { value: 2 } } }
+                },
+                {
+                  text: { query: q, path: 'description', score: { boost: { value: 3 } } }
+                },
+                {
+                  text: { query: q, path: 'tags', score: { boost: { value: 2 } } }
+                },
+                {
+                  text: { query: q, path: 'category', score: { boost: { value: 1.5 } } }
+                },
+                {
+                  text: { query: q, path: 'keywords', score: { boost: { value: 1 } } }
                 }
               ],
               minimumShouldMatch: 1

@@ -47,7 +47,7 @@ async function migrateVideos() {
                 });
 
                 if (metadata) {
-                    video.aiContext = metadata.summary;
+                    video.aiSummary = metadata.summary;
                     video.language = metadata.language;
                     video.detectedRegion = metadata.region;
                     video.aiContextGenerated = true;

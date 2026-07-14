@@ -418,6 +418,18 @@
                 <div class="stat-number" id="globalSkipRate">-</div>
                 <div class="stat-label">Global Skip Rate</div>
             </div>
+
+            <div class="stat-card success" onclick="toggleEmbeddingSection()" style="cursor: pointer;">
+                <div class="stat-icon">🧬</div>
+                <div class="stat-number" id="embeddingSuccessCount">-</div>
+                <div class="stat-label">Embeddings OK</div>
+            </div>
+
+            <div class="stat-card primary" onclick="toggleAiContextSection()" style="cursor: pointer; border-left-color: #17a2b8;">
+                <div class="stat-icon">🤖</div>
+                <div class="stat-number" id="aiContextGeneratedCount">-</div>
+                <div class="stat-label">AI Context Ready</div>
+            </div>
         </div>
 
         <div class="dashboard-section">
@@ -480,6 +492,36 @@
             </div>
             <div id="flaggedVideosList">
                 <p>Click "Load Flagged Videos" to view moderation results</p>
+            </div>
+        </div>
+
+        <div id="embeddingStatusPanel" class="dashboard-section" style="display: none;">
+            <h2 class="section-title">🧬 Embedding Status Monitor</h2>
+            <div class="filter-controls">
+                <select id="embeddingFilter" onchange="loadEmbeddingStatus()">
+                    <option value="all">All Videos</option>
+                    <option value="success">Embedding Success</option>
+                    <option value="failed">Embedding Missing</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="loadEmbeddingStatus()">🔄 Refresh</button>
+            </div>
+            <div id="embeddingStatusList">
+                <p>Loading...</p>
+            </div>
+        </div>
+
+        <div id="aiContextPanel" class="dashboard-section" style="display: none;">
+            <h2 class="section-title">🤖 AI Context Generation Monitor</h2>
+            <div class="filter-controls">
+                <select id="aiContextFilter" onchange="loadAiContextStatus()">
+                    <option value="all">All Videos</option>
+                    <option value="generated">AI Context Generated</option>
+                    <option value="not-generated">AI Context Not Generated</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="loadAiContextStatus()">🔄 Refresh</button>
+            </div>
+            <div id="aiContextStatusList">
+                <p>Loading...</p>
             </div>
         </div>
 
@@ -2999,6 +3041,182 @@ if (response && response.ok) {
                 </table>
             `;
         }
+
+        // **NEW: Toggle functions for collapsible panels**
+        let embeddingPanelLoaded = false;
+        function toggleEmbeddingSection() {
+            const panel = document.getElementById('embeddingStatusPanel');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                if (!embeddingPanelLoaded) {
+                    loadEmbeddingStatus();
+                    embeddingPanelLoaded = true;
+                }
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        let aiContextPanelLoaded = false;
+        function toggleAiContextSection() {
+            const panel = document.getElementById('aiContextPanel');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                if (!aiContextPanelLoaded) {
+                    loadAiContextStatus();
+                    aiContextPanelLoaded = true;
+                }
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        // **NEW: Embedding Status Monitor**
+        async function loadEmbeddingStatus() {
+            const container = document.getElementById('embeddingStatusList');
+            try {
+                container.innerHTML = '<p>Loading embedding status...</p>';
+                const filter = document.getElementById('embeddingFilter').value;
+                const response = await authorizedFetch(`${API_BASE}/admin/videos/embedding-status?filter=${filter}&limit=100`);
+                if (!response || !response.ok) {
+                    container.innerHTML = '<p class="error-message">Failed to load embedding status</p>';
+                    return;
+                }
+                const data = await response.json();
+
+                document.getElementById('embeddingSuccessCount').textContent = formatNumber(data.summary.successCount) + ' / ' + formatNumber(data.summary.totalVideos);
+
+                renderEmbeddingStatus(data.videos || []);
+            } catch (error) {
+                console.error('Error loading embedding status:', error);
+                container.innerHTML = `<p class="error-message">Error: ${error.message}</p>`;
+            }
+        }
+
+        function renderEmbeddingStatus(videos) {
+            const container = document.getElementById('embeddingStatusList');
+            if (!videos || videos.length === 0) {
+                container.innerHTML = '<p>No videos found</p>';
+                return;
+            }
+
+            const tableRows = videos.map(v => {
+                const name = escapeHtml(v.videoName || 'Untitled');
+                const uploader = v.uploader ? escapeHtml(v.uploader.name || 'Unknown') : 'Unknown';
+                const statusBadge = v.embeddingPresent
+                    ? '<span class="status-badge status-paid" style="background:#d4edda;color:#155724;">✅ Success</span>'
+                    : '<span class="status-badge status-failed" style="background:#f8d7da;color:#721c24;">❌ Missing</span>';
+                const version = escapeHtml(v.embeddingVersion);
+                const dimension = v.embeddingDimension || '—';
+                const createdAt = formatDate(v.createdAt);
+
+                return `
+                    <tr>
+                        <td><strong>${name}</strong><br><small style="color:#666;">${escapeHtml((v.description || '').substring(0, 50))}</small></td>
+                        <td>${uploader}</td>
+                        <td>${statusBadge}</td>
+                        <td><code style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:0.8rem;">${version}</code></td>
+                        <td>${dimension !== '—' ? dimension + 'd' : '—'}</td>
+                        <td>${createdAt}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div style="overflow-x: auto;">
+                    <table class="payout-table">
+                        <thead>
+                            <tr>
+                                <th>Video</th>
+                                <th>Creator</th>
+                                <th>Embedding Status</th>
+                                <th>Model Version</th>
+                                <th>Dimension</th>
+                                <th>Uploaded</th>
+                            </tr>
+                        </thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        // **NEW: AI Context Generation Monitor**
+        async function loadAiContextStatus() {
+            const container = document.getElementById('aiContextStatusList');
+            try {
+                container.innerHTML = '<p>Loading AI context status...</p>';
+                const filter = document.getElementById('aiContextFilter').value;
+                const response = await authorizedFetch(`${API_BASE}/admin/videos/ai-context-status?filter=${filter}&limit=100`);
+                if (!response || !response.ok) {
+                    container.innerHTML = '<p class="error-message">Failed to load AI context status</p>';
+                    return;
+                }
+                const data = await response.json();
+
+                document.getElementById('aiContextGeneratedCount').textContent = formatNumber(data.summary.generatedCount) + ' / ' + formatNumber(data.summary.totalVideos);
+
+                renderAiContextStatus(data.videos || []);
+            } catch (error) {
+                console.error('Error loading AI context status:', error);
+                container.innerHTML = `<p class="error-message">Error: ${error.message}</p>`;
+            }
+        }
+
+        function renderAiContextStatus(videos) {
+            const container = document.getElementById('aiContextStatusList');
+            if (!videos || videos.length === 0) {
+                container.innerHTML = '<p>No videos found</p>';
+                return;
+            }
+
+            const tableRows = videos.map(v => {
+                const name = escapeHtml(v.videoName || 'Untitled');
+                const uploader = v.uploader ? escapeHtml(v.uploader.name || 'Unknown') : 'Unknown';
+                const statusBadge = v.aiContextGenerated
+                    ? '<span class="status-badge status-paid" style="background:#d4edda;color:#155724;">✅ Generated</span>'
+                    : '<span class="status-badge status-failed" style="background:#f8d7da;color:#721c24;">❌ Not Generated</span>';
+                const contextPreview = v.aiContextPreview
+                    ? `<div style="background:#f8f9fa;padding:8px;border-radius:6px;font-size:0.8rem;max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid #667eea;" title="${escapeHtml(v.aiContextPreview)}">${escapeHtml(v.aiContextPreview)}</div>`
+                    : '<span style="color:#999;">—</span>';
+                const hasSummary = v.hasAiSummary
+                    ? '<span style="color:#28a745;font-weight:bold;">Yes</span>'
+                    : '<span style="color:#999;">No</span>';
+                const createdAt = formatDate(v.createdAt);
+
+                return `
+                    <tr>
+                        <td><strong>${name}</strong><br><small style="color:#666;">${escapeHtml((v.description || '').substring(0, 50))}</small></td>
+                        <td>${uploader}</td>
+                        <td>${statusBadge}</td>
+                        <td>${contextPreview}</td>
+                        <td>${hasSummary}</td>
+                        <td>${createdAt}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div style="overflow-x: auto;">
+                    <table class="payout-table">
+                        <thead>
+                            <tr>
+                                <th>Video</th>
+                                <th>Creator</th>
+                                <th>AI Context</th>
+                                <th>Transcript Preview</th>
+                                <th>AI Summary</th>
+                                <th>Uploaded</th>
+                            </tr>
+                        </thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
         async function sendCustomUserNotice(googleId, name) {
             const title = prompt(`Enter notice/warning for ${name}:`);
             if (!title || title.trim() === "") return;

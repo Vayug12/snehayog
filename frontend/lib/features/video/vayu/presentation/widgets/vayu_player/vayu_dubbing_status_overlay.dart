@@ -36,16 +36,16 @@ class VayuDubbingStatusOverlay extends StatelessWidget {
         margin: EdgeInsets.fromLTRB(horizontalMargin, 0, horizontalMargin, bottomMargin),
         padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
         decoration: BoxDecoration(
-          color: isLandscape ? Colors.black87 : AppColors.backgroundSecondary.withOpacity(0.9),
+          color: isLandscape ? Colors.black87 : AppColors.backgroundSecondary.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
-          border: Border.all(color: AppColors.primary.withOpacity(0.2), width: 1),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.2), width: 1),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -110,7 +110,7 @@ class VayuDubbingStatusOverlay extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                       decoration: TextDecoration.underline,
                       decorationColor:
-                          isLandscape ? Colors.white.withOpacity(0.5) : AppColors.primary.withOpacity(0.5),
+                          isLandscape ? Colors.white.withValues(alpha: 0.5) : AppColors.primary.withValues(alpha: 0.5),
                     ),
                   ),
                 ),

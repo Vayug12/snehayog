@@ -13,6 +13,7 @@ import databaseManager from './config/database.js';
 import redisService from './services/caching/redisService.js';
 import monthlyNotificationCron from './services/notificationServices/monthlyNotificationCron.js';
 import recommendationScoreCron from './services/yugFeedServices/recommendationScoreCron.js';
+import autoResumeCron from './workers/autoResume.js';
 
 // **FIX: Don't disable console.log in production - we need it for Railway debugging**
 if (process.env.DISABLE_CONSOLE_LOG === 'true') {
@@ -49,6 +50,7 @@ const gracefulShutdown = async (signal) => {
     // Stop cron jobs
     if (monthlyNotificationCron && monthlyNotificationCron.stop) monthlyNotificationCron.stop();
     if (recommendationScoreCron && recommendationScoreCron.stop) recommendationScoreCron.stop();
+    if (autoResumeCron && autoResumeCron.stop) autoResumeCron.stop();
 
     // Disconnect Redis
     if (redisService.getConnectionStatus && redisService.getConnectionStatus()) {
@@ -78,6 +80,9 @@ const startServer = async () => {
         console.log('🔍 Initializing loaders...');
         await loaders({ expressApp: app });
         console.log('✅ Loaders initialized');
+
+        // Start auto-resume cron (resets Gemini/Groq quotas daily at 00:00 UTC)
+        autoResumeCron.start();
 
         // Start HTTP server
         const server = app.listen(PORT, HOST, () => {

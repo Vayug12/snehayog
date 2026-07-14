@@ -325,8 +325,8 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
 
               final ready = await videoCacheProxy.waitForE2eePrebuffer(
                 originalUrl,
-                minBytes: 512 * 1024, // 512 KB ≈ 2-3 seconds of video
-                timeout: Duration(seconds: _isLowEndDevice ? 12 : 8),
+                minBytes: 2 * 1024 * 1024, // 2 MB ≈ 8-10 seconds of video — enough for ExoPlayer to start without Source error
+                timeout: Duration(seconds: _isLowEndDevice ? 60 : 45),
               );
 
               // Don't remove _e2eeDecryptingVideos here — it stays until controller init completes
@@ -354,8 +354,8 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
               // Wait for .dec to become ready (background decrypt)
               final decReady = await videoCacheProxy.waitForE2eePrebuffer(
                 originalUrl,
-                minBytes: 1024 * 1024, // 1MB of decrypted data
-                timeout: Duration(seconds: _isLowEndDevice ? 15 : 10),
+                minBytes: 2 * 1024 * 1024, // 2MB of decrypted data
+                timeout: Duration(seconds: _isLowEndDevice ? 60 : 45),
               );
 
               // Don't remove _e2eeDecryptingVideos here — it stays until controller init completes
@@ -512,7 +512,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
             final bool isE2eeProxy =
                 video.isSubscriberOnly && videoUrl.contains('127.0.0.1');
             final timeoutSeconds = isE2eeProxy
-                ? (_isLowEndDevice ? 45 : 30)
+                ? (_isLowEndDevice ? 90 : 75)
                 : (_isLowEndDevice ? 15 : 10);
             AppLogger.log(
               '🎬 VideoPreloader: Starting controller.initialize() for binary video. '
@@ -1139,11 +1139,14 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
                 // Dispose failed controller
                 try {
                   controller.pause();
+                  controller.setVolume(0.0);
+                  _controllerPool[videoId]?.dispose();
                   _controllerPool.remove(videoId);
                 } catch (_) {}
 
-                // Wait briefly then retry preload (will wait for more bytes)
-                Future.delayed(const Duration(milliseconds: 1500), () {
+                // Wait then retry preload — _preloadVideo will re-wait for prebuffer
+                // (now 45-60s with 2MB min), giving the download time to complete.
+                Future.delayed(const Duration(seconds: 3), () {
                   if (mounted && !_preloadedVideos.contains(videoId) &&
                       (index - _currentIndex).abs() <= 1) {
                     _preloadVideo(index).then((_) {

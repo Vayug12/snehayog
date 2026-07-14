@@ -1,14 +1,24 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from 'axios';
+import deepseekService from './deepseekService.js';
 
 /**
  * Gemini Service
- * Handles Multimodal Video Analysis and Semantic Embeddings using Google Gemini API.
+ * Handles Multimodal Video Analysis and Semantic Embeddings.
+ * Provider priority: DeepSeek (cheapest) → OpenAI → Gemini
  */
 class GeminiService {
     constructor() {
         this.apiKey = process.env.GEMINI_API_KEY;
         this.genAI = this.apiKey ? new GoogleGenerativeAI(this.apiKey) : null;
+    }
+
+    /**
+     * Generates a detailed description using DeepSeek (Cheapest option).
+     * Cost: ~$0.07/1M tokens vs Gemini $0.35/1M
+     */
+    async getDeepSeekContext(transcript, videoMetadata = {}) {
+        return deepseekService.getVideoContext(transcript, videoMetadata);
     }
 
     /**
@@ -79,15 +89,29 @@ class GeminiService {
 
     /**
      * Generates a detailed description of the video content.
+     * Provider priority: OpenRouter (free) → SiliconFlow (free) → DeepSeek (paid) → OpenAI → Gemini
      */
     async getVideoContext(imagePaths, videoMetadata = {}) {
-        const provider = process.env.AI_PROVIDER || 'gemini';
-        
+        // **Free/cheap LLM providers first (via deepseekService fallback chain)**
+        console.log(`🎬 Using OpenRouter/SiliconFlow/DeepSeek for video analysis...`);
+        const result = await this.getDeepSeekContext(
+            videoMetadata.transcript || videoMetadata.description || '',
+            videoMetadata
+        );
+        if (result) return result;
+        console.warn('⚠️ All cheap/free LLM providers failed, trying OpenAI...');
+
+        // **OpenAI: Multimodal fallback (if provider explicitly set)**
+        const provider = process.env.AI_PROVIDER || 'openrouter';
         if (provider === 'openai') {
             return this.getOpenAIContext(imagePaths, videoMetadata);
         }
 
-        if (!this.apiKey) throw new Error("GEMINI_API_KEY is missing.");
+        // **Gemini: Final fallback (multimodal, more expensive)**
+        if (!this.apiKey) {
+            console.warn('⚠️ No providers available for video analysis');
+            return null;
+        }
 
         try {
             console.log(`🎬 [Gemini] Analyzing sequence of ${imagePaths.length} frames...`);
@@ -132,13 +156,13 @@ class GeminiService {
                 6. "activity": What is happening?
             `;
 
-            let result;
+            let resultGemini;
             let retryCount = 0;
             const maxRetries = 3;
 
             while (retryCount <= maxRetries) {
                 try {
-                    result = await model.generateContent([prompt, ...parts]);
+                    resultGemini = await model.generateContent([prompt, ...parts]);
                     break; 
                 } catch (err) {
                     if ((err.message.includes('429') || err.message.includes('Quota')) && retryCount < maxRetries) {
@@ -152,7 +176,7 @@ class GeminiService {
                 }
             }
 
-            const responseText = result.response.text();
+            const responseText = resultGemini.response.text();
             const jsonMatch = responseText.match(/\{[\s\S]*\}/);
             if (!jsonMatch) throw new Error("Could not parse JSON from Gemini response");
             

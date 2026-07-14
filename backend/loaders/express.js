@@ -25,6 +25,7 @@ import systemRoutes from '../routes/systemRoutes.js';
 import dubbingRoutes from '../routes/dubbingRoutes.js';
 import e2eeRoutes from '../routes/e2ee/e2eeRoutes.js';
 import agentRoutes from '../routes/agentRoutes.js';
+import videoGenRoutes from '../routes/videoGenRoutes.js';
 
 // Import middleware
 import { errorHandler, notFoundHandler } from '../middleware/errorHandler.js';
@@ -183,6 +184,7 @@ export default async ({ app }) => {
   apiRouter.use('/dubbing', dubbingRoutes);
   apiRouter.use('/e2ee', e2eeRoutes);
   apiRouter.use('/agent', agentRoutes);
+  apiRouter.use('/video-gen', videoGenRoutes);
 
   // Apply Passive Auth BEFORE Rate Limiter
   app.use('/api', apiVersioning, passiveVerifyToken, versionTracking, apiLimiter, apiRouter);

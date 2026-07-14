@@ -23,7 +23,12 @@ const videoSchema = new mongoose.Schema({
   aiContext: {
     type: String,
     trim: true,
-    description: 'AI-generated description/context of the video content (multimodal analysis)'
+    description: 'Raw transcript used for embedding generation and text search'
+  },
+  aiSummary: {
+    type: String,
+    trim: true,
+    description: 'LLM-generated summary from video analysis (multimodal)'
   },
   aiContextGenerated: {
     type: Boolean,
@@ -359,6 +364,12 @@ videoSchema.index({ videoType: 1, finalScore: -1 }); // **OPTIMIZATION: For feed
 videoSchema.index({ videoType: 1, uploadedAt: -1 }); // **OPTIMIZATION: For freshness priority**
 videoSchema.index({ uploadedAt: -1 }); // **OPTIMIZATION: General recency sort**
 videoSchema.index({ createdAt: -1 }); // **OPTIMIZATION: For cursor-based pagination**
+
+// **NEW: Text indexes for Atlas Search - Content-Aware Search**
+videoSchema.index({ aiContext: 'text', description: 'text', videoName: 'text', category: 'text' }, {
+  weights: { videoName: 10, aiContext: 8, description: 5, category: 3 },
+  name: 'content_search_index'
+});
 
 // **NEW: Virtual field to check if video has multiple qualities**
 videoSchema.virtual('hasMultipleQualities').get(function() {

@@ -1364,4 +1364,118 @@ router.post('/email/blast', requireAdminDashboardKey, async (req, res) => {
   }
 });
 
+// **NEW: Admin endpoint — Embedding status of all videos**
+router.get('/videos/embedding-status', requireAdminDashboardKey, async (req, res) => {
+  try {
+    const { filter, limit = 50, skip = 0 } = req.query;
+
+    const query = {};
+    if (filter === 'success') {
+      query.vectorEmbedding = { $exists: true, $ne: [], $not: { $size: 0 } };
+    } else if (filter === 'failed') {
+      query.$or = [
+        { vectorEmbedding: { $exists: false } },
+        { vectorEmbedding: null },
+        { vectorEmbedding: { $size: 0 } }
+      ];
+    }
+
+    const videos = await Video.find(query)
+      .populate('uploader', 'name email googleId')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .lean();
+
+    const totalCount = await Video.countDocuments(query);
+
+    const totalVideos = await Video.countDocuments();
+    const successCount = await Video.countDocuments({
+      vectorEmbedding: { $exists: true, $ne: [], $not: { $size: 0 } }
+    });
+    const failedCount = totalVideos - successCount;
+
+    res.json({
+      success: true,
+      summary: { totalVideos, successCount, failedCount },
+      videos: videos.map(v => ({
+        _id: v._id,
+        videoName: v.videoName,
+        description: (v.description || '').substring(0, 80),
+        embeddingPresent: !!(v.vectorEmbedding && v.vectorEmbedding.length > 0),
+        embeddingVersion: v.embeddingVersion || 'none',
+        embeddingDimension: v.vectorEmbedding ? v.vectorEmbedding.length : 0,
+        createdAt: v.createdAt,
+        uploader: v.uploader ? {
+          name: v.uploader.name,
+          email: v.uploader.email,
+          googleId: v.uploader.googleId
+        } : null
+      })),
+      totalCount,
+      limit: parseInt(limit),
+      skip: parseInt(skip)
+    });
+  } catch (error) {
+    console.error('❌ Error loading embedding status:', error);
+    res.status(500).json({ success: false, error: 'Failed to load embedding status' });
+  }
+});
+
+// **NEW: Admin endpoint — AI Context generation status of all videos**
+router.get('/videos/ai-context-status', requireAdminDashboardKey, async (req, res) => {
+  try {
+    const { filter, limit = 50, skip = 0 } = req.query;
+
+    const query = {};
+    if (filter === 'generated') {
+      query.aiContextGenerated = true;
+    } else if (filter === 'not-generated') {
+      query.$or = [
+        { aiContextGenerated: false },
+        { aiContextGenerated: { $exists: false } }
+      ];
+    }
+
+    const videos = await Video.find(query)
+      .populate('uploader', 'name email googleId')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .lean();
+
+    const totalCount = await Video.countDocuments(query);
+
+    const totalVideos = await Video.countDocuments();
+    const generatedCount = await Video.countDocuments({ aiContextGenerated: true });
+    const notGeneratedCount = totalVideos - generatedCount;
+
+    res.json({
+      success: true,
+      summary: { totalVideos, generatedCount, notGeneratedCount },
+      videos: videos.map(v => ({
+        _id: v._id,
+        videoName: v.videoName,
+        description: (v.description || '').substring(0, 80),
+        aiContextGenerated: !!v.aiContextGenerated,
+        aiContextPreview: v.aiContext ? v.aiContext.substring(0, 120) + (v.aiContext.length > 120 ? '...' : '') : '',
+        hasAiSummary: !!v.aiSummary,
+        embeddingVersion: v.embeddingVersion || 'none',
+        createdAt: v.createdAt,
+        uploader: v.uploader ? {
+          name: v.uploader.name,
+          email: v.uploader.email,
+          googleId: v.uploader.googleId
+        } : null
+      })),
+      totalCount,
+      limit: parseInt(limit),
+      skip: parseInt(skip)
+    });
+  } catch (error) {
+    console.error('❌ Error loading AI context status:', error);
+    res.status(500).json({ success: false, error: 'Failed to load AI context status' });
+  }
+});
+
 export default router;

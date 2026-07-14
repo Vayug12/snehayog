@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'dart:math' as math;
 import 'package:hugeicons/hugeicons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/features/onboarding/data/services/welcome_onboarding_service.dart';
@@ -26,7 +27,8 @@ class _WelcomeOnboardingScreenState extends State<WelcomeOnboardingScreen> {
   // Guide State
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  bool _isVideoProgressSufficient = false;
+  // Show the "Get Started" button immediately so users aren't confused by a delay
+  bool _isVideoProgressSufficient = true;
 
   final List<GuideStep> _steps = [
     GuideStep(
@@ -249,21 +251,20 @@ class _WelcomeOnboardingScreenState extends State<WelcomeOnboardingScreen> {
                   if (step.isVideo && step.videoUrl != null)
                     Padding(
                       padding: EdgeInsets.zero, // Edge-to-edge horizontally
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: constraints.maxHeight * 0.85, // Maximize vertical space
-                        ),
-                        child: OnboardingVideoPlayer(
-                          videoUrl: step.videoUrl!,
-                          autoPlay: true,
-                          onProgress: (progress) {
-                            if (progress >= 0.2 && !_isVideoProgressSufficient) {
-                              setState(() {
-                                _isVideoProgressSufficient = true;
-                              });
-                            }
-                          },
-                        ),
+                      child: OnboardingVideoPlayer(
+                        videoUrl: step.videoUrl!,
+                        // Reserve the step's bottom spacing. The player fits
+                        // its width to this height while keeping the video's
+                        // natural aspect ratio, including for portrait videos.
+                        maxHeight: math.max(0.0, constraints.maxHeight - 24),
+                        autoPlay: true,
+                        onProgress: (progress) {
+                          if (progress >= 0.2 && !_isVideoProgressSufficient) {
+                            setState(() {
+                              _isVideoProgressSufficient = true;
+                            });
+                          }
+                        },
                       ),
                     )
                   else

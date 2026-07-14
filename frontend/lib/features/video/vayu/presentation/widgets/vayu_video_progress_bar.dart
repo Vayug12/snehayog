@@ -208,8 +208,8 @@ class _VayuVideoProgressBarState extends State<VayuVideoProgressBar> with Ticker
                     activeBarHeight: widget.activeBarHeight,
                     thumbRadius: widget.thumbRadius,
                     primaryColor: AppColors.primary,
-                    bufferedColor: AppColors.white.withOpacity(0.3),
-                    backgroundColor: AppColors.backgroundSecondary.withOpacity(0.5),
+                    bufferedColor: AppColors.white.withValues(alpha: 0.3),
+                    backgroundColor: AppColors.backgroundSecondary.withValues(alpha: 0.5),
                   ),
                 );
               },

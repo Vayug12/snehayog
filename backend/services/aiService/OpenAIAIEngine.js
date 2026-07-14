@@ -18,8 +18,7 @@ export class OpenAIAIEngine extends IAIEngine {
    */
   async translate(text, targetLang = 'hi_IN') {
     if (!this.apiKey) {
-      console.warn('⚠️ [OpenAI AI Engine] API Key missing, falling back to original text');
-      return text;
+      throw new Error('OPENAI_API_KEY is missing');
     }
 
     try {
@@ -31,6 +30,9 @@ export class OpenAIAIEngine extends IAIEngine {
       };
       
       const targetLanguageName = languageMap[targetLang] || 'Hindi';
+      const targetStyle = targetLanguageName == 'Hindi'
+        ? 'Use natural spoken Hindi/Hinglish. Write Hindi words in Devanagari so Hindi TTS pronounces them correctly.'
+        : 'Use natural, spoken English.';
 
       const response = await axios.post(
         'https://api.openai.com/v1/chat/completions',
@@ -39,7 +41,7 @@ export class OpenAIAIEngine extends IAIEngine {
           messages: [
             {
               role: 'system',
-              content: `You are an expert translator. Translate the user text into natural, spoken-style ${targetLanguageName}. Only return the translation, no extra commentary.`
+              content: `You are an expert audiovisual dubbing translator. Translate the user text into ${targetStyle} Preserve names, brand names, URLs, and technical terms when appropriate. Translate meaning and tone, not word-for-word. Only return the translation, with no commentary.`
             },
             {
               role: 'user',
@@ -56,10 +58,15 @@ export class OpenAIAIEngine extends IAIEngine {
         }
       );
 
-      return response.data?.choices?.[0]?.message?.content?.trim() || text;
+      const translatedText = response.data?.choices?.[0]?.message?.content?.trim();
+      if (!translatedText) {
+        throw new Error('Translation provider returned an invalid response');
+      }
+
+      return translatedText;
     } catch (error) {
       console.error('❌ [OpenAI AI Engine] Translation error:', error.message);
-      return text;
+      throw error;
     }
   }
 

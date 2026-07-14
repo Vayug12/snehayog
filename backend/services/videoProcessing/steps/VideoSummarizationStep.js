@@ -2,6 +2,7 @@ import IBaseStep from '../IBaseStep.js';
 import Video from '../../../models/Video.js';
 import AIService from '../../aiService.js';
 import aiSemanticService from '../../yugFeedServices/aiSemanticService.js';
+import deepseekService from '../../deepseekService.js';
 import path from 'path';
 import fs from 'fs';
 import ffmpegStatic from 'ffmpeg-static';
@@ -13,7 +14,8 @@ const execPromise = promisify(exec);
 
 /**
  * Pipeline Step: AI Video Summarization
- * Extracts audio from the video, transcribes it, and generates a summary.
+ * Extracts audio, transcribes via Groq Whisper, generates rich semantic text via DeepSeek,
+ * and creates vector embeddings for content-aware search.
  */
 class VideoSummarizationStep extends IBaseStep {
   constructor() {
@@ -22,10 +24,9 @@ class VideoSummarizationStep extends IBaseStep {
 
   async execute(context) {
     const { videoId, localRawPath } = context;
-    
-    // Quick check if HF_TOKEN is available, as we need it for transcription/summarization
-    if (!process.env.HF_TOKEN) {
-      console.warn('⚠️ VideoSummarizationStep: Skipping because HF_TOKEN is not set');
+
+    if (!process.env.GROQ_API_KEY && !process.env.HF_TOKEN) {
+      console.warn('⚠️ VideoSummarizationStep: Skipping because neither GROQ_API_KEY nor HF_TOKEN is set');
       return;
     }
 
@@ -37,14 +38,14 @@ class VideoSummarizationStep extends IBaseStep {
 
     try {
       console.log(`📝 VideoSummarizationStep: Extracting audio for video ${videoId}...`);
-      
+
       const ffmpegPath = ffmpegStatic || 'ffmpeg';
-      
-      // We MUST AWAIT the extraction here because CleanupStep runs immediately after this step 
+
+      // We MUST AWAIT the extraction here because CleanupStep runs immediately after this step
       // and will delete the localRawPath.
       // Extract audio: 16kHz, mono, wav format (optimized for Whisper)
       await execPromise(`"${ffmpegPath}" -y -i "${localRawPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}"`);
-      
+
       if (!fs.existsSync(audioPath)) {
         throw new Error('Audio extraction failed: File not created');
       }
@@ -63,45 +64,95 @@ class VideoSummarizationStep extends IBaseStep {
   }
 
   /**
+   * Transcribe using Groq Whisper API (fast, free tier: 3600s/day)
+   * Falls back to HuggingFace Whisper if GROQ_API_KEY is not set
+   */
+  async _transcribe(audioPath) {
+    // Prefer Groq (fast, reliable)
+    if (process.env.GROQ_API_KEY) {
+      return this._transcribeWithGroq(audioPath);
+    }
+
+    // Fallback to HuggingFace Whisper
+    console.log('ℹ️ VideoSummarizationStep: GROQ_API_KEY not found, falling back to HF Whisper');
+    return AIService.transcribe(audioPath);
+  }
+
+  async _transcribeWithGroq(audioPath) {
+    const FormData = (await import('form-data')).default;
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(audioPath));
+    formData.append('model', 'whisper-large-v3');
+    formData.append('language', 'hi');
+    formData.append('response_format', 'verbose_json');
+
+    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        ...formData.getHeaders()
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Groq API error ${response.status}: ${errText.substring(0, 200)}`);
+    }
+
+    const result = await response.json();
+    return result.text;
+  }
+
+  /**
    * Helper to execute API calls for summarization in background
    */
   async _runSummarizationInBackground(videoId, audioPath) {
     try {
       console.log(`📝 VideoSummarizationStep: Transcribing audio for video ${videoId}...`);
-      const transcript = await AIService.transcribe(audioPath);
-      
-      if (!transcript || transcript.trim().length === 0) {
-        console.warn(`⚠️ VideoSummarizationStep: Empty transcript for video ${videoId}, skipping summarization.`);
+      const transcript = await this._transcribe(audioPath);
+
+      if (!transcript || transcript.trim().length < 10) {
+        console.warn(`⚠️ VideoSummarizationStep: Empty or too short transcript for video ${videoId}, skipping.`);
         return;
       }
 
-      // We truncate to 800 chars to fit safely within the MiniLM context window.
-      const safeTranscript = transcript.substring(0, 800);
-      
-      let vectorEmbedding = null;
-      if (safeTranscript) {
-        // Fetch full video details to build a rich semantic string
-        const fullVideo = await Video.findById(videoId);
-        
-        // Combine all relevant context for a powerful semantic embedding
-        const semanticText = `Title: ${fullVideo.videoName || ''}. Category: ${fullVideo.category || ''}. Tags: ${(fullVideo.tags || []).join(', ')}. Transcript: ${safeTranscript}`.trim();
-        
-        console.log(`🧠 VideoSummarizationStep: Generating vector embedding for semantic search...`);
-        vectorEmbedding = await aiSemanticService.getEmbedding(semanticText);
-        
-        const updateData = { 
-          aiContext: safeTranscript,
-          aiContextGenerated: true
-        };
-        
+      // Truncate to 1500 chars for Groq (larger context than HF MiniLM)
+      const safeTranscript = transcript.substring(0, 1500);
+
+      // Fetch full video details for semantic text generation
+      const fullVideo = await Video.findById(videoId);
+
+      // Generate rich semantic text using DeepSeek LLM (much better than simple string concat)
+      console.log(`🧠 VideoSummarizationStep: Generating rich semantic text via DeepSeek for video ${videoId}...`);
+      const semanticText = await deepseekService.generateSemanticText(safeTranscript, {
+        title: fullVideo.videoName,
+        category: fullVideo.category,
+        tags: fullVideo.tags
+      });
+
+      if (!semanticText) {
+        console.warn(`⚠️ VideoSummarizationStep: DeepSeek returned empty semantic text for ${videoId}, using fallback`);
+      }
+
+      // Use DeepSeek output if available, otherwise fallback to basic concat
+      const embeddingSource = semanticText || `Title: ${fullVideo.videoName || ''}. Category: ${fullVideo.category || ''}. Tags: ${(fullVideo.tags || []).join(', ')}. Transcript: ${safeTranscript}`.trim();
+
+      console.log(`🧠 VideoSummarizationStep: Generating vector embedding for semantic search...`);
+      const vectorEmbedding = await aiSemanticService.getEmbedding(embeddingSource);
+
+      const updateData = {
+        aiContext: safeTranscript,
+        aiContextGenerated: true
+      };
+
         if (vectorEmbedding) {
           updateData.vectorEmbedding = vectorEmbedding;
-          updateData.embeddingVersion = 'v1_minilm';
+          updateData.embeddingVersion = aiSemanticService.getActiveModelName();
         }
 
-        await Video.findByIdAndUpdate(videoId, updateData);
-        console.log(`✅ VideoSummarizationStep: Background summarization and embedding completed for ${videoId}`);
-      }
+      await Video.findByIdAndUpdate(videoId, updateData);
+      console.log(`✅ VideoSummarizationStep: Summarization and embedding completed for ${videoId}`);
 
     } catch (error) {
       console.error(`❌ VideoSummarizationStep: Background summarization failed:`, error);

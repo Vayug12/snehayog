@@ -45,6 +45,21 @@ class NotificationService {
     importance: Importance.high,
   );
 
+  /// Dedicated channel for AI video generation progress.
+  /// Importance.low keeps it silent so frequent progress updates don't spam
+  /// the user with sound/heads-up popups.
+  static const AndroidNotificationChannel _aiProgressChannel =
+      AndroidNotificationChannel(
+    'ai_video_progress',
+    'AI Video Generation',
+    description: 'Shows the progress of your AI video while it generates',
+    importance: Importance.low,
+  );
+
+  /// Fixed id so progress updates replace the same notification instead of
+  /// stacking new ones.
+  static const int _aiProgressNotificationId = 71001;
+
   /// Initialize Firebase and FCM
   Future<void> initialize() async {
     if (_initialized) {
@@ -190,6 +205,7 @@ class NotificationService {
           _localNotificationsPlugin.resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
       await androidPlatform?.createNotificationChannel(_androidChannel);
+      await androidPlatform?.createNotificationChannel(_aiProgressChannel);
 
       _localNotificationsInitialized = true;
       print('✅ Local notifications initialized');
@@ -357,6 +373,101 @@ class NotificationService {
       );
     } catch (e) {
       print('⚠️ Failed to show local notification: $e');
+    }
+  }
+
+  /// Show/update an ongoing progress notification for AI video generation.
+  /// Uses a fixed id so each call replaces the previous progress bar.
+  Future<void> showAiVideoProgress({
+    required int progressPercent,
+    required String statusText,
+  }) async {
+    try {
+      await _initializeLocalNotifications();
+      final pct = progressPercent.clamp(0, 100);
+      final androidDetails = AndroidNotificationDetails(
+        _aiProgressChannel.id,
+        _aiProgressChannel.name,
+        channelDescription: _aiProgressChannel.description,
+        importance: Importance.low,
+        priority: Priority.low,
+        onlyAlertOnce: true, // don't buzz on every progress update
+        showProgress: true,
+        maxProgress: 100,
+        progress: pct,
+        ongoing: true, // can't be swiped away while generating
+        autoCancel: false,
+        icon: '@mipmap/ic_launcher',
+      );
+      await _localNotificationsPlugin.show(
+        _aiProgressNotificationId,
+        'Generating your AI video',
+        '$statusText • $pct%',
+        NotificationDetails(android: androidDetails),
+      );
+    } catch (e) {
+      print('⚠️ Failed to show AI video progress notification: $e');
+    }
+  }
+
+  /// Replace the progress notification with a tappable "ready" notification.
+  Future<void> showAiVideoComplete() async {
+    try {
+      await _initializeLocalNotifications();
+      final androidDetails = AndroidNotificationDetails(
+        _aiProgressChannel.id,
+        _aiProgressChannel.name,
+        channelDescription: _aiProgressChannel.description,
+        importance: Importance.high,
+        priority: Priority.high,
+        autoCancel: true,
+        ongoing: false,
+        playSound: true,
+        icon: '@mipmap/ic_launcher',
+      );
+      await _localNotificationsPlugin.show(
+        _aiProgressNotificationId,
+        '✅ Video ready!',
+        'Your AI video has been saved to your gallery.',
+        NotificationDetails(android: androidDetails),
+      );
+    } catch (e) {
+      print('⚠️ Failed to show AI video complete notification: $e');
+    }
+  }
+
+  /// Replace the progress notification with a failure notification.
+  Future<void> showAiVideoFailed(String message) async {
+    try {
+      await _initializeLocalNotifications();
+      final androidDetails = AndroidNotificationDetails(
+        _aiProgressChannel.id,
+        _aiProgressChannel.name,
+        channelDescription: _aiProgressChannel.description,
+        importance: Importance.high,
+        priority: Priority.high,
+        autoCancel: true,
+        ongoing: false,
+        playSound: true,
+        icon: '@mipmap/ic_launcher',
+      );
+      await _localNotificationsPlugin.show(
+        _aiProgressNotificationId,
+        '❌ Video generation failed',
+        message,
+        NotificationDetails(android: androidDetails),
+      );
+    } catch (e) {
+      print('⚠️ Failed to show AI video failed notification: $e');
+    }
+  }
+
+  /// Dismiss the AI video generation notification entirely.
+  Future<void> cancelAiVideoNotification() async {
+    try {
+      await _localNotificationsPlugin.cancel(_aiProgressNotificationId);
+    } catch (e) {
+      print('⚠️ Failed to cancel AI video notification: $e');
     }
   }
 

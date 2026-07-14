@@ -31,13 +31,6 @@ router.post('/upload', verifyToken, uploadLimiter, validateVideoData, upload.sin
 router.post('/register-upload', verifyToken, uploadController.registerUpload);
 router.post('/r2-callback', uploadController.r2Callback);
 router.post('/image', verifyToken, uploadController.createImageFeedEntry);
-router.post('/generate-clip', verifyToken, uploadController.generateClip);
-
-// **NEW: Fast Clipping Routes (Ephemeral)**
-router.post('/clipping/presigned', verifyToken, uploadController.getClipUploadUrl);
-router.post('/clipping/process', verifyToken, uploadController.processClippingTask);
-router.get('/clipping/status/:jobId', verifyToken, uploadController.getClipJobStatus);
-router.get('/clipping/stream/:jobId', uploadController.streamClippingStatus);
 
 /**
  * Video Retrieval Routes

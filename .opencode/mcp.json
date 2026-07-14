@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vayu-ai-service": {
+      "command": "node",
+      "args": ["mcp-servers/vayu-ai-service/index.js"],
+      "env": {
+        "VAYU_BACKEND_URL": "http://localhost:3000"
+      }
+    }
+  }
+}

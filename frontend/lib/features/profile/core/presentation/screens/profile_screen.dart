@@ -39,6 +39,7 @@ import 'package:vayug/features/profile/notices/data/services/notice_service.dart
 import 'package:vayug/features/profile/payouts/data/services/payment_setup_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/features/auth/presentation/controllers/google_sign_in_controller.dart';
+import 'package:vayug/features/auth/presentation/widgets/auth_options_sheet.dart';
 import 'package:vayug/features/auth/data/services/logout_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/features/video/core/presentation/managers/shared_video_controller_pool.dart';
@@ -438,6 +439,32 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       ProfileScreenLogger.logGoogleSignInError(e.toString());
       if (mounted) {
         VayuSnackBar.showError(context, '${AppText.get('error_sign_in')}: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _isSigningIn = false);
+    }
+  }
+
+  Future<void> _handlePhoneSignIn() async {
+    final authController = ref.read(googleSignInProvider);
+    final userData = await showAuthOptionsSheet(
+      context: context,
+      authController: authController,
+      startWithPhone: true,
+    );
+    if (!mounted || userData == null) return;
+
+    try {
+      setState(() => _isSigningIn = true);
+      final mainController = ref.read(mainControllerProvider);
+      await mainController.refreshAppStateAfterSwitch(ref);
+      await _loadData(forceRefresh: true);
+      if (mounted) {
+        VayuSnackBar.showSuccess(context, 'Phone verified successfully!');
+      }
+    } catch (e) {
+      if (mounted) {
+        VayuSnackBar.showError(context, 'Could not refresh profile: $e');
       }
     } finally {
       if (mounted) setState(() => _isSigningIn = false);
@@ -1012,6 +1039,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       return _wrapWithSliverAppBar(
         ProfileSignInView(
           onGoogleSignIn: _handleGoogleSignIn,
+          onPhoneSignIn: _handlePhoneSignIn,
           sessionExpired: isSessionExpired,
         ),
         isViewingOwnProfile,
@@ -1042,6 +1070,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                 return _wrapWithSliverAppBar(
                   ProfileSignInView(
                     onGoogleSignIn: _handleGoogleSignIn,
+                    onPhoneSignIn: _handlePhoneSignIn,
                     sessionExpired: isSessionExpired,
                   ),
                   isViewingOwnProfile,
@@ -1055,6 +1084,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                 return _wrapWithSliverAppBar(
                   ProfileSignInView(
                     onGoogleSignIn: _handleGoogleSignIn,
+                    onPhoneSignIn: _handlePhoneSignIn,
                     sessionExpired: isSessionExpired,
                   ),
                   isViewingOwnProfile,
@@ -1110,7 +1140,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
             // Check if we have user data
             if (manager.userData == null) {
               if (widget.userId == null && !authController.isSignedIn) {
-                return _wrapWithSliverAppBar(ProfileSignInView(onGoogleSignIn: _handleGoogleSignIn), isViewingOwnProfile, manager);
+                return _wrapWithSliverAppBar(
+                  ProfileSignInView(
+                    onGoogleSignIn: _handleGoogleSignIn,
+                    onPhoneSignIn: _handlePhoneSignIn,
+                  ),
+                  isViewingOwnProfile,
+                  manager,
+                );
               }
               // If viewing someone else's profile, we might not have data yet
               if (widget.userId != null) {
@@ -1150,7 +1187,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   manager,
                 );
               }
-              return _wrapWithSliverAppBar(ProfileSignInView(onGoogleSignIn: _handleGoogleSignIn), isViewingOwnProfile, manager);
+              return _wrapWithSliverAppBar(
+                ProfileSignInView(
+                  onGoogleSignIn: _handleGoogleSignIn,
+                  onPhoneSignIn: _handlePhoneSignIn,
+                ),
+                isViewingOwnProfile,
+                manager,
+              );
             }
 
             // SUCCESS STATE: Show profile data

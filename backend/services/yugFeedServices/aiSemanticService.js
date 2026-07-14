@@ -1,109 +1,96 @@
 /**
- * **AI SEMANTIC SERVICE**
- * Free open-source AI service for semantic ad-video matching
- * Uses @xenova/transformers (local, no API costs)
- * Falls back gracefully if transformers are not available
+ * AI SEMANTIC SERVICE — Zero-Cost Gemini Embedding Pipeline
+ * 
+ * Embedding provider: Gemini text-embedding-004 (free tier: 1000/day, 2 RPM)
+ * Output: 384-dimensional vectors (matches existing v3_gemini data)
+ * 
+ * IMPORTANT: All embeddings MUST be generated from the same model for vector search to work.
+ * Model version tag: 'v3_gemini'
  */
-import geminiService from '../geminiService.js';
+import axios from 'axios';
+import apiRateLimiter from '../rateLimiting/apiRateLimiter.js';
+
+const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent';
+const EMBEDDING_DIMENSION = 384;
 
 class AISemanticService {
   constructor() {
-    this.model = null;
     this.cache = new Map();
-    this.initialized = false;
-    this.transformersModule = null;
-    this.pipeline = null;
-    this.initializing = false;
-    this.initPromise = null;
-  }
-
-  // ... (keeping existing local loading methods for fallback)
-  async _loadTransformers() {
-    if (this.transformersModule) return true;
-    if (this.transformersModule === false) return false;
-    try {
-      console.log('🤖 AISemanticService: Loading @xenova/transformers...');
-      const transformers = await import('@xenova/transformers');
-      this.transformersModule = transformers;
-      this.pipeline = transformers.pipeline;
-      return true;
-    } catch (error) {
-      this.transformersModule = false;
-      console.warn('⚠️ AISemanticService: Failed to load @xenova/transformers native modules.');
-      console.warn(`   Reason: ${error.message}`);
-      if (error.code === 'ERR_DLOPEN_FAILED') {
-        console.warn('   Note: This is usually due to missing glibc/shared libraries in the OS environment.');
-      }
-      return false;
-    }
-  }
-
-  async initialize() {
-    if (this.initPromise) return this.initPromise;
-    if (this.initialized && this.model) return Promise.resolve();
-    if (this.initializing) return this.initPromise || Promise.resolve();
-    
-    this.initializing = true;
-    this.initPromise = (async () => {
-      try {
-        const transformersReady = await this._loadTransformers();
-        if (!transformersReady || !this.pipeline) {
-          this.initialized = true;
-          this.initializing = false;
-          return;
-        }
-        try {
-          this.model = await this.pipeline('feature-extraction', 'Xenova/paraphrase-multilingual-MiniLM-L12-v2');
-          this.initialized = true;
-        } catch (error) {
-          this.model = null;
-          this.initialized = false;
-        }
-      } finally {
-        this.initializing = false;
-      }
-    })();
-    return this.initPromise;
+    this.apiKey = process.env.GEMINI_API_KEY;
   }
 
   /**
-   * Get embedding for text (Primary: Gemini, Fallback: Local MiniLM)
+   * Get the active embedding model name for version tagging
+   */
+  getActiveModelName() {
+    return 'v3_gemini';
+  }
+
+  /**
+   * Get embedding for text (Gemini text-embedding-004, 384-dim)
+   * Rate-limited via apiRateLimiter (2 RPM, 1000/day)
    */
   async getEmbedding(text) {
     if (!text) return null;
-    
-    // Check cache
-    const cacheKey = text.toLowerCase().trim();
-    if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
-
-    try {
-      // **STRATEGY 1: Gemini (Best for Hinglish)**
-      if (process.env.GEMINI_API_KEY) {
-        const embedding = await geminiService.getEmbedding(text);
-        if (embedding) {
-          this.cache.set(cacheKey, embedding);
-          setTimeout(() => this.cache.delete(cacheKey), 3600000);
-          return embedding;
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️ AISemanticService: Gemini embedding failed, falling back to local model.');
-    }
-
-    // **STRATEGY 2: Local MiniLM Fallback**
-    if (!this.model) {
-      await this.initialize();
-      if (!this.model) return null;
-    }
-
-    try {
-      const output = await this.model(text, { pooling: 'mean', normalize: true });
-      const embedding = Array.from(output.data);
-      this.cache.set(cacheKey, embedding);
-      return embedding;
-    } catch (error) {
+    if (!this.apiKey) {
+      console.warn('⚠️ AISemanticService: GEMINI_API_KEY not set');
       return null;
     }
+
+    // Check cache (1hr TTL)
+    const cacheKey = `gemini_384:${text.toLowerCase().trim().substring(0, 500)}`;
+    if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
+
+    // Wait for rate limit
+    const { allowed, dailyRemaining } = await apiRateLimiter.wait('gemini');
+    if (!allowed) {
+      console.warn('⚠️ AISemanticService: Gemini daily quota exhausted, skipping embedding');
+      return null;
+    }
+
+    try {
+      const embedding = await this._getGeminiEmbedding(text);
+      if (embedding) {
+        this.cache.set(cacheKey, embedding);
+        setTimeout(() => this.cache.delete(cacheKey), 3600000); // 1hr TTL
+        return embedding;
+      }
+    } catch (error) {
+      const errMsg = error.response?.data?.error?.message || error.message;
+      console.warn(`⚠️ AISemanticService: Gemini embedding failed: ${errMsg}`);
+    }
+
+    return null;
+  }
+
+  /**
+   * Gemini text-embedding-004 with output_dimensionality=384
+   * Free tier: 1000 requests/day, 2 RPM
+   */
+  async _getGeminiEmbedding(text) {
+    const response = await axios.post(
+      `${GEMINI_EMBED_URL}?key=${this.apiKey}`,
+      {
+        model: 'models/text-embedding-004',
+        content: { parts: [{ text: text.substring(0, 8000) }] },
+        output_dimensionality: EMBEDDING_DIMENSION
+      },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 15000
+      }
+    );
+
+    if (response.data?.embedding?.values) {
+      const values = response.data.embedding.values;
+      if (values.length === EMBEDDING_DIMENSION) {
+        return values;
+      }
+      console.warn(`⚠️ AISemanticService: Expected ${EMBEDDING_DIMENSION}d, got ${values.length}d`);
+      return values;
+    }
+
+    return null;
   }
 
   /**
@@ -111,17 +98,17 @@ class AISemanticService {
    */
   cosineSimilarity(a, b) {
     if (!a || !b || a.length !== b.length) return 0;
-    
+
     let dotProduct = 0;
     let normA = 0;
     let normB = 0;
-    
+
     for (let i = 0; i < a.length; i++) {
       dotProduct += a[i] * b[i];
       normA += a[i] * a[i];
       normB += b[i] * b[i];
     }
-    
+
     if (normA === 0 || normB === 0) return 0;
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
@@ -132,64 +119,34 @@ class AISemanticService {
    */
   async matchSemantically(videoContent, ads) {
     try {
-      // Initialize model if not already done
-      await this.initialize();
-      
-      if (!this.model) {
-        console.log('⚠️ AI model not available - skipping semantic matching');
-        return [];
-      }
-      
-      // Extract video text
-      const videoText = `${videoContent.videoName || videoContent.title || ''} ${videoContent.description || ''}`.trim(); 
-      
+      const videoText = `${videoContent.videoName || videoContent.title || ''} ${videoContent.description || ''}`.trim();
       if (!videoText) return [];
-      
-      // Get video embedding
+
       const videoEmbedding = await this.getEmbedding(videoText);
-      if (!videoEmbedding) {
-        console.log('⚠️ Failed to get video embedding');
-        return [];
-      }
-      
-      // Score each ad
+      if (!videoEmbedding) return [];
+
       const scoredAds = [];
       for (const ad of ads) {
         try {
           const adText = `${ad.title || ''} ${ad.description || ''}`.trim();
           if (!adText) continue;
-          
+
           const adEmbedding = await this.getEmbedding(adText);
           if (!adEmbedding) continue;
-          
+
           const score = this.cosineSimilarity(videoEmbedding, adEmbedding);
-          
-          // Log top scores for debugging
-           if (score > 0.2) {
-             // console.log(`  📊 Score ${score.toFixed(3)}: Ad "${ad.title}" vs Video "${videoText.substring(0, 50)}"`);
-           }
-          
           scoredAds.push({ ad, score });
-        } catch (error) {
+        } catch {
           continue;
         }
       }
-      
-      // Sort by score
+
       scoredAds.sort((a, b) => b.score - a.score);
-      
-      // console.log(`📊 Top 3 scores: ${scoredAds.slice(0, 3).map(s => s.score.toFixed(3)).join(', ')}`);
-      
-      // **OPTIMIZED THRESHOLD: 0.15 for better ad coverage**
-      // Lower threshold means more ads will match semantically
-      const topMatches = scoredAds
-        .filter(item => item.score > 0.15) // Lowered to 0.15 to catch more relevant ads
-        .slice(0, 5) // Return top 5 instead of 3 for more variety
+
+      return scoredAds
+        .filter(item => item.score > 0.15)
+        .slice(0, 5)
         .map(item => item.ad);
-      
-      // console.log(`✅ AI found ${topMatches.length} matching ads (threshold: 0.15)`);
-      
-      return topMatches;
     } catch (error) {
       console.error('❌ Error in semantic matching:', error);
       return [];

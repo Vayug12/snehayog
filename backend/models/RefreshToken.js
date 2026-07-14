@@ -111,18 +111,26 @@ RefreshTokenSchema.statics.createForDevice = async function(userId, deviceId, de
 RefreshTokenSchema.statics.verifyAndRotate = async function(rawToken) {
   const tokenHash = this.hashToken(rawToken);
 
-  // Find valid token by hash only
+  // Find valid token by hash (include expired to distinguish revocation vs expiry)
   const existingToken = await this.findOne({
     tokenHash,
     isRevoked: false,
-    expiresAt: { $gt: new Date() }
   }).populate('userId', 'googleId name email profilePic');
 
   if (!existingToken) {
     return null;
   }
 
-  // Revoke the old token
+  // Check if token is expired but not revoked — treat as expired, not revoked
+  // This avoids revoking a token that merely expired due to normal passage of time,
+  // which would otherwise prevent the client from attempting Google fallback.
+  if (existingToken.expiresAt <= new Date()) {
+    console.log(`⚠️ Refresh token expired at ${existingToken.expiresAt.toISOString()} for device ${existingToken.deviceId}`);
+    // Do NOT revoke — let it expire naturally. Return null so caller knows it's invalid.
+    return null;
+  }
+
+  // Revoke the old token (rotation)
   existingToken.isRevoked = true;
   await existingToken.save();
 
