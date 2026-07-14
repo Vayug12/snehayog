@@ -1,5 +1,5 @@
 app = "vayug"
-primary_region = "bom"
+primary_region = "sin"
 
 [processes]
   app = "npm start"
