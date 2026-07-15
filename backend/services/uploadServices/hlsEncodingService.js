@@ -42,6 +42,16 @@ if (!ffprobePath) {
 if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 if (ffprobePath) ffmpeg.setFfprobePath(ffprobePath);
 
+/**
+ * Convert an FFmpeg timemark ("00:01:23.45") to seconds.
+ */
+function timemarkToSeconds(timemark) {
+  if (typeof timemark !== 'string') return 0;
+  const parts = timemark.split(':').map((p) => parseFloat(p));
+  if (parts.length !== 3 || parts.some((p) => Number.isNaN(p))) return 0;
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+}
+
 class HLSEncodingService {
   constructor() {
     this.hlsOutputDir = path.join(__dirname, '../uploads/hls');
@@ -67,7 +77,8 @@ class HLSEncodingService {
       quality = 'medium',
       codec = 'h265',
       copyVideo = false,
-      copyAudio = false
+      copyAudio = false,
+      onProgress = null
     } = options;
 
     let actualCodec = codec;
@@ -178,8 +189,10 @@ class HLSEncodingService {
         '-movflags', '+faststart'
       ];
 
+      // '-stats' is required: at '-loglevel error' FFmpeg suppresses the stats
+      // lines that fluent-ffmpeg parses to emit 'progress' events.
       let command = ffmpeg(inputPath)
-        .inputOptions(['-y', '-hide_banner', '-loglevel error'])
+        .inputOptions(['-y', '-hide_banner', '-loglevel error', '-stats'])
         .outputOptions([...videoOptions, ...audioOptions, ...commonOptions]);
 
       if (originalVideoInfo && originalVideoInfo.height > 1080) {
@@ -188,10 +201,49 @@ class HLSEncodingService {
       
       command = command.output(playlistPath);
 
+      const sourceDuration = originalVideoInfo?.duration || 0;
+      const encodeStart = Date.now();
+      let lastProgressLog = 0;
+
+      command.on('start', (commandLine) => {
+        console.log(
+          `[HLS] ${videoId} | START | codec=${actualCodec} | source=${originalVideoInfo?.width || '?'}x${originalVideoInfo?.height || '?'} | duration=${sourceDuration.toFixed(1)}s | maxrate=${targetBitrate}`
+        );
+        console.log(`[HLS] ${videoId} | CMD | ${commandLine}`);
+      });
+
+      command.on('progress', (progress) => {
+        const encodedSeconds = timemarkToSeconds(progress.timemark);
+
+        let percent = progress.percent;
+        if ((percent === undefined || Number.isNaN(percent)) && sourceDuration > 0) {
+          percent = (encodedSeconds / sourceDuration) * 100;
+        }
+        percent = Math.max(0, Math.min(100, Math.round(percent || 0)));
+
+        const elapsedSec = (Date.now() - encodeStart) / 1000;
+        // speed < 1.0x means FFmpeg encodes slower than the video plays: CPU-bound.
+        const speed = elapsedSec > 0 ? encodedSeconds / elapsedSec : 0;
+
+        const now = Date.now();
+        if (now - lastProgressLog > 5000) {
+          lastProgressLog = now;
+          console.log(
+            `[HLS] ${videoId} | PROGRESS | ${percent}% | ${progress.timemark} of ${sourceDuration.toFixed(1)}s | fps=${progress.currentFps ?? '?'} | speed=${speed.toFixed(2)}x | elapsed=${elapsedSec.toFixed(0)}s`
+          );
+        }
+
+        if (onProgress) onProgress(percent);
+      });
+
       command.on('end', () => {
+        const encodeSec = (Date.now() - encodeStart) / 1000;
         try {
           const playlistContent = fs.readFileSync(playlistPath, 'utf8');
           const segments = fs.readdirSync(outputDir).filter(file => file.endsWith('.ts'));
+          console.log(
+            `[HLS] ${videoId} | DONE | ${segments.length} segments | encode=${encodeSec.toFixed(1)}s for ${sourceDuration.toFixed(1)}s of video (${encodeSec > 0 ? (sourceDuration / encodeSec).toFixed(2) : '?'}x realtime)`
+          );
           resolve({
             success: true,
             playlistPath,
@@ -206,6 +258,8 @@ class HLSEncodingService {
       });
 
       command.on('error', (error) => {
+        const encodeSec = (Date.now() - encodeStart) / 1000;
+        console.error(`[HLS] ${videoId} | ERROR | after ${encodeSec.toFixed(1)}s | ${error.message}`);
         reject(new Error(`HLS encoding failed: ${error.message}`));
       });
 

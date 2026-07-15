@@ -249,17 +249,38 @@ const videoWorker = new Worker('video-processing', async (job) => {
   concurrency: 1 // CRITICAL: Only 1 job at a time on 1GB Fly.io machine
 });
 
+let activeJobsCount = 0;
+let shutdownTimeout = null;
+
 videoWorker.on('active', (job) => {
-  console.log(`🚀 Worker: Started job ${job.id}`);
+  activeJobsCount++;
+  if (shutdownTimeout) {
+    console.log('🚀 Worker: New job active. Cancelling idle shutdown timer.');
+    clearTimeout(shutdownTimeout);
+    shutdownTimeout = null;
+  }
+
+  // job.timestamp = when the job was enqueued. A large gap here means the video
+  // was not being processed at all, it was waiting for a free/awake worker.
+  const waitSec = (Date.now() - job.timestamp) / 1000;
+  console.log(`🚀 Worker: Started job ${job.id} (${job.name}) | Queue wait: ${waitSec.toFixed(1)}s | attempt ${job.attemptsMade + 1}/${job.opts.attempts ?? 1}`);
 });
 
 videoWorker.on('completed', (job) => {
-  console.log(`✅ Job ${job.id} completed!`);
+  activeJobsCount = Math.max(0, activeJobsCount - 1);
+  const finishedOn = job.finishedOn ?? Date.now();
+  const processSec = (finishedOn - (job.processedOn ?? job.timestamp)) / 1000;
+  const queueSec = ((job.processedOn ?? finishedOn) - job.timestamp) / 1000;
+  const totalSec = (finishedOn - job.timestamp) / 1000;
+  console.log(
+    `✅ Job ${job.id} completed | Queue wait: ${queueSec.toFixed(1)}s | Processing: ${processSec.toFixed(1)}s | Total: ${totalSec.toFixed(1)}s`
+  );
 });
 
 videoWorker.on('failed', async (job, err) => {
   console.log(`❌ Job ${job.id} failed: ${err.message}`);
-  
+  activeJobsCount = Math.max(0, activeJobsCount - 1);
+
   // Clean up R2 on permanent failure
   try {
     if (job.attemptsMade >= job.opts.attempts) {
@@ -276,8 +297,32 @@ videoWorker.on('failed', async (job, err) => {
   }
 });
 
-// This worker runs inside the same Node.js process as the API on Fly.io.
-// Never call process.exit() when the queue drains: that would stop the API
-// and leave later video jobs waiting without a worker to consume them.
+// Cost control: stop paying for the worker VM once there is nothing to encode.
+//
+// Guarded on FLY_PROCESS_GROUP === 'worker', NOT on FLY_APP_NAME: that variable is
+// also set on the app machine, so if DISABLE_INTEGRATED_WORKER is ever flipped back
+// to "false" the exit below would kill the API instead of a worker. Fly sets
+// FLY_PROCESS_GROUP per process group, so only the dedicated worker VM can exit here.
+const IDLE_SHUTDOWN_MS = parseInt(process.env.WORKER_IDLE_SHUTDOWN_MS, 10) || 120000;
+const isDedicatedWorkerMachine = process.env.FLY_PROCESS_GROUP === 'worker';
+
+if (isDedicatedWorkerMachine && process.env.DISABLE_AUTO_SHUTDOWN !== 'true') {
+  videoWorker.on('drained', () => {
+    console.log(`🧹 Worker: Queue drained. Scheduling idle shutdown in ${(IDLE_SHUTDOWN_MS / 1000).toFixed(0)}s...`);
+
+    if (shutdownTimeout) clearTimeout(shutdownTimeout);
+
+    shutdownTimeout = setTimeout(() => {
+      if (activeJobsCount === 0) {
+        console.log('😴 Worker: Idle with 0 active jobs. Exiting to stop this VM and save cost.');
+        process.exit(0); // Exiting signals Fly.io to stop this Machine.
+      } else {
+        console.log(`ℹ️ Worker: Shutdown cancelled. Active jobs: ${activeJobsCount}`);
+      }
+    }, IDLE_SHUTDOWN_MS);
+  });
+} else {
+  console.log(`ℹ️ Worker: Idle auto-shutdown disabled (process group: ${process.env.FLY_PROCESS_GROUP || 'local'}).`);
+}
 
 console.log('👷 Video Worker Started and Listening for jobs...');

@@ -100,13 +100,25 @@ class FeedQueueService {
 
     /**
      * Wakes up the Fly.io worker machine on-demand if env variables are configured.
+     *
+     * The worker machine is not attached to [http_service], so Fly Proxy never
+     * auto-starts it — enqueuing a job cannot wake it by itself. This is the only
+     * thing that does.
+     *
+     * FLY_WORKER_APP is read before FLY_APP_NAME on purpose: FLY_APP_NAME also
+     * switches the Redis connection to IPv6 + plaintext (see redisOptions above),
+     * which breaks Upstash from a dev machine. Set FLY_WORKER_APP locally instead.
      */
     async _wakeWorker() {
-        const flyAppName = process.env.FLY_APP_NAME;
+        const flyAppName = process.env.FLY_WORKER_APP || process.env.FLY_APP_NAME;
         const flyApiToken = process.env.FLY_API_TOKEN;
+        const workerProcessGroup = process.env.FLY_WORKER_PROCESS_GROUP || 'worker';
 
         if (!flyAppName || !flyApiToken) {
-            console.log('ℹ️ QueueService: Standalone worker wake-up skipped (missing FLY_API_TOKEN or FLY_APP_NAME in env)');
+            console.warn(
+                `⚠️ QueueService: Worker wake-up SKIPPED — ${!flyApiToken ? 'FLY_API_TOKEN' : 'FLY_WORKER_APP/FLY_APP_NAME'} missing. ` +
+                'Jobs will sit in the queue until the worker machine is started by something else.'
+            );
             return;
         }
 
@@ -124,13 +136,23 @@ class FeedQueueService {
                 }
             );
 
-            // 2. Filter for the machine(s) in the 'worker' process group
+            // 2. Filter for the machine(s) in the worker process group
             const workerMachines = listResponse.data.filter(
-                m => m.config?.metadata?.["fly_process_group"] === 'worker'
+                m => m.config?.metadata?.["fly_process_group"] === workerProcessGroup
             );
 
             if (workerMachines.length === 0) {
-                console.warn('⚠️ QueueService: No worker machines found to start');
+                // This is how the wake-up broke silently once before: fly.toml dropped
+                // the 'worker' process group while this filter kept looking for it.
+                // Name the groups we DID find so the mismatch is obvious.
+                const foundGroups = [...new Set(
+                    listResponse.data.map(m => m.config?.metadata?.["fly_process_group"] || '(none)')
+                )];
+                console.error(
+                    `❌ QueueService: No machines in process group '${workerProcessGroup}' — video jobs will NOT be processed. ` +
+                    `Groups present in app '${flyAppName}': [${foundGroups.join(', ')}]. ` +
+                    'Check the [processes] block in fly.toml, or set FLY_WORKER_PROCESS_GROUP.'
+                );
                 return;
             }
 

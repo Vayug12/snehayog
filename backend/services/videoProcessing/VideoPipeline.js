@@ -27,21 +27,32 @@ class VideoPipeline {
     const context = { ...initialContext };
     
     console.log(`🎬 Pipeline: Starting for video ${videoId}`);
+    const pipelineStart = Date.now();
+    const timings = [];
 
     try {
       for (const step of this.steps) {
         console.log(`⏳ Pipeline: Executing [${step.getName()}]...`);
+        const stepStart = Date.now();
+
         await step.execute(context);
-        
+
+        const stepSec = (Date.now() - stepStart) / 1000;
+        timings.push(`${step.getName()}=${stepSec.toFixed(1)}s`);
+        console.log(`⏱️ Pipeline: [${step.getName()}] finished in ${stepSec.toFixed(1)}s`);
+
         // Optional: Update progress in DB if available
         if (context.progress) {
           await Video.findByIdAndUpdate(videoId, { processingProgress: context.progress });
         }
       }
-      
-      console.log(`✅ Pipeline: Completed successfully for ${videoId}`);
+
+      const totalSec = (Date.now() - pipelineStart) / 1000;
+      console.log(`✅ Pipeline: Completed successfully for ${videoId} in ${totalSec.toFixed(1)}s | ${timings.join(' | ')}`);
       return context;
     } catch (error) {
+      const totalSec = (Date.now() - pipelineStart) / 1000;
+      console.error(`❌ Pipeline: Failed for ${videoId} after ${totalSec.toFixed(1)}s | completed steps: ${timings.join(' | ') || 'none'}`);
       console.error(`❌ Pipeline: Failed at step for ${videoId}:`, error);
       
       // Update DB with failure

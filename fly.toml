@@ -1,14 +1,17 @@
 app = "vayug"
 primary_region = "sin"
 
-# Single process — app + integrated video worker dono ek saath chalenge
+# Do process groups jaan-boojh kar:
+#   app    → Fly Proxy manage karta hai (HTTP pe auto-start, idle pe auto-stop)
+#   worker → Proxy ke bahar. FFmpeg encode ke beech me koi ise band nahi kar sakta.
 [processes]
   app = "npm start"
+  worker = "npm run worker"
 
 [env]
   PORT = "8080"
-  # Integrated worker enabled — separate worker machine ki zarurat nahi
-  DISABLE_INTEGRATED_WORKER = "false"
+  # app process worker NA chalaye — uske liye alag worker machine hai.
+  DISABLE_INTEGRATED_WORKER = "true"
 
 [build]
 
@@ -32,9 +35,19 @@ primary_region = "sin"
   path = "/health"
   timeout = "10s"
 
-# Single 2GB machine — app + worker dono handle karega
+# Web API — chhoti machine, idle pe proxy khud stop kar deta hai.
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  processes = ["app"]
+
+# FFmpeg worker — 'worker' group ko http_service se BAHAR rakha gaya hai.
+# Fly Proxy is machine ko na start karta hai na stop, isliye encode ke beech
+# me ye kabhi nahi marti. Job queue me aate hi _wakeWorker (Machines API)
+# ise jagata hai, aur queue khali hone par ye khud exit ho jaati hai.
 [[vm]]
   memory = '2gb'
   cpu_kind = 'shared'
   cpus = 1
-  processes = ["app"]
+  processes = ["worker"]
