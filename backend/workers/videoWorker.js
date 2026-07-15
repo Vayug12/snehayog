@@ -249,26 +249,16 @@ const videoWorker = new Worker('video-processing', async (job) => {
   concurrency: 1 // CRITICAL: Only 1 job at a time on 1GB Fly.io machine
 });
 
-let activeJobsCount = 0;
-let shutdownTimeout = null;
-
 videoWorker.on('active', (job) => {
-  activeJobsCount++;
-  if (shutdownTimeout) {
-    console.log('🚀 Worker: New job active. Cancelling idle shutdown timer.');
-    clearTimeout(shutdownTimeout);
-    shutdownTimeout = null;
-  }
+  console.log(`🚀 Worker: Started job ${job.id}`);
 });
 
 videoWorker.on('completed', (job) => {
   console.log(`✅ Job ${job.id} completed!`);
-  activeJobsCount = Math.max(0, activeJobsCount - 1);
 });
 
 videoWorker.on('failed', async (job, err) => {
   console.log(`❌ Job ${job.id} failed: ${err.message}`);
-  activeJobsCount = Math.max(0, activeJobsCount - 1);
   
   // Clean up R2 on permanent failure
   try {
@@ -286,22 +276,8 @@ videoWorker.on('failed', async (job, err) => {
   }
 });
 
-// Cost optimization: Automatically shut down worker VM when idle
-if (process.env.FLY_APP_NAME && process.env.DISABLE_AUTO_SHUTDOWN !== 'true') {
-  videoWorker.on('drained', () => {
-    console.log('🧹 Worker: Queue is drained. Scheduling idle shutdown in 2 minutes...');
-    
-    if (shutdownTimeout) clearTimeout(shutdownTimeout);
-    
-    shutdownTimeout = setTimeout(() => {
-      if (activeJobsCount === 0) {
-        console.log('😴 Worker: Machine is idle with 0 active jobs. Shutting down to save cost...');
-        process.exit(0); // Exit command signals Fly.io to stop this VM
-      } else {
-        console.log(`ℹ️ Worker: Shutdown cancelled. Active: ${activeJobsCount}`);
-      }
-    }, 600000); // 10 minutes (600,000 ms) idle buffer
-  });
-}
+// This worker runs inside the same Node.js process as the API on Fly.io.
+// Never call process.exit() when the queue drains: that would stop the API
+// and leave later video jobs waiting without a worker to consume them.
 
 console.log('👷 Video Worker Started and Listening for jobs...');

@@ -47,8 +47,18 @@ class UploadStateManager extends ChangeNotifier {
   Map<String, String> _crossPostStatus = {};
   Map<String, String> get crossPostStatus => _crossPostStatus;
 
+  // Every upload gets its own id.  Cancelling (or replacing) an upload
+  // invalidates that id so a late result from the old HTTP request cannot
+  // overwrite the state for the next video.
+  int _uploadOperationId = 0;
+
+  bool _isCurrentOperation(int operationId) =>
+      operationId == _uploadOperationId;
+
   // --- Setters ---
   void setVideo(File video) {
+    _invalidateActiveUpload();
+    _clearState();
     _selectedVideo = video;
     notifyListeners();
   }
@@ -84,6 +94,9 @@ class UploadStateManager extends ChangeNotifier {
       return;
     }
 
+    final operationId = ++_uploadOperationId;
+    final videoFile = _selectedVideo!;
+
     _status = UploadStatus.preparing;
     _currentPhase = 'preparation';
     _errorMessage = null;
@@ -91,7 +104,8 @@ class UploadStateManager extends ChangeNotifier {
     notifyListeners();
 
     // 1. Validate
-    final isValid = await _uploadService.validateVideo(_selectedVideo!);
+    final isValid = await _uploadService.validateVideo(videoFile);
+    if (!_isCurrentOperation(operationId)) return;
     if (!isValid) {
       _setError('Invalid video file or size too large (Max 700MB)');
       return;
@@ -99,7 +113,8 @@ class UploadStateManager extends ChangeNotifier {
 
     // 2. Setup Progress Listener
     final progressSubscription = _uploadService.uploadProgress.listen((p) {
-      if (_status == UploadStatus.uploading) {
+      if (_isCurrentOperation(operationId) &&
+          _status == UploadStatus.uploading) {
         _progress = 0.1 + (p * 0.4); // Upload is 10% to 50% of total
         notifyListeners();
       }
@@ -112,7 +127,7 @@ class UploadStateManager extends ChangeNotifier {
       notifyListeners();
 
       final videoId = await _uploadService.uploadVideo(
-        videoFile: _selectedVideo!,
+        videoFile: videoFile,
         thumbnailFile: thumbnailFile ?? _selectedThumbnail,
         title: title,
         description: description,
@@ -125,6 +140,8 @@ class UploadStateManager extends ChangeNotifier {
         },
       );
 
+      if (!_isCurrentOperation(operationId)) return;
+
       if (videoId != null) {
         // 4. Wait for Processing
         _status = UploadStatus.processing;
@@ -132,7 +149,8 @@ class UploadStateManager extends ChangeNotifier {
         _progress = 0.5;
         notifyListeners();
 
-        final isProcessed = await _waitForProcessing(videoId);
+        final isProcessed = await _waitForProcessing(videoId, operationId);
+        if (!_isCurrentOperation(operationId)) return;
         if (isProcessed) {
           _status = UploadStatus.success;
           _currentPhase = 'completed';
@@ -144,14 +162,16 @@ class UploadStateManager extends ChangeNotifier {
         _setError('Upload failed. Please try again.');
       }
     } catch (e) {
-      _setError('An unexpected error occurred: $e');
+      if (_isCurrentOperation(operationId)) {
+        _setError('An unexpected error occurred: $e');
+      }
     } finally {
       await progressSubscription.cancel();
-      notifyListeners();
+      if (_isCurrentOperation(operationId)) notifyListeners();
     }
   }
 
-  Future<bool> _waitForProcessing(String videoId) async {
+  Future<bool> _waitForProcessing(String videoId, int operationId) async {
     const maxAttempts = 180; // 15 minutes with 5s delay
     int attempts = 0;
 
@@ -160,6 +180,7 @@ class UploadStateManager extends ChangeNotifier {
 
     try {
       sub = NotificationService.onMessageStream.listen((message) {
+        if (!_isCurrentOperation(operationId)) return;
         final data = message.data;
         if (data['type'] == 'video_processed' && data['videoId'] == videoId) {
           final status = data['status'];
@@ -177,6 +198,7 @@ class UploadStateManager extends ChangeNotifier {
 
     try {
       while (attempts < maxAttempts) {
+        if (!_isCurrentOperation(operationId)) return false;
         if (pushSuccess != null) {
           print('🚀 Resolving video processing wait via real-time FCM notification: $pushSuccess');
           return pushSuccess!;
@@ -184,6 +206,7 @@ class UploadStateManager extends ChangeNotifier {
 
         try {
           final statusData = await _videoService.getVideoProcessingStatus(videoId);
+          if (!_isCurrentOperation(operationId)) return false;
           final videoData = statusData?['video'] as Map<String, dynamic>?;
           
           final processingStatus = videoData?['processingStatus']?.toString().toLowerCase();
@@ -219,11 +242,26 @@ class UploadStateManager extends ChangeNotifier {
   }
 
   void cancelUpload() {
+    _invalidateActiveUpload();
+    _clearState();
+    notifyListeners();
+  }
+
+  void _invalidateActiveUpload() {
+    _uploadOperationId++;
     _uploadService.cancelUpload();
+  }
+
+  void _clearState() {
+    _selectedVideo = null;
+    _selectedThumbnail = null;
+    _selectedCategory = null;
+    _tags = [];
     _status = UploadStatus.idle;
     _currentPhase = 'preparation';
     _progress = 0.0;
-    notifyListeners();
+    _errorMessage = null;
+    _crossPostStatus = {};
   }
 
   void _setError(String message) {
@@ -233,15 +271,8 @@ class UploadStateManager extends ChangeNotifier {
   }
 
   void reset() {
-    _selectedVideo = null;
-    _selectedThumbnail = null;
-    _selectedCategory = null;
-    _tags = [];
-    _status = UploadStatus.idle;
-    _progress = 0.0;
-    _errorMessage = null;
-    _currentPhase = 'preparation';
-    _crossPostStatus = {};
+    _invalidateActiveUpload();
+    _clearState();
     notifyListeners();
   }
 }

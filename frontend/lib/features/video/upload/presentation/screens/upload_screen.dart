@@ -71,19 +71,29 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     super.dispose();
   }
 
-  void _resetScreenState() {
-    ref.read(uploadStateManagerProvider).reset();
+  void _resetScreenState({bool resetManager = true}) {
+    if (resetManager) {
+      ref.read(uploadStateManagerProvider).reset();
+    }
     _showUploadForm.value = false;
     _titleController.clear();
     _linkController.clear();
     _tagInputController.clear();
     _selectedThumbnail.value = null;
+    _selectedSubscribers.value = [];
     _quizzes.value = [];
     _selectedPlatforms.value = [];
+    _videoAspectRatio.value = 9 / 16;
+    _videoDuration.value = 0.0;
   }
 
   void _deselectVideo() {
     _resetScreenState();
+  }
+
+  void _cancelUpload() {
+    ref.read(uploadStateManagerProvider).cancelUpload();
+    _resetScreenState(resetManager: false);
   }
 
   Future<void> _pickVideo() async {
@@ -467,7 +477,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 
     if (isUploading) {
       return AppButton(
-        onPressed: () => state.cancelUpload(),
+        onPressed: _cancelUpload,
         label: 'Cancel Upload',
         variant: AppButtonVariant.outline,
         isFullWidth: true,

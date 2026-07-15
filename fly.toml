@@ -1,13 +1,14 @@
 app = "vayug"
 primary_region = "sin"
 
+# Single process — app + integrated video worker dono ek saath chalenge
 [processes]
   app = "npm start"
-  worker = "npm run worker"
 
 [env]
   PORT = "8080"
-  DISABLE_INTEGRATED_WORKER = "true"
+  # Integrated worker enabled — separate worker machine ki zarurat nahi
+  DISABLE_INTEGRATED_WORKER = "false"
 
 [build]
 
@@ -25,23 +26,15 @@ primary_region = "sin"
     hard_limit = 200
 
 [[http_service.checks]]
-  grace_period = "30s"
+  grace_period = "60s"
   interval = "30s"
   method = "GET"
   path = "/health"
-  timeout = "5s"
+  timeout = "10s"
 
-# Web API ke liye Free Tier RAM
-[[vm]]
-  memory = '512mb'
-  cpu_kind = 'shared'
-  cpus = 1
-  processes = ["app"]
-
-# FFmpeg Worker ke liye 2GB RAM
+# Single 2GB machine — app + worker dono handle karega
 [[vm]]
   memory = '2gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 2048
-  processes = ["worker"]
+  processes = ["app"]

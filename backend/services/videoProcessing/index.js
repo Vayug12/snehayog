@@ -19,7 +19,15 @@ const defaultPipeline = new VideoPipeline();
 defaultPipeline
   .addStep(new DownloadStep())
   .addStep(new HlsTranscodeStep())
+  .addStep(new CleanupStep());
+
+const aiAnalysisPipeline = new VideoPipeline();
+
+aiAnalysisPipeline
+  .addStep(new DownloadStep())
   .addStep(new GeminiSummarizationStep())
   .addStep(new CleanupStep());
 
+export { aiAnalysisPipeline };
 export default defaultPipeline;
+

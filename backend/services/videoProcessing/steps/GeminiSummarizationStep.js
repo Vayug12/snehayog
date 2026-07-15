@@ -52,10 +52,8 @@ class GeminiSummarizationStep extends IBaseStep {
         throw new Error('Audio extraction failed: File not created');
       }
 
-      // Run summarization in background to avoid blocking pipeline
-      this._runSummarizationInBackground(videoId, audioPath).catch(err => {
-        console.error(`❌ GeminiSummarizationStep: Background summarization failed for ${videoId}:`, err);
-      });
+      // Await summarization synchronously since it now runs in a dedicated background queue job
+      await this._runSummarizationInBackground(videoId, audioPath);
 
     } catch (error) {
       console.error(`❌ GeminiSummarizationStep: Audio extraction failed for ${videoId}:`, error);
