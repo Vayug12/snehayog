@@ -156,12 +156,14 @@ class ProfileSignInView extends StatelessWidget {
   final VoidCallback onGoogleSignIn;
   final VoidCallback? onPhoneSignIn;
   final bool sessionExpired;
+  final bool isSigningIn;
 
   const ProfileSignInView({
     super.key,
     required this.onGoogleSignIn,
     this.onPhoneSignIn,
     this.sessionExpired = false,
+    this.isSigningIn = false,
   });
 
   @override
@@ -182,29 +184,36 @@ class ProfileSignInView extends StatelessWidget {
                   children: [
                     if (showPhoneSignIn) ...[
                       AppButton(
-                        onPressed: onPhoneSignIn!,
+                        onPressed: isSigningIn ? null : onPhoneSignIn!,
                         icon: const Icon(Icons.phone_android, size: 20),
                         label: 'Continue with phone number',
                         isFullWidth: true,
                         variant: AppButtonVariant.primary,
                         size: AppButtonSize.large,
+                        isDisabled: isSigningIn,
                       ),
                       const SizedBox(height: 12),
                     ],
                     AppButton(
-                      onPressed: onGoogleSignIn,
+                      onPressed: isSigningIn ? null : onGoogleSignIn,
                       icon: Image.network(
                         'https://www.google.com/favicon.ico',
                         height: 20,
                       ),
-                      label: sessionExpired
-                          ? 'Sign In Again with Google'
-                          : AppText.get('profile_sign_in_button'),
+                      label: isSigningIn
+                          ? AppText.get(
+                              'profile_signing_in_label',
+                              fallback: 'Signing in...',
+                            )
+                          : sessionExpired
+                              ? 'Sign In Again with Google'
+                              : AppText.get('profile_sign_in_button'),
                       isFullWidth: true,
                       variant: !showPhoneSignIn
                           ? AppButtonVariant.primary
                           : AppButtonVariant.secondary,
                       size: AppButtonSize.large,
+                      isLoading: isSigningIn,
                     ),
                   ],
                 ),

@@ -9,7 +9,9 @@ import 'package:vayug/shared/config/app_config.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/url_utils.dart';
 import 'package:vayug/shared/constants/app_constants.dart';
+import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/shared/widgets/in_app_browser.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 /// Widget to display banner ads at the top of video feed
 class BannerAdWidget extends StatefulWidget {
@@ -166,11 +168,13 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
       child: Align(
         alignment: Alignment.topLeft,
         child: Container(
-            width: double.infinity, 
+            width: double.infinity,
             height: 50, // **REDUCED from 60 for more video space**
-            margin: const EdgeInsets.only(top: 1), 
+            margin: const EdgeInsets.only(top: 1),
+            // Solid surface so the image, title, CTA, and Sponsored tag read
+            // as one contained card instead of loose elements over the video.
             decoration: BoxDecoration(
-              color: Colors.transparent,
+              color: AppColors.surfacePrimary,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Material(
@@ -260,9 +264,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
                                         vertical: 3,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.blue.shade600.withValues(alpha: 0.5),
+                                        color: AppColors.primary,
                                         borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: Colors.white24, width: 0.5),
                                       ),
                                       child: (() {
                                         String label = 'Learn More';
@@ -408,13 +411,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
       } else {
         // Show simple message to user
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('The ads has no link to open'),
-              duration: Duration(seconds: 3),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          VayuSnackBar.showWarning(context, 'This ad has no link to open');
         }
       }
     } catch (e) {
@@ -422,13 +419,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
       // Show error to user
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Error opening link'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        VayuSnackBar.showError(context, 'Error opening link',
+            duration: const Duration(seconds: 2));
       }
     }
   }

@@ -9,6 +9,7 @@ import 'package:vayug/core/providers/profile_providers.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:hugeicons/hugeicons.dart';
 
 class LinkedAccountsScreen extends ConsumerStatefulWidget {
@@ -35,11 +36,10 @@ class _LinkedAccountsScreenState extends ConsumerState<LinkedAccountsScreen> {
         final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
         
         if (launched && mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(AppText.get('linked_accounts_opening_browser', fallback: 'Opening browser to connect YouTube...')),
-              backgroundColor: AppColors.info,
-            ),
+          VayuSnackBar.showInfo(
+            context,
+            AppText.get('linked_accounts_opening_browser',
+                fallback: 'Opening browser to connect YouTube...'),
           );
         } else if (!launched) {
           throw Exception('Mobile browser could not be opened. Please check your browser settings.');
@@ -48,11 +48,9 @@ class _LinkedAccountsScreenState extends ConsumerState<LinkedAccountsScreen> {
     } catch (e) {
       AppLogger.log('Error connecting YouTube: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${AppText.get('error_connect_youtube', fallback: 'Failed to connect YouTube')}: $e'),
-            backgroundColor: AppColors.error,
-          ),
+        VayuSnackBar.showError(
+          context,
+          '${AppText.get('error_connect_youtube', fallback: 'Failed to connect YouTube')}: $e',
         );
       }
     } finally {

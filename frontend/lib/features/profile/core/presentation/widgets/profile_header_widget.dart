@@ -118,30 +118,33 @@ class ProfileHeaderWidget extends ConsumerWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              Icons.link,
+                            const HugeIcon(
+                              icon: HugeIcons.strokeRoundedLink01,
                               size: 14,
-                              color: Colors.white.withValues(alpha: 0.7),
+                              color: AppColors.primary,
                             ),
                             const SizedBox(width: 4),
                             Flexible(
                               child: Text(
                                 () {
-                                  var link = stateManager.userData!['websiteUrl']
+                                  var domain = stateManager.userData!['websiteUrl']
                                       .toString()
                                       .replaceFirst(RegExp(r'^https?://'), '')
-                                      .replaceFirst(RegExp(r'^www\.'), '');
-                                  if (link.length > 25) {
-                                    link = '${link.substring(0, 22)}...';
-                                  }
-                                  return link;
+                                      .replaceFirst(RegExp(r'^www\.'), '')
+                                      .split('/')
+                                      .first
+                                      .replaceFirst(RegExp(r'\.com$'), '')
+                                      .replaceFirst(RegExp(r'\.in$'), '')
+                                      .replaceFirst(RegExp(r'\.org$'), '')
+                                      .replaceFirst(RegExp(r'\.net$'), '');
+                                  return domain;
                                 }(),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: AppTypography.bodySmall.copyWith(
-                                  color: Colors.white,
+                                  color: AppColors.primary,
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w400, // Reduced font weight
+                                  fontWeight: FontWeight.w500,
                                   letterSpacing: 0.1,
                                 ),
                               ),

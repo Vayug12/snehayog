@@ -6,6 +6,7 @@ import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/core/providers/profile_providers.dart';
 import 'package:vayug/core/providers/user_data_providers.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class FollowButtonWidget extends ConsumerStatefulWidget {
   final String uploaderId;
@@ -243,12 +244,8 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
 
   void _showSnackBar(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      VayuSnackBar.showInfo(context, message,
+          duration: const Duration(seconds: 2));
     }
   }
 

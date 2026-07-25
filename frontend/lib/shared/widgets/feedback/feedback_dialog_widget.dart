@@ -5,6 +5,7 @@ import 'package:vayug/shared/config/app_config.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class FeedbackDialogWidget extends StatefulWidget {
   const FeedbackDialogWidget({super.key});
@@ -54,9 +55,7 @@ class _FeedbackDialogWidgetState extends State<FeedbackDialogWidget> {
 
   Future<void> _submit() async {
     if (_rating == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a star rating')),
-      );
+      VayuSnackBar.showWarning(context, 'Please select a star rating');
       return;
     }
 
@@ -88,35 +87,23 @@ class _FeedbackDialogWidgetState extends State<FeedbackDialogWidget> {
         // Handle high ratings (4 or 5 stars) — directly open Play Store
         if (_rating >= 4) {
           Navigator.of(context).pop(true); // Close dialog first
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Thanks! Taking you to the Play Store to rate us 🌟'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
+          VayuSnackBar.showSuccess(
+            context,
+            'Thanks! Taking you to the Play Store to rate us',
+            duration: const Duration(seconds: 2),
           );
           _launchPlayStore(); // Directly navigate to Play Store
         } else {
           Navigator.of(context).pop(true);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                  'Thanks for your feedback! We will use it to improve our app.'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          VayuSnackBar.showSuccess(context,
+              'Thanks for your feedback! We will use it to improve our app.');
         }
       } else {
         throw Exception('Failed to submit feedback');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error submitting feedback: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        VayuSnackBar.showError(context, 'Error submitting feedback: $e');
       }
     } finally {
       if (mounted) setState(() => _submitting = false);

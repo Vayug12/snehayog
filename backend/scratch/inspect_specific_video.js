@@ -1,10 +1,8 @@
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
+import '../config/config.js';
 import Video from '../models/Video.js';
 import User from '../models/User.js';
 import EncryptedVideoKey from '../models/EncryptedVideoKey.js';
-
-dotenv.config();
 
 async function run() {
   try {

@@ -67,6 +67,33 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
     _ensureWakelockForVisibility();
   }
 
+  /// Seeks the shared video to the `t` timestamp from a deep link before its
+  /// first play. Runs at most once and only for the deep-linked video.
+  void _maybeApplyInitialStartSeek(
+      String videoId, VideoPlayerController controller) {
+    final startSeconds = widget.startAtSeconds;
+    if (startSeconds == null || startSeconds <= 0 || _hasAppliedInitialStartSeek) {
+      return;
+    }
+    if (widget.initialVideoId != null && videoId != widget.initialVideoId) {
+      return;
+    }
+    _hasAppliedInitialStartSeek = true;
+
+    var target = Duration(seconds: startSeconds);
+    final duration = controller.value.duration;
+    if (duration > Duration.zero && target >= duration) {
+      target = duration - const Duration(milliseconds: 500);
+    }
+    try {
+      unawaited(controller.seekTo(target));
+      AppLogger.log(
+          '⏩ VideoFeedAdvanced: Applied shared-link start position ${target.inSeconds}s for $videoId');
+    } catch (e) {
+      AppLogger.log('⚠️ VideoFeedAdvanced: Initial seek failed for $videoId: $e');
+    }
+  }
+
   void forcePlayCurrent() {
     if (_videos.isEmpty ||
         _currentIndex < 0 ||
@@ -97,6 +124,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
       if (!_shouldAutoplayForContext('forcePlayCurrent')) return;
       _pauseAllOtherVideos(videoId);
       _lifecyclePaused = false;
+      _maybeApplyInitialStartSeek(videoId, controller);
       controller.play();
       
       safeSetState(() {
@@ -125,6 +153,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
         if (!_shouldAutoplayForContext('forcePlayCurrent preload')) return;
         _pauseAllOtherVideos(videoId);
         _lifecyclePaused = false;
+        _maybeApplyInitialStartSeek(videoId, c);
         c.play();
         
         safeSetState(() {

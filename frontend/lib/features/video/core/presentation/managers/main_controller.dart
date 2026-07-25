@@ -10,6 +10,7 @@ import 'package:vayug/features/video/core/presentation/managers/video_controller
 
 class MainController extends ChangeNotifier {
   int _currentIndex = 0;
+  int? _pendingTabIndex;
   final List<String> _routes = ['/yug', '/vayu', '/upload', '/subscriptions', '/profile'];
   bool _isAppInForeground = true;
   bool _isMediaPickerActive = false;
@@ -79,19 +80,26 @@ class MainController extends ChangeNotifier {
   }
 
   int get currentIndex => _currentIndex;
+  /// The tab that should be considered active by media immediately, even while
+  /// the visible tab transition is waiting to complete.
+  int get playbackActiveTabIndex => _pendingTabIndex ?? _currentIndex;
   String get currentRoute => _routes[_currentIndex];
   bool get isAppInForeground => _isAppInForeground;
   bool get isMediaPickerActive => _isMediaPickerActive;
 
   /// Change the current index and handle video control
   void changeIndex(int index) {
-    if (_currentIndex == index) return; // No change needed
+    if (_currentIndex == index && _pendingTabIndex == null) return;
+    if (_pendingTabIndex == index) return;
 
+    _pendingTabIndex = index;
     _handleIndexChangeFallback(index);
 
     Future.delayed(const Duration(milliseconds: 100), () {
+      if (_pendingTabIndex != index) return;
       // Update the current index
       _currentIndex = index;
+      _pendingTabIndex = null;
 
       // Persistently saving tab state is now disabled per user request
       notifyListeners();

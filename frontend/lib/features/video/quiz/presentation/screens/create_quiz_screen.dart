@@ -4,6 +4,7 @@ import 'package:vayug/core/design/spacing.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:hugeicons/hugeicons.dart';
 
 class CreateQuizScreen extends StatefulWidget {
@@ -24,6 +25,11 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
   late List<QuizModel> _quizzes;
   final _scrollController = ScrollController();
 
+  int get _maxAllowedQuizzes {
+    final duration = widget.videoDurationInSeconds;
+    return duration > 0 ? (duration / 5).floor().clamp(1, 99) : 99;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -31,15 +37,14 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
   }
 
   void _addQuiz() {
-    // Density check: 1 quiz per 5 seconds
-    final maxAllowedCount = (widget.videoDurationInSeconds / 5).floor().clamp(1, 99);
-    
+    // Density check: 1 quiz per 5 seconds. When the duration is unknown
+    // (metadata probe failed), don't block quiz creation on a bogus limit.
+    final maxAllowedCount = _maxAllowedQuizzes;
+
     if (_quizzes.length >= maxAllowedCount) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Maximum density reached ($maxAllowedCount quizzes for this video length).'),
-          backgroundColor: AppColors.error,
-        ),
+      VayuSnackBar.showError(
+        context,
+        'Quiz limit reached — this video fits up to $maxAllowedCount ${maxAllowedCount == 1 ? 'quiz' : 'quizzes'} (one every 5 seconds).',
       );
       return;
     }
@@ -55,6 +60,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     
     // Scroll to bottom after adding
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 300),
@@ -80,15 +86,13 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     for (int i = 0; i < _quizzes.length; i++) {
       final q = _quizzes[i];
       if (q.question.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Please enter a question for Quiz #${i + 1}')),
-        );
+        VayuSnackBar.showError(
+            context, 'Please enter a question for Quiz #${i + 1}');
         return;
       }
       if (q.options.any((opt) => opt.trim().isEmpty)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('All options in Quiz #${i + 1} must be filled')),
-        );
+        VayuSnackBar.showError(
+            context, 'All options in Quiz #${i + 1} must be filled');
         return;
       }
     }
@@ -101,6 +105,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       body: CustomScrollView(
+        controller: _scrollController,
         slivers: [
           SliverAppBar(
             title: const Text('Manage Quizzes', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -127,7 +132,15 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
               child: _buildEmptyState(),
             )
           else
-            SliverToBoxAdapter(child: _buildQuizList()),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) => _buildQuizRow(index, _quizzes[index]),
+                  childCount: _quizzes.length,
+                ),
+              ),
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -155,7 +168,9 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Add interactive quizzes at specific times to engage your audience.',
+              widget.videoDurationInSeconds > 0
+                  ? 'Add interactive quizzes at specific times. ${_quizzes.length}/$_maxAllowedQuizzes used for this ${widget.videoDurationInSeconds.toStringAsFixed(0)}s video.'
+                  : 'Add interactive quizzes at specific times to engage your audience.',
               style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary, fontSize: 11),
             ),
           ),
@@ -184,18 +199,6 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildQuizList() {
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-      itemCount: _quizzes.length,
-      itemBuilder: (context, index) {
-        final quiz = _quizzes[index];
-        return _buildQuizRow(index, quiz);
-      },
     );
   }
 

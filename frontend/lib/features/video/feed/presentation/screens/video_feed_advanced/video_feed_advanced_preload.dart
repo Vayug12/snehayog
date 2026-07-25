@@ -923,6 +923,19 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
         if (duration == Duration.zero) return;
 
         final position = value.position;
+
+        final sectionEnd = widget.endAtSeconds;
+        final isSharedSection = sectionEnd != null &&
+            widget.initialVideoId == videoId &&
+            sectionEnd > 0;
+        if (isSharedSection && position >= Duration(seconds: sectionEnd)) {
+          controller.pause();
+          _controllerStates[videoId] = false;
+          _userPaused[videoId] = true;
+          AppLogger.log('Shared Yug section reached its end at ${sectionEnd}s');
+          return;
+        }
+
         final remaining = duration - position;
 
         // **TRIGGER: 600ms before end for "Instant" feel**
@@ -1358,6 +1371,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       // **ENHANCED: Try to play immediately, with error handling**
       final controllerToPlay = controller;
       try {
+        _maybeApplyInitialStartSeek(videoId, controllerToPlay);
         controllerToPlay.play();
         _ensureWakelockForVisibility();
         _controllerStates[videoId] = true;

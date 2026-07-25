@@ -1,4 +1,3 @@
-import admin from 'firebase-admin';
 import User from '../../models/User.js';
 import fs from 'fs';
 import path from 'path';
@@ -8,18 +7,20 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Firebase Admin (will use service account from environment or local file)
+// Lazy-loaded firebase-admin instance
+let admin = null;
 let firebaseInitialized = false;
 
-const initializeFirebase = () => {
-  if (firebaseInitialized) {
-    return;
-  }
+const initializeFirebase = async () => {
+  if (firebaseInitialized) return;
 
   try {
+    // Dynamic import — firebase-admin (~30MB) only loads when first notification is sent
+    const firebaseAdmin = await import('firebase-admin');
+    admin = firebaseAdmin.default;
+
     let serviceAccountJson = null;
 
-    // 1) Prefer environment variable in production (Railway, etc.)
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
       try {
         serviceAccountJson = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -29,7 +30,6 @@ const initializeFirebase = () => {
       }
     }
 
-    // 2) Fallback to local config file for local development
     if (!serviceAccountJson) {
       try {
         const jsonPath = path.join(__dirname, '../../config/firebaseServiceAccount.json');
@@ -45,7 +45,7 @@ const initializeFirebase = () => {
 
     if (!serviceAccountJson) {
       console.warn(
-        '⚠️ Firebase Admin: No service account configured (FIREBASE_SERVICE_ACCOUNT env or config/firebaseServiceAccount.json). Notifications will be disabled.'
+        '⚠️ Firebase Admin: No service account configured. Notifications will be disabled.'
       );
       return;
     }
@@ -62,13 +62,11 @@ const initializeFirebase = () => {
   }
 };
 
-// Initialize on module load
-initializeFirebase();
-
 /**
  * Send notification to a single user by their Google ID
  */
 export const sendNotificationToUser = async (googleId, notification) => {
+  await initializeFirebase();
   if (!firebaseInitialized) {
     console.warn('⚠️ Firebase not initialized. Cannot send notification.');
     return { success: false, error: 'Firebase not initialized' };
@@ -138,6 +136,7 @@ export const sendNotificationToUser = async (googleId, notification) => {
  * Send notification to multiple users
  */
 export const sendNotificationToUsers = async (googleIds, notification) => {
+  await initializeFirebase();
   if (!firebaseInitialized) {
     console.warn('⚠️ Firebase not initialized. Cannot send notifications.');
     return { success: false, error: 'Firebase not initialized' };
@@ -228,6 +227,7 @@ export const sendNotificationToUsers = async (googleIds, notification) => {
  * Send notification to all users (broadcast)
  */
 export const sendNotificationToAll = async (notification) => {
+  await initializeFirebase();
   if (!firebaseInitialized) {
     console.warn('⚠️ Firebase not initialized. Cannot send notifications.');
     return { success: false, error: 'Firebase not initialized' };
@@ -322,6 +322,7 @@ export const sendNotificationToAll = async (notification) => {
  * Uses dry-run mode to validate the token without sending a real notification
  */
 export const verifyInstallationStatus = async (googleId) => {
+  await initializeFirebase();
   if (!firebaseInitialized) {
     return { success: false, error: 'Firebase not initialized' };
   }

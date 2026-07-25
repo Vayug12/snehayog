@@ -39,8 +39,15 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
   /// The host state must provide the current active video controller.
   VideoPlayerController? get currentVideoController;
 
+  /// Hosts with playback policy can override this instead of allowing a
+  /// gesture to call VideoPlayerController.play directly.
+  Future<void> playCurrentVideo() async {
+    await currentVideoController?.play();
+  }
+
   void handleUnifiedHorizontalDrag(double deltaX) {
     if (isControlsLocked || currentVideoController == null) return;
+    overlayTimer?.cancel();
     horizontalDragTotal += deltaX;
     final controller = currentVideoController!;
     final seekOffset = Duration(milliseconds: (horizontalDragTotal * 500).toInt());
@@ -52,11 +59,16 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
     scrubbingTargetTimeVN.value = targetPosition;
     scrubbingDeltaVN.value = seekOffset;
     isForwardVN.value = deltaX > 0;
+    overlayTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) showScrubbingOverlayVN.value = false;
+    });
   }
 
   void handleHorizontalDragEnd() {
-    if (currentVideoController == null) return;
-    currentVideoController!.seekTo(scrubbingTargetTimeVN.value);
+    overlayTimer?.cancel();
+    if (currentVideoController != null) {
+      currentVideoController!.seekTo(scrubbingTargetTimeVN.value);
+    }
     showScrubbingOverlayVN.value = false;
     horizontalDragTotal = 0.0;
     showControlsVN.value = true;
@@ -86,10 +98,7 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
   void handleTap(Orientation orientation) {
     showControlsVN.value = !showControlsVN.value;
     if (orientation == Orientation.landscape) {
-      SystemChrome.setEnabledSystemUIMode(
-        showControlsVN.value ? SystemUiMode.manual : SystemUiMode.immersiveSticky,
-        overlays: SystemUiOverlay.values,
-      );
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     }
     if (showControlsVN.value) startHideControlsTimer(orientation);
   }
@@ -136,7 +145,7 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
     if (controller.value.isPlaying) {
       controller.pause();
     } else {
-      controller.play();
+      playCurrentVideo();
       hideControlsWithDelay();
     }
   }
@@ -150,6 +159,8 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
   }
 
   void disposeGestures() {
+    controlsTimer?.cancel();
+    overlayTimer?.cancel();
     showControlsVN.dispose();
     showScrubbingOverlayVN.dispose();
     scrubbingTargetTimeVN.dispose();

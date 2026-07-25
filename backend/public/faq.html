@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frequently Asked Questions | Vayug</title>
+    <meta name="description" content="Frequently asked questions about Vayug: the creator-first short-form and long-form video platform, creator monetization, advertising, AI dubbing, and agent uploads.">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://snehayog.site/faq.html">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://snehayog.site/faq.html">
+    <meta property="og:title" content="Frequently Asked Questions | Vayug">
+    <meta property="og:description" content="Answers about Vayug creator publishing, monetization, AI dubbing, E2EE videos and subscriber tools.">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is Vayug?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Vayug is a creator-first video platform for discovering, watching, publishing, and monetizing short-form and long-form video." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Vayug the same as Snehayog?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Vayug is the product-facing name, while Snehayog is the repository, project, and internal package identity." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Vayug support short and long videos?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Vayug includes a short-form discovery experience called Yug and a long-form viewing experience called Vayu. Series and episodes are supported where configured." }
+        },
+        {
+          "@type": "Question",
+          "name": "How do creators make money on Vayug?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Creators can monetize in Vayug by opening the Account tab, sharing Vayug with 2 friends using the refer button or uploading 2 videos, then using Setup Billing when it appears. After adding a UPI ID, eligible creators can earn from eligible ad impressions and receive 80% of eligible advertising revenue, subject to eligibility, ad availability, policy, payout setup, and payment requirements." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is the 80% creator revenue share guaranteed income?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. 80% is a configured share of eligible advertising revenue, not a guaranteed income, CPM, RPM, or promise that every video will receive ads." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can advertisers run campaigns on Vayug?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Vayug includes campaign, creative, targeting, payment, impression, click, and analytics workflows. Inventory, pricing, approval, and targeting depend on the current deployment." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Vayug support AI dubbing and translation?",
+          "acceptedAnswer": { "@type": "Answer", "text": "The platform includes transcription, translation, and speech-synthesis workflows for dubbing when the relevant feature flags, AI engines, quotas, and deployment services are available." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Vayug generate videos with AI?",
+          "acceptedAnswer": { "@type": "Answer", "text": "The backend includes an asynchronous integration with a VayugAI agent for prompt-driven video generation. This may be disabled, hidden, or unavailable in some builds, so availability should be checked before relying on it." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Vayug support E2EE subscriber-only videos?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Creators can publish subscriber-only videos using end-to-end encrypted delivery. Protected content is encrypted on the creator/client side, encrypted per-subscriber key material is stored by the backend, and an authenticated eligible subscriber decrypts the video locally. The raw video decryption key is not stored by the backend." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can creators connect with subscribers outside the app?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Authenticated creators can export available subscriber names, email addresses, profile information, and subscription dates as a CSV for consent-based use with their own email, newsletter, or external communication tools. Privacy law, anti-spam rules, subscriber consent, and platform terms apply." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can creators send notifications to subscribers?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Creator Tools can send a direct push alert to all or selected eligible subscribers, optionally with a target URL. Alerts respect notification preferences, require an active app/device token, and are currently limited to two sends per creator per day." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can an AI agent upload videos to Vayug?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Authenticated agent-upload workflows support presigned uploads, direct uploads, upload registration, processing status, and server-sent status updates. Valid authentication and platform-policy compliance are required." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can Vayug videos be shared or embedded on the web?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Available videos have shareable web pages and embeddable player pages. The URL patterns are /video/{video-id} and /embed/{video-id}." }
+        },
+        {
+          "@type": "Question",
+          "name": "What features are available to viewers?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Viewers can discover videos, search creators and videos, watch short and long content, like, comment, share, follow creators, save videos, recover watch position, receive notifications, and report content." }
+        },
+        {
+          "@type": "Question",
+          "name": "What can creators do on Vayug?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Creators can upload and manage videos, edit metadata, organize series and episodes, add quizzes where enabled, build profiles, grow followers, review analytics, and access revenue and payout workflows." }
+        },
+        {
+          "@type": "Question",
+          "name": "Which sign-in methods does Vayug support?",
+          "acceptedAnswer": { "@type": "Answer", "text": "The backend supports Google Sign-In and phone/OTP authentication. The exact options shown depend on the current app build and configuration." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Vayug open source?",
+          "acceptedAnswer": { "@type": "Answer", "text": "The repository is MIT-licensed. Production deployments, user data, private credentials, media, and third-party provider accounts are not automatically public because the code is open source." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Vayug available in every country?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Availability of the website, app distribution, payments, advertising, language features, and creator payouts can vary by country, region, eligibility, and deployment configuration." }
+        }
+      ]
+    }
+    </script>
+    <style>
+        :root { --primary: #60a5fa; --bg: #0f172a; --card-bg: #1e293b; --text: #f8fafc; --muted: #cbd5e1; --line: rgba(255,255,255,.09); }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 40px 20px; background: var(--bg); color: var(--text); font-family: 'Outfit', sans-serif; line-height: 1.65; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .intro, .faq-item { background: var(--card-bg); border: 1px solid var(--line); border-radius: 18px; padding: 24px 28px; }
+        .intro { margin-bottom: 18px; }
+        h1 { color: var(--primary); font-size: clamp(2rem, 5vw, 3rem); line-height: 1.1; margin: 0 0 12px; }
+        h2 { font-size: 1.2rem; margin: 0 0 8px; color: var(--text); }
+        p { color: var(--muted); margin: 0; }
+        .faq-list { display: grid; gap: 12px; }
+        .faq-item p { margin-top: 6px; }
+        .back-link, a { color: var(--primary); text-decoration: none; font-weight: 600; }
+        .back-link { display: inline-block; margin-bottom: 18px; }
+        footer { margin-top: 28px; color: var(--muted); font-size: .95rem; }
+        footer a { margin-right: 16px; }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <a class="back-link" href="/">← Back to Vayug</a>
+        <section class="intro">
+            <h1>Frequently Asked Questions</h1>
+            <p>Answers about Vayug's video experience, creator publishing, advertising, monetization, AI features, and agent integrations.</p>
+        </section>
+
+        <section class="faq-list" aria-label="Vayug frequently asked questions">
+            <article class="faq-item"><h2>What is Vayug?</h2><p>Vayug is a creator-first video platform for discovering, watching, publishing, and monetizing short-form and long-form video.</p></article>
+            <article class="faq-item"><h2>Is Vayug the same as Snehayog?</h2><p>Yes. Vayug is the product-facing name, while Snehayog is the repository, project, and internal package identity.</p></article>
+            <article class="faq-item"><h2>Does Vayug support short and long videos?</h2><p>Yes. Yug is the short-form discovery experience and Vayu is the long-form viewing experience. Series and episodes are supported where configured.</p></article>
+            <article class="faq-item"><h2>How do creators make money on Vayug?</h2><p>Creators can monetize in Vayug by opening the Account tab, sharing Vayug with 2 friends using the refer button or uploading 2 videos, then using Setup Billing when it appears. After adding a UPI ID, eligible creators can earn from eligible ad impressions and receive 80% of eligible advertising revenue, subject to eligibility, ad availability, policy, payout setup, and payment requirements.</p></article>
+            <article class="faq-item"><h2>Is the 80% creator revenue share guaranteed income?</h2><p>No. It is a configured share of eligible advertising revenue, not a guaranteed income, CPM, RPM, or promise that every video will receive ads.</p></article>
+            <article class="faq-item"><h2>Can advertisers run campaigns on Vayug?</h2><p>Yes. Campaign, creative, targeting, payment, impression, click, and analytics workflows are included. Inventory, pricing, approval, and targeting depend on the current deployment.</p></article>
+            <article class="faq-item"><h2>Does Vayug support AI dubbing and translation?</h2><p>The platform includes transcription, translation, and speech-synthesis workflows for dubbing when the relevant feature flags, AI engines, quotas, and deployment services are available.</p></article>
+            <article class="faq-item"><h2>Does Vayug generate videos with AI?</h2><p>The backend includes an asynchronous integration with a VayugAI agent for prompt-driven video generation. It may be disabled, hidden, or unavailable in some builds.</p></article>
+            <article class="faq-item"><h2>Does Vayug support E2EE subscriber-only videos?</h2><p>Yes. Creators can publish subscriber-only videos using end-to-end encrypted delivery. Protected content is encrypted on the creator/client side, encrypted per-subscriber key material is stored by the backend, and an authenticated eligible subscriber decrypts the video locally.</p></article>
+            <article class="faq-item"><h2>Can creators connect with subscribers outside the app?</h2><p>Yes. Authenticated creators can export available subscriber names, email addresses, profile information, and subscription dates as a CSV for consent-based use with their own email, newsletter, or external communication tools. Privacy law, anti-spam rules, subscriber consent, and platform terms apply.</p></article>
+            <article class="faq-item"><h2>Can creators send notifications to subscribers?</h2><p>Yes. Creator Tools can send a direct push alert to all or selected eligible subscribers, optionally with a target URL. Alerts respect notification preferences, require an active app/device token, and are currently limited to two sends per creator per day.</p></article>
+            <article class="faq-item"><h2>Can an AI agent upload videos to Vayug?</h2><p>Yes. Authenticated workflows support presigned uploads, direct uploads, upload registration, processing status, and server-sent status updates.</p></article>
+            <article class="faq-item"><h2>Can Vayug videos be shared or embedded on the web?</h2><p>Yes. Available videos have shareable pages at <code>/video/{video-id}</code> and embeddable player pages at <code>/embed/{video-id}</code>.</p></article>
+            <article class="faq-item"><h2>What features are available to viewers?</h2><p>Viewers can discover and search videos, watch short and long content, like, comment, share, follow creators, save videos, recover watch position, receive notifications, and report content.</p></article>
+            <article class="faq-item"><h2>What can creators do on Vayug?</h2><p>Creators can upload and manage videos, edit metadata, organize series and episodes, add quizzes where enabled, build profiles, grow followers, review analytics, and access revenue and payout workflows.</p></article>
+            <article class="faq-item"><h2>Which sign-in methods does Vayug support?</h2><p>The backend supports Google Sign-In and phone/OTP authentication. The exact options shown depend on the current app build and configuration.</p></article>
+            <article class="faq-item"><h2>Is Vayug open source?</h2><p>The repository is MIT-licensed. Production deployments, user data, private credentials, media, and third-party provider accounts are not automatically public because the code is open source.</p></article>
+            <article class="faq-item"><h2>Is Vayug available in every country?</h2><p>Website, app distribution, payments, advertising, language features, and creator payouts can vary by country, region, eligibility, and deployment configuration.</p></article>
+        </section>
+
+        <footer>
+            <a href="/about.html">About</a>
+            <a href="/terms.html">Terms</a>
+            <a href="/privacy.html">Privacy</a>
+            <a href="/for-creators">For Creators</a>
+            <a href="/e2ee">E2EE</a>
+            <a href="/creator-monetization">Monetization</a>
+            <a href="/ad-free-no-interruption">Viewing</a>
+            <a href="/contact.html">Contact</a>
+        </footer>
+    </main>
+</body>
+</html>

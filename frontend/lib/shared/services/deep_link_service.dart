@@ -4,8 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:flutter/material.dart';
-import 'package:vayug/features/video/core/data/services/video_service.dart';
-import 'package:vayug/features/video/vayu/presentation/screens/vayu_long_form_player_screen.dart';
+import 'package:vayug/features/video/core/presentation/screens/deep_link_video_resolver_screen.dart';
+import 'package:vayug/shared/services/deep_link_playback_gate.dart';
 
 class DeepLinkService {
   static final DeepLinkService _instance = DeepLinkService._internal();
@@ -15,10 +15,36 @@ class DeepLinkService {
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
 
+  /// Video deep links must not navigate before MainScreen is mounted:
+  /// SplashScreen's pushReplacement would destroy any route pushed on top of
+  /// it, and on cold start the navigator context may not even exist yet.
+  bool _appReady = false;
+  Uri? _pendingVideoUri;
+
+  /// Guards against the same link being delivered twice (getInitialLink and
+  /// uriLinkStream can both emit the launch link on some platforms).
+  Uri? _lastHandledVideoUri;
+  DateTime? _lastHandledVideoAt;
+
   void initialize() {
     _appLinks = AppLinks();
     _checkInitialLink();
     _listenToLinks();
+  }
+
+  /// Called by MainScreen once the home UI is mounted. Flushes any deep link
+  /// that arrived during cold start.
+  void markAppReady() {
+    if (_appReady) {
+      return;
+    }
+    _appReady = true;
+    final pending = _pendingVideoUri;
+    _pendingVideoUri = null;
+    if (pending != null) {
+      AppLogger.log('🔗 DeepLinkService: App ready, processing pending link: $pending');
+      _handleUri(pending);
+    }
   }
 
   Future<void> _checkInitialLink() async {
@@ -61,13 +87,40 @@ class DeepLinkService {
       return;
     }
 
-    // **NEW: Handle Video Links (vayu://video/ID or snehayog://video/ID)**
-    if (path.startsWith('/video/')) {
-      final segments = uri.pathSegments;
-      if (segments.length >= 2) {
-        final videoId = segments[1];
+    // HTTPS links use /video/<id>. The web fallback button uses the custom
+    // scheme snehayog://video/<id>, where `video` is the URI host.
+    final isHttpsVideoLink = path.startsWith('/video/');
+    final isCustomSchemeVideoLink = uri.scheme == 'snehayog' &&
+        uri.host == 'video' &&
+        uri.pathSegments.isNotEmpty;
+    if (isHttpsVideoLink || isCustomSchemeVideoLink) {
+      final videoId = isCustomSchemeVideoLink
+          ? uri.pathSegments.first
+          : uri.pathSegments.length >= 2
+              ? uri.pathSegments[1]
+              : '';
+      if (videoId.isNotEmpty) {
+        if (!_appReady || AuthService.navigatorKey.currentContext == null) {
+          // Gate playback even during a cold start, before the home Yug feed
+          // gets a chance to initialize.
+          DeepLinkPlaybackGate.beginResolution();
+          AppLogger.log('🔗 DeepLinkService: App not ready, queueing link: $uri');
+          _pendingVideoUri = uri;
+          return;
+        }
+
+        final now = DateTime.now();
+        if (uri == _lastHandledVideoUri &&
+            _lastHandledVideoAt != null &&
+            now.difference(_lastHandledVideoAt!) < const Duration(seconds: 5)) {
+          AppLogger.log('🔗 DeepLinkService: Ignoring duplicate link delivery: $uri');
+          return;
+        }
+        _lastHandledVideoUri = uri;
+        _lastHandledVideoAt = now;
+
         AppLogger.log('🔗 DeepLinkService: Handling deep link for video: $videoId');
-        
+
         // Smart Routing: Fetch metadata first to decide between Yug and Vayu.
         // `t` and `end` are seconds in a section-share link.
         final startAt = _parseTimestampSeconds(uri.queryParameters['t']);
@@ -117,59 +170,22 @@ class DeepLinkService {
     String videoId, {
     Duration? initialPosition,
     Duration? sectionEnd,
-  }) async {
-    try {
-      AppLogger.log('🔗 DeepLinkService: Fetching metadata for smart routing: $videoId');
-      
-      // We use a short timeout to prevent hanging the app if network is bad
-      final videoService = VideoService();
-      final video = await videoService.getVideoById(videoId).timeout(
-        const Duration(seconds: 4),
-        onTimeout: () => throw TimeoutException('Metadata fetch timed out'),
-      );
+  }) {
+    final context = AuthService.navigatorKey.currentContext;
+    if (context == null) return;
 
-      AppLogger.log('🔗 DeepLinkService: Metadata found. Type=${video.videoType}, AR=${video.aspectRatio}');
-
-      final context = AuthService.navigatorKey.currentContext;
-      if (context == null) return;
-
-      if (video.videoType == 'vayu' || video.aspectRatio > 1.2) {
-        AppLogger.log('🔗 DeepLinkService: Routing to VAYU (Landscape) Player');
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => VayuLongFormPlayerScreen(
-              video: video,
-              initialPosition: initialPosition,
-              sectionEnd: sectionEnd,
-            ),
-            settings: const RouteSettings(name: '/vayu_video'),
-          ),
-        );
-      } else {
-        AppLogger.log('🔗 DeepLinkService: Routing to YUG (Vertical) Feed');
-        Navigator.pushNamed(
-          context,
-          '/video',
-          arguments: {
-            'videoId': videoId,
-            if (initialPosition != null) 'startAtSeconds': initialPosition.inSeconds,
-            if (sectionEnd != null) 'endAtSeconds': sectionEnd.inSeconds,
-          },
-        );
-      }
-    } catch (e) {
-      AppLogger.log('🔗 DeepLinkService: Routing fallback due to error: $e');
-      // Fallback: Just push the standard /video route if fetch fails
-      AuthService.navigatorKey.currentState?.pushNamed(
-        '/video',
-        arguments: {
-          'videoId': videoId,
-          if (initialPosition != null) 'startAtSeconds': initialPosition.inSeconds,
-          if (sectionEnd != null) 'endAtSeconds': sectionEnd.inSeconds,
-        },
-      );
-    }
+    final requestId = DeepLinkPlaybackGate.beginResolution();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/shared_video_resolver'),
+        builder: (_) => DeepLinkVideoResolverScreen(
+          videoId: videoId,
+          requestId: requestId,
+          initialPosition: initialPosition,
+          sectionEnd: sectionEnd,
+        ),
+      ),
+    );
   }
 
   Future<void> _saveReferralCode(String code) async {

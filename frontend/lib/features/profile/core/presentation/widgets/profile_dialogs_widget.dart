@@ -1,217 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:vayug/core/design/radius.dart';
-import 'package:provider/provider.dart';
-import 'package:vayug/features/auth/presentation/controllers/google_sign_in_controller.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
-import 'package:vayug/shared/services/auto_scroll_settings.dart';
-import 'package:vayug/features/profile/analytics/presentation/screens/creator_revenue_screen.dart';
 import 'package:vayug/shared/widgets/feedback/feedback_dialog_widget.dart';
 import 'package:vayug/shared/widgets/report_dialog_widget.dart';
-import 'package:vayug/features/profile/core/presentation/widgets/top_earners_bottom_sheet.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/shared/widgets/vayu_bottom_sheet.dart';
-import 'package:vayug/features/profile/core/presentation/screens/linked_accounts_screen.dart';
-import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/utils/url_utils.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/onboarding/presentation/widgets/onboarding_video_player.dart';
 
 class ProfileDialogsWidget {
-  static void showSettingsBottomSheet(
-    BuildContext context, {
-    required ProfileStateManager stateManager,
-    required Future<bool> Function() checkPaymentSetupStatus,
-  }) {
-    VayuBottomSheet.show(
-      context: context,
-      title: 'Settings',
-      icon: Icons.settings_outlined,
-      padding: EdgeInsets.zero,
-      child: Consumer<ProfileStateManager>(
-        builder: (context, stateManager, child) {
-          if (stateManager.userData != null) {
-            final authController = Provider.of<GoogleSignInController>(
-              context,
-              listen: false,
-            );
-            final loggedInUserId = authController.userData?['id']?.toString() ??
-                authController.userData?['googleId']?.toString();
-            final viewedUserId =
-                stateManager.userData?['googleId']?.toString() ??
-                    stateManager.userData?['id']?.toString();
-            final bool isViewingOwnProfile = loggedInUserId != null &&
-                loggedInUserId.isNotEmpty &&
-                loggedInUserId == viewedUserId;
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildSettingsTile(
-                  context: context,
-                  icon: Icons.swap_vert_circle,
-                  title: 'Auto Scroll',
-                  subtitle: 'Auto-scroll to next video after finish',
-                  onTap: () async {
-                    final enabled = await AutoScrollSettings.isEnabled();
-                    await AutoScrollSettings.setEnabled(!enabled);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Auto Scroll: ${!enabled ? 'ON' : 'OFF'}',
-                          ),
-                          duration: const Duration(seconds: 1),
-                        ),
-                      );
-                    }
-                    Navigator.pop(context);
-                  },
-                  iconColor: AppColors.textSecondary,
-                ),
-                _buildSettingsTile(
-                  context: context,
-                  icon: Icons.edit,
-                  title: 'Edit Profile',
-                  subtitle: 'Update your profile information',
-                  onTap: () {
-                    Navigator.pop(context);
-                  },
-                ),
-                _buildSettingsTile(
-                  context: context,
-                  icon: Icons.video_library,
-                  title: 'Manage Videos',
-                  subtitle: 'View and manage your videos',
-                  onTap: () {
-                    Navigator.pop(context);
-                  },
-                ),
-                if (isViewingOwnProfile)
-                  _buildSettingsTile(
-                    context: context,
-                    icon: Icons.analytics,
-                    title: 'Revenue Analytics',
-                    subtitle: 'Track your performance',
-                    onTap: () async {
-                      Navigator.pop(context);
-                      Navigator.of(context, rootNavigator: true).push(
-                        MaterialPageRoute(
-                          builder: (context) => const CreatorRevenueScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                if (isViewingOwnProfile)
-                  _buildSettingsTile(
-                    context: context,
-                    icon: Icons.link,
-                    title: AppText.get('settings_linked_accounts',
-                        fallback: 'Linked Accounts'),
-                    subtitle: AppText.get('linked_accounts_subtitle',
-                        fallback: 'Manage social accounts'),
-                    onTap: () async {
-                      Navigator.pop(context);
-                      Navigator.of(context, rootNavigator: true).push(
-                        MaterialPageRoute(
-                          builder: (context) => const LinkedAccountsScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                _buildSettingsTile(
-                  context: context,
-                  icon: Icons.help_outline,
-                  title: 'Help & Support',
-                  subtitle: 'Get help with your account',
-                  onTap: () {
-                    Navigator.pop(context);
-                    showHelpDialog(context);
-                  },
-                ),
-                _buildSettingsTile(
-                  context: context,
-                  icon: Icons.feedback_outlined,
-                  title: 'Feedback',
-                  subtitle: 'Share ideas or report a problem',
-                  onTap: () {
-                    Navigator.pop(context);
-                    showFeedbackDialog(context);
-                  },
-                ),
-                const SizedBox(height: 20),
-              ],
-            );
-          } else {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildSettingsTile(
-                  context: context,
-                  icon: Icons.login,
-                  title: 'Sign In',
-                  subtitle: 'Sign in to access your profile',
-                  onTap: () {
-                    Navigator.pop(context);
-                  },
-                ),
-                _buildSettingsTile(
-                  context: context,
-                  icon: Icons.help_outline,
-                  title: 'Help & Support',
-                  subtitle: 'Get help with your account',
-                  onTap: () {
-                    Navigator.pop(context);
-                    showHelpDialog(context);
-                  },
-                ),
-                const SizedBox(height: 20),
-              ],
-            );
-          }
-        },
-      ),
-    );
-  }
-
-  static Widget _buildSettingsTile({
-    required BuildContext context,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    Color? iconColor,
-  }) {
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: (iconColor ?? AppColors.textTertiary).withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-        child: Icon(icon, color: iconColor ?? AppColors.textTertiary, size: 20),
-      ),
-      title: Text(
-        title,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w500,
-            ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: AppColors.textSecondary,
-            ),
-      ),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-    );
-  }
-
   static Future<bool> showDeleteConfirmationDialog(
     BuildContext context, {
     String title = 'Delete Content?',
@@ -296,14 +97,6 @@ class ProfileDialogsWidget {
             onPressed: () => Navigator.pop(context),
             label: 'Close',
             variant: AppButtonVariant.text,
-          ),
-          AppButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Handle debug info
-            },
-            label: 'Debug Info',
-            variant: AppButtonVariant.primary,
           ),
         ],
       ),
@@ -703,13 +496,9 @@ class ProfileDialogsWidget {
                           await stateManager.saveUpiIdQuick(upiId);
                           currentUpi = upiId;
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Billing info update ho gayi hai. Har mahine ki 1st date ko scores update honge.',
-                                ),
-                                duration: Duration(seconds: 3),
-                              ),
+                            VayuSnackBar.showSuccess(
+                              context,
+                              'Billing info update ho gayi hai. Har mahine ki 1st date ko scores update honge.',
                             );
                           }
                           setState(() {
@@ -777,15 +566,6 @@ class ProfileDialogsWidget {
           ),
         ],
       ),
-    );
-  }
-
-  static void showTopEarnersBottomSheet(BuildContext context) {
-    VayuBottomSheet.show(
-      context: context,
-      title: 'Top Earners',
-      icon: Icons.emoji_events_outlined,
-      child: const TopEarnersBottomSheet(),
     );
   }
 

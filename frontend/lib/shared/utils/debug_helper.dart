@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vayug/shared/config/app_config.dart';
 import 'package:vayug/shared/services/http_client_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class DebugHelper {
   static void showDebugInfo(BuildContext context) {
@@ -54,26 +55,21 @@ class DebugHelper {
       );
 
       if (response.statusCode == 200) {
-        _showResult(context, '✅ Backend is accessible!', Colors.green);
+        _showResult(context, 'Backend is accessible!', VayuSnackBarType.success);
       } else {
         _showResult(
             context,
-            '⚠️ Backend responded with status: ${response.statusCode}',
-            Colors.orange);
+            'Backend responded with status: ${response.statusCode}',
+            VayuSnackBarType.warning);
       }
     } catch (e) {
-      _showResult(context, '❌ Backend connection failed: $e', Colors.red);
+      _showResult(context, 'Backend connection failed: $e', VayuSnackBarType.error);
     }
   }
 
-  static void _showResult(BuildContext context, String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: color,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+  static void _showResult(
+      BuildContext context, String message, VayuSnackBarType type) {
+    VayuSnackBar.show(context, message, type: type);
   }
 
   static void logSignInAttempt(String step, {String? details}) {

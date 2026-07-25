@@ -7,6 +7,14 @@ import Video from '../models/Video.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backendRoot = path.join(__dirname, '..');
+const publicSiteUrl = (process.env.PUBLIC_SITE_URL || 'https://snehayog.site').replace(/\/+$/, '');
+
+const escapeHtml = (value = '') => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
 const router = express.Router();
 
@@ -55,6 +63,29 @@ router.get('/', (req, res) => {
   res.sendFile(path.join(backendRoot, 'public', 'index.html'));
 });
 
+router.get('/llms.txt', (req, res) => {
+  res.sendFile(path.join(backendRoot, 'public', 'llm.txt'));
+});
+
+// SEO landing pages use clean, extensionless URLs while keeping their source
+// documents in the public directory for static hosting and local preview.
+const seoPages = {
+  '/for-creators': 'for-creators.html',
+  '/e2ee': 'e2ee.html',
+  '/creator-monetization': 'creator-monetization.html',
+  '/ad-free-no-interruption': 'ad-free-nointruption.html'
+};
+
+router.get('/ad-free-nointruption', (req, res) => {
+  res.redirect(301, '/ad-free-no-interruption');
+});
+
+Object.entries(seoPages).forEach(([route, fileName]) => {
+  router.get([route, `${route}/`], (req, res) => {
+    res.sendFile(path.join(backendRoot, 'public', fileName));
+  });
+});
+
 router.get('/video/:id', async (req, res) => {
   // Prevent browser caching of the redirect response
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -71,10 +102,21 @@ router.get('/video/:id', async (req, res) => {
 
     const video = await Video.findById(id).populate('uploader', 'name');
 
+    // Preserve a shared section when the web fallback opens the installed app.
+    const sharedTimestampParams = new URLSearchParams();
+    for (const key of ['t', 'end']) {
+      const value = req.query[key];
+      if (typeof value === 'string' && /^\d+$/.test(value)) {
+        sharedTimestampParams.set(key, value);
+      }
+    }
+    const sharedTimestampQuery = sharedTimestampParams.toString();
+    const sharedTimestampSuffix = sharedTimestampQuery ? `?${sharedTimestampQuery}` : '';
+
     // App links constants
-    const appSchemeUrl = `snehayog://video/${id}`;
+    const appSchemeUrl = `snehayog://video/${id}${sharedTimestampSuffix}`;
     const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.snehayog.app';
-    const intentUrl = `intent://video/${id}#Intent;scheme=snehayog;package=com.snehayog.app;end`;
+    const intentUrl = `intent://video/${id}${sharedTimestampSuffix}#Intent;scheme=snehayog;package=com.snehayog.app;end`;
 
     if (!video) {
         // **SMART FALLBACK**: Don't redirect! Serve a clean error page instead.
@@ -114,44 +156,172 @@ router.get('/video/:id', async (req, res) => {
     const videoStreamUrl = video.hlsMasterPlaylistUrl || video.videoUrl;
     const finalStreamUrl = videoStreamUrl.startsWith('http') ? videoStreamUrl : `${baseUrl}${videoStreamUrl}`;
     const finalThumbnailUrl = (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) 
-      ? video.thumbnailUrl 
+      ? video.thumbnailUrl
       : (video.thumbnailUrl ? `${baseUrl}${video.thumbnailUrl}` : '');
+    const isSubscriberOnly = video.isSubscriberOnly === true
+      || (Array.isArray(video.allowedSubscribers) && video.allowedSubscribers.length > 0);
+    const safeVideoName = escapeHtml(video.videoName || 'Vayug video');
+    const safeDescription = escapeHtml(video.description || 'Watch this video on Vayug');
+    const safeCreatorName = escapeHtml(video.uploader?.name || 'Vayug creator');
+    const creatorInitial = escapeHtml((video.uploader?.name || 'V').trim().charAt(0).toUpperCase() || 'V');
+    const storedAspectRatio = Number(video.aspectRatio);
+    const playerAspectRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0
+      ? Math.min(Math.max(storedAspectRatio, 0.5625), 2.4)
+      : 16 / 9;
+    const isPortraitVideo = playerAspectRatio < 1;
+    const canonicalVideoUrl = `${publicSiteUrl}/video/${id}`;
+    const robotsDirective = isSubscriberOnly ? 'noindex, nofollow' : 'index, follow';
+    const canonicalMarkup = isSubscriberOnly
+      ? ''
+      : `<link rel="canonical" href="${canonicalVideoUrl}" />`;
+    const durationSeconds = Number(video.duration);
+    const videoStructuredData = isSubscriberOnly ? '' : `<script type="application/ld+json">${JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'VideoObject',
+      name: video.videoName || 'Vayug video',
+      description: video.description || 'Watch this video on Vayug',
+      thumbnailUrl: finalThumbnailUrl || undefined,
+      uploadDate: (video.createdAt || video.uploadedAt || new Date()).toISOString(),
+      duration: Number.isFinite(durationSeconds) && durationSeconds > 0
+        ? `PT${Math.round(durationSeconds)}S`
+        : undefined,
+      contentUrl: finalStreamUrl,
+      embedUrl: `${publicSiteUrl}/embed/${id}`,
+      publisher: {
+        '@type': 'Organization',
+        name: 'Vayug',
+        url: publicSiteUrl
+      }
+    }).replace(/</g, '\\u003c')}</script>`;
 
     const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${video.videoName} | Vayug</title>
+  <title>${safeVideoName} | Vayug</title>
+  <meta name="description" content="${safeDescription}" />
+  <meta name="robots" content="${robotsDirective}" />
+  ${canonicalMarkup}
   
-  <meta property="og:title" content="${video.videoName}" />
-  <meta property="og:description" content="${video.description || 'Watch on Vayug'}" />
-  <meta property="og:image" content="${finalThumbnailUrl}" />
+  <meta property="og:url" content="${canonicalVideoUrl}" />
+  <meta property="og:type" content="video.other" />
+  <meta property="og:title" content="${safeVideoName}" />
+  <meta property="og:description" content="${safeDescription}" />
+  <meta property="og:image" content="${escapeHtml(finalThumbnailUrl)}" />
   <meta name="theme-color" content="#2563eb" />
+  ${videoStructuredData}
 
   <style>
-    body { margin:0; background:#000; color:#fff; font-family:system-ui; display:flex; flex-direction:column; min-height:100vh; }
-    .player { flex:1; display:flex; align-items:center; justify-content:center; background:#000; }
-    video { width:100%; max-height:80vh; object-fit:contain; }
-    .meta { padding:24px; max-width:800px; margin:0 auto; width:100%; box-sizing:border-box; }
-    h1 { font-size:22px; margin:0 0 10px; }
-    .btn-row { display:flex; gap:12px; margin-top:25px; flex-wrap:wrap; }
-    .btn { padding:14px 24px; border-radius:12px; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:8px; }
-    .primary { background:#2563eb; color:#fff; }
-    .secondary { border:1px solid #333; color:#fff; background:#111; }
+    :root {
+      color-scheme: dark;
+      --background: #0f172a;
+      --surface: #1e293b;
+      --divider: #334155;
+      --primary: #ffffff;
+      --secondary: #94a3b8;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --accent-pressed: #1d4ed8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background: var(--background);
+      color: var(--primary);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page { min-height: 100vh; }
+    .topbar {
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 0 24px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.55);
+    }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--primary); text-decoration: none; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+    .brand-mark { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; background: var(--accent); color: white; font-size: 14px; font-weight: 700; }
+    .topbar-label { color: var(--muted); font-size: 13px; }
+    .content { width: min(100%, 1040px); margin: 0 auto; padding: 32px 24px 56px; }
+    .player-wrap { display: flex; justify-content: center; width: 100%; }
+    .player {
+      --media-ratio: ${playerAspectRatio};
+      width: min(100%, ${isPortraitVideo ? 440 : 960}px);
+      aspect-ratio: var(--media-ratio);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #020617;
+      border: 1px solid rgba(51, 65, 85, 0.7);
+      border-radius: 18px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+    }
+    video { display: block; width: 100%; height: 100%; object-fit: contain; outline: none; }
+    .meta { width: min(100%, 760px); margin: 0 auto; padding-top: 28px; }
+    .creator { display: inline-flex; align-items: center; gap: 10px; color: var(--secondary); font-size: 14px; margin-bottom: 14px; }
+    .creator-mark { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--surface); border: 1px solid var(--divider); color: var(--secondary); font-size: 12px; font-weight: 600; }
+    h1 { margin: 0; color: var(--primary); font-size: clamp(22px, 3vw, 28px); line-height: 1.2; letter-spacing: -0.025em; font-weight: 600; }
+    .details { margin: 10px 0 0; color: var(--secondary); font-size: 14px; line-height: 1.5; }
+    .actions { display: flex; align-items: center; gap: 12px; margin-top: 24px; }
+    .btn { min-height: 52px; padding: 0 20px; border-radius: 14px; font-size: 15px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 9px; transition: background 200ms ease, border-color 200ms ease, transform 200ms ease; }
+    .btn:focus-visible { outline: 3px solid rgba(59, 130, 246, 0.45); outline-offset: 3px; }
+    .btn:hover { transform: translateY(-1px); }
+    .primary { flex: 1; background: var(--accent); color: #fff; }
+    .primary:hover { background: var(--accent-pressed); }
+    .secondary { flex: 1; color: var(--primary); background: transparent; border: 1px solid var(--divider); }
+    .secondary:hover { background: rgba(30, 41, 59, 0.7); border-color: #475569; }
+    .btn svg { width: 18px; height: 18px; }
+    .footer-note { margin: 30px auto 0; width: min(100%, 760px); color: var(--muted); font-size: 12px; text-align: center; }
+    @media (max-width: 640px) {
+      .topbar { height: 60px; padding: 0 18px; }
+      .topbar-label { display: none; }
+      .content { padding: 20px 16px 40px; }
+      .player { border-radius: 16px; }
+      .meta { padding-top: 22px; }
+      .actions { flex-direction: column; align-items: stretch; margin-top: 20px; }
+      .btn { width: 100%; }
+    }
   </style>
 </head>
 <body>
-  <div class="player">
-    <video id="v" poster="${finalThumbnailUrl}" controls playsinline autoplay muted></video>
-  </div>
-  <div class="meta">
-    <h1>${video.videoName}</h1>
-    <p style="color:#666; font-size:14px;">${video.views.toLocaleString()} views • Shared from Vayug</p>
-    <div class="btn-row">
-      <a href="${intentUrl}" class="btn primary">Open in App</a>
-      <a href="${playStoreUrl}" class="btn secondary">Get the App</a>
-    </div>
+  <div class="page">
+    <header class="topbar">
+      <a class="brand" href="${publicSiteUrl}" aria-label="Vayug home">
+        <span class="brand-mark">V</span>
+        <span>Vayug</span>
+      </a>
+      <span class="topbar-label">Shared video</span>
+    </header>
+    <main class="content">
+      <div class="player-wrap">
+        <div class="player">
+          <video id="v" poster="${escapeHtml(finalThumbnailUrl)}" controls playsinline autoplay muted preload="metadata"></video>
+        </div>
+      </div>
+      <section class="meta" aria-labelledby="video-title">
+        <div class="creator"><span class="creator-mark">${creatorInitial}</span><span>${safeCreatorName}</span></div>
+        <h1 id="video-title">${safeVideoName}</h1>
+        <p class="details">${Number(video.views || 0).toLocaleString()} views <span aria-hidden="true">&bull;</span> Shared from Vayug</p>
+        <div class="actions">
+          <a href="${intentUrl}" class="btn primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path><path d="m13 6 6 6-6 6"></path></svg>
+            <span>Open in Vayug</span>
+          </a>
+          <a href="${playStoreUrl}" class="btn secondary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+            <span>Get the app</span>
+          </a>
+        </div>
+      </section>
+      <p class="footer-note">Watch, discover, and share on Vayug.</p>
+    </main>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -205,14 +375,14 @@ router.get('/embed/:id', async (req, res) => {
   <meta property="og:type" content="video.other" />
   
   <style>
-    body { margin: 0; background: #000; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
-    .player-container { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
-    video { width: 100%; height: 100%; max-height: 100vh; outline: none; }
+    body { margin: 0; background: #0f172a; overflow: hidden; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .player-container { position: relative; width: 100vw; height: 100vh; padding: 12px; display: flex; align-items: center; justify-content: center; background: #0f172a; }
+    video { width: 100%; height: 100%; max-height: 100vh; object-fit: contain; outline: none; border-radius: 16px; background: #020617; }
     .vayu-btn {
       position: absolute; bottom: 20px; right: 20px;
-      background: rgba(37, 99, 235, 0.85); color: #fff; padding: 10px 20px;
-      border-radius: 50px; text-decoration: none; font-weight: 600; font-size: 14px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.3s, transform 0.2s;
+      background: #2563eb; color: #fff; padding: 10px 16px;
+      border-radius: 14px; text-decoration: none; font-weight: 600; font-size: 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.18); opacity: 0.96; transition: opacity 0.2s, transform 0.2s;
       z-index: 10; display: flex; align-items: center; gap: 8px;
     }
     .vayu-btn:hover { transform: scale(1.05); background: #2563eb; }

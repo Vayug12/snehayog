@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/ads/data/ad_model.dart';
 import 'package:snehayog_monetization/snehayog_monetization.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
@@ -303,20 +304,10 @@ class PaymentHandlerWidget {
   }
 
   static void _showSuccessSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.success,
-      ),
-    );
+    VayuSnackBar.showSuccess(context, message);
   }
 
   static void _showErrorSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.error,
-      ),
-    );
+    VayuSnackBar.showError(context, message);
   }
 }

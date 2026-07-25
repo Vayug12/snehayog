@@ -44,7 +44,9 @@ import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:vayug/core/providers/navigation_providers.dart';
 import 'package:vayug/features/video/vayu/presentation/screens/vayu_player_gestures_mixin.dart';
-import 'package:vayug/shared/services/share_service.dart';
+import 'package:vayug/shared/widgets/share_options_sheet.dart';
+import 'package:vayug/features/profile/core/presentation/screens/profile_screen.dart';
+import 'package:vayug/shared/navigation/app_route_observer.dart';
 
 class VayuLongFormPlayerScreen extends ConsumerStatefulWidget {
   final VideoModel video;
@@ -72,7 +74,7 @@ class VayuLongFormPlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<VayuLongFormPlayerScreen> createState() => _VayuLongFormPlayerScreenState();
 }
 
-class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScreen> with WidgetsBindingObserver, VayuPlayerGesturesMixin {
+class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScreen> with WidgetsBindingObserver, RouteAware, VayuPlayerGesturesMixin {
 
   static const _playerSystemUiOverlayStyle = SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -107,6 +109,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   final SharedVideoControllerPool _controllerPool = SharedVideoControllerPool();
   MainController? _mainController;
   bool _lifecyclePaused = false;
+  int? _resolvedParentTabIndex;
+  ModalRoute<dynamic>? _observedRoute;
 
   // Banner Ad State
   late final IAdService _activeAdsService;
@@ -123,6 +127,12 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   
   bool _wakelockEnabled = false;
   bool _isFullScreenManual = false;
+  final ValueNotifier<bool> _suppressTransientPauseOverlayVN = ValueNotifier<bool>(false);
+  Timer? _orientationSettleTimer;
+  // Last orientation for which system chrome (bottom nav + system bars) was
+  // applied. Lets didChangeMetrics react to physical rotation exactly once
+  // and skip rotations already handled by _toggleFullScreen.
+  Orientation? _lastChromeOrientation;
 
   // Scroll hint
   bool _hasSeenScrollHint = true;
@@ -151,6 +161,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   @override
   void initState() {
     super.initState();
+    _mainController = ref.read(mainControllerProvider);
+    _resolvedParentTabIndex =
+        widget.parentTabIndex ?? _mainController?.playbackActiveTabIndex;
     _dubbingService = widget.dubbingService ?? OnDeviceDubbingServiceImpl();
     _activeAdsService = widget.adService ?? ActiveAdsService();
     _quizEngine = widget.quizEngine ?? StandardQuizEngine();
@@ -218,12 +231,20 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _mainController = ref.read(mainControllerProvider);
-        _mainController?.setBottomNavVisibility(false);
         _mainController?.registerVideoObserver(
           onPause: _pauseCurrentVideo,
           onResume: _resumeCurrentVideo,
         );
         _mainController?.forcePauseVideos();
+        // Apply chrome for the entry orientation once, instead of on every
+        // build. Rotations are handled by _toggleFullScreen/didChangeMetrics.
+        final orientation = MediaQuery.orientationOf(context);
+        _lastChromeOrientation = orientation;
+        final isLandscape = orientation == Orientation.landscape;
+        _applyPlayerChrome(
+          fullscreen: isLandscape || _isFullScreenManual,
+          immersive: isLandscape,
+        );
       }
     });
 
@@ -253,6 +274,12 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != _observedRoute) {
+      if (_observedRoute != null) appRouteObserver.unsubscribe(this);
+      _observedRoute = route;
+      if (route != null) appRouteObserver.subscribe(this, route);
+    }
     _mainController = ref.watch(mainControllerProvider);
     final authController = ref.watch(googleSignInProvider);
     if (authController.isSignedIn && authController.userData != null) {
@@ -284,24 +311,37 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     }
   }
 
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    if (!mounted) return;
+    // Physical rotation: apply the final chrome (bottom nav + system bars) as
+    // soon as the metrics flip, so the rotation animation lands on the final
+    // layout. Button-triggered toggles already set _lastChromeOrientation and
+    // are skipped here.
+    final physicalSize = WidgetsBinding.instance.platformDispatcher.implicitView?.physicalSize;
+    if (physicalSize == null || physicalSize.isEmpty) return;
+    final orientation = physicalSize.width > physicalSize.height ? Orientation.landscape : Orientation.portrait;
+    if (orientation == _lastChromeOrientation) return;
+    _lastChromeOrientation = orientation;
+    final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
+    if (!isCurrentRoute) return;
+    final isLandscape = orientation == Orientation.landscape;
+    _markOrientationTransition();
+    _applyPlayerChrome(
+      fullscreen: isLandscape || _isFullScreenManual,
+      immersive: isLandscape,
+    );
+  }
+
   void _handleAppMovedToBackground() {
-    _pauseCurrentVideo();
-    _videoControllerManager.pauseAllVideos();
-    _controllerPool.pauseAllControllers();
     _lifecyclePaused = true;
-    _disableWakelock();
+    _pauseAllPlayback();
   }
 
   void _handleAppResumed() {
     _lifecyclePaused = false;
-    final bool isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
-    if (isCurrentRoute && mounted && !_lifecyclePaused) {
-      final controller = _controllers[_currentIndex];
-      if (controller != null && controller.value.isInitialized) {
-        controller.play();
-        _enableWakelock();
-      }
-    }
+    _resumeCurrentVideo();
   }
 
   void _pauseCurrentVideo() {
@@ -313,18 +353,84 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     }
   }
 
+  void _pauseAllPlayback() {
+    _pauseCurrentVideo();
+    _videoControllerManager.pauseAllVideos();
+    _controllerPool.pauseAllControllers();
+    _disableWakelock();
+  }
+
+  bool _isPlayerRouteActive() => ModalRoute.of(context)?.isCurrent ?? false;
+
+  bool _isParentTabActive() {
+    final parentTabIndex = _resolvedParentTabIndex;
+    return parentTabIndex == null ||
+        _mainController?.playbackActiveTabIndex == parentTabIndex;
+  }
+
+  /// This is the sole permission check for starting Vayu playback.
+  bool _canPlayCurrentVideo(int index, VideoPlayerController controller) {
+    return mounted &&
+        !_lifecyclePaused &&
+        _isPlayerRouteActive() &&
+        _isParentTabActive() &&
+        index == _currentIndex &&
+        identical(_controllers[index], controller);
+  }
+
+  Future<bool> _playIfAllowed(
+    int index,
+    VideoPlayerController controller,
+  ) async {
+    if (!_canPlayCurrentVideo(index, controller)) {
+      try {
+        if (controller.value.isPlaying) await controller.pause();
+      } catch (_) {}
+      return false;
+    }
+
+    try {
+      await controller.play();
+    } catch (_) {
+      return false;
+    }
+
+    // A route, tab, or page can change while play() is awaiting the platform.
+    if (!_canPlayCurrentVideo(index, controller)) {
+      try {
+        await controller.pause();
+      } catch (_) {}
+      return false;
+    }
+
+    _enableWakelock();
+    return true;
+  }
+
+  @override
+  Future<void> playCurrentVideo() async {
+    final controller = currentVideoController;
+    if (controller != null) {
+      await _playIfAllowed(_currentIndex, controller);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    _pauseAllPlayback();
+  }
+
+  @override
+  void didPopNext() {
+    _resumeCurrentVideo();
+  }
+
   void _resumeCurrentVideo() {
-    if (mounted && !_lifecyclePaused) {
-      _validateAndRestoreControllers();
-      if (widget.parentTabIndex != null) {
-        final currentTabIndex = _mainController?.currentIndex ?? 0;
-        if (currentTabIndex != widget.parentTabIndex) return;
-      }
-      final controller = _controllers[_currentIndex];
-      if (controller != null && controller.value.isInitialized && !controller.value.isPlaying) {
-        controller.play();
-        _enableWakelock();
-      }
+    if (!mounted || _lifecyclePaused) return;
+    _validateAndRestoreControllers();
+    final controller = _controllers[_currentIndex];
+    if (controller != null && controller.value.isInitialized) {
+      _playIfAllowed(_currentIndex, controller);
     }
   }
 
@@ -342,7 +448,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     setState(() => _showScrollHintOverlay = true);
     await Future.delayed(const Duration(milliseconds: 1000));
     if (!mounted || _currentIndex != 0 || !_pageController.hasClients) return;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final screenHeight = MediaQuery.sizeOf(context).height;
     final targetOffset = screenHeight * 0.30;
     try {
       await _pageController.animateTo(targetOffset, duration: const Duration(milliseconds: 800), curve: Curves.easeInOut);
@@ -447,17 +553,14 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
           ? CachedNetworkImage(
               imageUrl: video.thumbnailUrl,
               fit: BoxFit.cover,
-              errorWidget: (context, url, error) => Container(color: Colors.black),
+              errorWidget: (context, url, error) => Container(color: AppColors.backgroundPrimary),
             )
-          : Container(color: Colors.black),
+          : Container(color: AppColors.backgroundPrimary),
     );
   }
 
   bool _isCurrentPlaybackTarget(int index, VideoPlayerController controller) {
-    return mounted &&
-        !_lifecyclePaused &&
-        index == _currentIndex &&
-        identical(_controllers[index], controller);
+    return _canPlayCurrentVideo(index, controller);
   }
 
   Future<void> _setupLateInitialization(
@@ -492,13 +595,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       return;
     }
 
-    await controller.play();
-    if (!_isCurrentPlaybackTarget(index, controller)) {
-      await controller.pause();
-      return;
-    }
-    _enableWakelock();
-    if (showControls) startHideControlsTimer(MediaQuery.of(context).orientation);
+    if (!await _playIfAllowed(index, controller)) return;
+    if (showControls) startHideControlsTimer(MediaQuery.orientationOf(context));
     try { brightnessValue = await ScreenBrightness().application; final vol = await FlutterVolumeController.getVolume(); if (vol != null) volumeValue = vol; } catch (_) {}
   }
 
@@ -594,7 +692,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   @override
   void dispose() {
     _disableWakelock();
+    appRouteObserver.unsubscribe(this);
     disposeGestures();
+    _suppressTransientPauseOverlayVN.dispose();
     _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _mainController?.unregisterVideoObserver(onPause: _pauseCurrentVideo, onResume: _resumeCurrentVideo);
@@ -614,7 +714,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       } catch (_) {}
     });
     _chewieControllers.forEach((index, c) => c?.dispose());
-    controlsTimer?.cancel(); overlayTimer?.cancel();
+    controlsTimer?.cancel(); overlayTimer?.cancel(); _orientationSettleTimer?.cancel();
     _stopViewTracking(_currentIndex); _poolDisposalSubscription?.cancel();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -704,15 +804,15 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
               leading: Container(
                 width: 100, height: 56,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(16),
                   image: ep['thumbnailUrl'] != null 
                     ? DecorationImage(image: CachedNetworkImageProvider(ep['thumbnailUrl']), fit: BoxFit.cover) 
                     : null,
-                  color: Colors.white.withValues(alpha: 0.05),
+                  color: AppColors.textTertiary.withValues(alpha: 0.05),
                 ),
                 child: isCurrent 
                   ? Container(
-                      decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(8)), 
+                      decoration: BoxDecoration(color: AppColors.overlayDark, borderRadius: BorderRadius.circular(16)),
                       child: const Icon(Icons.play_circle_fill_rounded, color: AppColors.primary, size: 28)
                     ) 
                   : null,
@@ -749,97 +849,10 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
 
   void _showShareOptions(VideoModel video) {
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-    final controller = _controllers[_currentIndex];
-    final duration = controller?.value.duration ?? video.duration;
-    final durationSeconds = duration.inSeconds;
-    final currentSeconds = controller?.value.position.inSeconds ?? 0;
-    final canSelectSection = durationSeconds > 1;
-    var startSeconds = currentSeconds.clamp(
-      0,
-      durationSeconds > 0 ? durationSeconds - 1 : 0,
-    ).toInt();
-    var endSeconds = canSelectSection
-        ? (startSeconds + 30).clamp(startSeconds + 1, durationSeconds).toInt()
-        : 0;
-
-    VayuBottomSheet.show<void>(
-      context: context,
-      title: 'Share video',
-      maxWidth: isLandscape ? 380.0 : null,
-      child: StatefulBuilder(
-        builder: (context, setSheetState) => Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ListTile(
-              dense: true,
-              visualDensity: VisualDensity.compact,
-              leading: const Icon(
-                Icons.video_library_outlined,
-                color: AppColors.textPrimary,
-              ),
-              title: const Text('Share full video'),
-              onTap: () {
-                Navigator.pop(context);
-                ShareService().shareVideo(video);
-              },
-            ),
-            if (canSelectSection) ...[
-              const Divider(height: 20),
-              Text(
-                'Share a section',
-                style: AppTypography.labelLarge.copyWith(
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${_formatDuration(Duration(seconds: startSeconds))} – ${_formatDuration(Duration(seconds: endSeconds))}',
-                style: AppTypography.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              RangeSlider(
-                values: RangeValues(
-                  startSeconds.toDouble(),
-                  endSeconds.toDouble(),
-                ),
-                min: 0,
-                max: durationSeconds.toDouble(),
-                onChanged: (values) {
-                  setSheetState(() {
-                    startSeconds = values.start.round();
-                    endSeconds = values.end.round();
-                  });
-                },
-              ),
-              AppButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  ShareService().shareVideo(
-                    video,
-                    startAt: Duration(seconds: startSeconds),
-                    endAt: Duration(seconds: endSeconds),
-                  );
-                },
-                label: 'Share section',
-                icon: const Icon(Icons.share_rounded),
-                isFullWidth: true,
-              ),
-            ] else
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'The video needs to finish loading before a section can be selected.',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
+    ShareOptionsSheet.show(
+      context,
+      video: video,
+      controller: _controllers[_currentIndex],
     );
   }
 
@@ -948,8 +961,29 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   void _nextVideo() { if (_currentIndex < _videos.length - 1) _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }
   void _previousVideo() { if (_currentIndex > 0) _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }
 
+  /// Applies system bars + app bottom nav for the target mode in one place,
+  /// BEFORE a rotation starts, so the OS rotation animation lands directly on
+  /// the final layout instead of reflowing a second time afterwards.
+  void _applyPlayerChrome({required bool fullscreen, required bool immersive}) {
+    _mainController?.setBottomNavVisibility(!fullscreen);
+    if (immersive) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } else {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      SystemChrome.setSystemUIOverlayStyle(_playerSystemUiOverlayStyle);
+    }
+  }
+
+  void _markOrientationTransition() {
+    _orientationSettleTimer?.cancel();
+    _suppressTransientPauseOverlayVN.value = true;
+    _orientationSettleTimer = Timer(const Duration(milliseconds: 450), () {
+      if (mounted) _suppressTransientPauseOverlayVN.value = false;
+    });
+  }
+
   void _toggleFullScreen() {
-    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    final isPortrait = MediaQuery.orientationOf(context) == Orientation.portrait;
     final controller = _controllers[_currentIndex];
 
     // Capture exact position before orientation change
@@ -959,24 +993,31 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
     final aspectRatio = controller?.value.aspectRatio ?? 1.0;
     if (aspectRatio < 1.0) {
-      setState(() {
-        _isFullScreenManual = !_isFullScreenManual;
-        showControlsVN.value = true;
-      });
+      // Vertical video: manual fullscreen, no rotation involved.
+      _markOrientationTransition();
+      setState(() => _isFullScreenManual = !_isFullScreenManual);
+      _applyPlayerChrome(fullscreen: _isFullScreenManual, immersive: false);
+      showControlsVN.value = true;
+      startHideControlsTimer(Orientation.portrait);
     } else {
-      SystemChrome.setPreferredOrientations(isPortrait
+      final goingLandscape = isPortrait;
+      _markOrientationTransition();
+      _isFullScreenManual = false;
+      _lastChromeOrientation = goingLandscape ? Orientation.landscape : Orientation.portrait;
+      _applyPlayerChrome(fullscreen: goingLandscape, immersive: goingLandscape);
+      // ValueNotifier update — no setState here. The orientation change itself
+      // drives the single rebuild; an extra setState now would paint an
+      // intermediate frame with the new state but the old orientation.
+      showControlsVN.value = true;
+      SystemChrome.setPreferredOrientations(goingLandscape
           ? [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
           : [DeviceOrientation.portraitUp]);
-      setState(() {
-        _isFullScreenManual = false;
-        showControlsVN.value = true;
-      });
+      startHideControlsTimer(goingLandscape ? Orientation.landscape : Orientation.portrait);
     }
-    startHideControlsTimer(MediaQuery.of(context).orientation);
   }
 
   Future<void> _showMoreOptions() async {
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     VayuBottomSheet.show<void>(
       context: context, title: 'More Options',
       maxWidth: isLandscape ? 380.0 : null,
@@ -999,7 +1040,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   Future<void> _showPlaybackSpeedOptions() async {
     VayuBottomSheet.show<void>(
       context: context, title: 'Speed',
-      child: Column(mainAxisSize: MainAxisSize.min, children: _playbackSpeedOptions.map((s) => ListTile(title: Text('${s}x', style: TextStyle(color: s == _playbackSpeed ? AppColors.primary : null)), onTap: () { Navigator.pop(context); _setPlaybackSpeed(s); })).toList()),
+      child: Column(mainAxisSize: MainAxisSize.min, children: _playbackSpeedOptions.map((s) => ListTile(title: Text('${s}x', style: AppTypography.bodyMedium.copyWith(color: s == _playbackSpeed ? AppColors.primary : AppColors.textPrimary)), onTap: () { Navigator.pop(context); _setPlaybackSpeed(s); })).toList()),
     );
   }
 
@@ -1107,7 +1148,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   Widget _buildLanguageOption(BuildContext context, VideoModel video, String title, String code, {bool available = true}) {
     final selected = _selectedAudioLanguage[video.id] ?? 'default';
     return ListTile(
-      title: Text(title, style: TextStyle(color: selected == code ? AppColors.primary : null)),
+      title: Text(title, style: AppTypography.bodyMedium.copyWith(color: selected == code ? AppColors.primary : AppColors.textPrimary)),
       trailing: selected == code ? const Icon(Icons.check, color: AppColors.primary) : (!available ? const Icon(Icons.psychology_outlined, size: 16) : null),
       onTap: () { Navigator.pop(context); if (available || code == 'default') { _handleLanguageSelection(video, code); } else { _onLocalSmartDubTap(video, code); } },
     );
@@ -1138,16 +1179,68 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   }
 
   Widget _buildScrubbingOverlay() {
-    return Align(
-      alignment: isForward ? Alignment.centerRight : Alignment.centerLeft,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(isForward ? Icons.keyboard_double_arrow_right_rounded : Icons.keyboard_double_arrow_left_rounded, color: Colors.white, size: 32),
-          const SizedBox(height: 8),
-          Text('${isForward ? "+" : ""}${scrubbingDelta.inSeconds.abs()}s', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-        ]),
-      ),
+    return ValueListenableBuilder<Duration>(
+      valueListenable: scrubbingDeltaVN,
+      builder: (context, delta, _) {
+        return ValueListenableBuilder<Duration>(
+          valueListenable: scrubbingTargetTimeVN,
+          builder: (context, targetTime, _) {
+            return ValueListenableBuilder<bool>(
+              valueListenable: isForwardVN,
+              builder: (context, forward, _) {
+                final seconds = delta.inSeconds.abs();
+                final icon = forward
+                    ? Icons.keyboard_double_arrow_right_rounded
+                    : Icons.keyboard_double_arrow_left_rounded;
+                return Align(
+                  alignment: forward ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceSecondary.withValues(alpha: 0.68),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppColors.borderPrimary.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(icon, color: AppColors.textPrimary, size: 18),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${seconds}s',
+                                  style: AppTypography.labelLarge.copyWith(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: AppTypography.weightSemiBold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _formatDuration(targetTime),
+                              style: AppTypography.labelSmall.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1166,13 +1259,19 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       return const AnnotatedRegion<SystemUiOverlayStyle>(
         value: _playerSystemUiOverlayStyle,
         child: Scaffold(
+          extendBody: true,
+          extendBodyBehindAppBar: true,
           backgroundColor: AppColors.backgroundPrimary,
           body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
         ),
       );
     }
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     final navigationBarInset = MediaQuery.viewPaddingOf(context).bottom;
+    // Bottom nav visibility is applied BEFORE rotations start (see
+    // _applyPlayerChrome) so the rotation animation lands on the final layout.
+    // This flag only mirrors that state for the in-tree gradient below.
+    final showBottomNav = !isLandscape && !_isFullScreenManual;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: _playerSystemUiOverlayStyle,
       child: PopScope(
@@ -1195,7 +1294,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
             // Android draws its three-button controls over this area. A soft
             // gradient preserves icon contrast without looking like a separate
             // solid navigation bar, even while a bright frame is on screen.
-            if (navigationBarInset > 0)
+            // Skipped when the app's bottom nav is visible — it provides the
+            // bottom edge and the body no longer reaches the system inset.
+            if (navigationBarInset > 0 && !showBottomNav)
               Positioned(
                 left: 0,
                 right: 0,
@@ -1217,7 +1318,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
                   ),
                 ),
               ),
-            if (!_hasSeenScrollHint) Positioned(bottom: isLandscape ? 80 : 140, left: 0, right: 0, child: IgnorePointer(child: AnimatedOpacity(opacity: _showScrollHintOverlay ? 1.0 : 0.0, duration: const Duration(milliseconds: 500), child: Center(child: Container(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12), decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.65), borderRadius: BorderRadius.circular(30)), child: const Text('Swipe up to watch more', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600))))))),
+            if (!_hasSeenScrollHint) Positioned(bottom: isLandscape ? 80 : 140, left: 0, right: 0, child: IgnorePointer(child: AnimatedOpacity(opacity: _showScrollHintOverlay ? 1.0 : 0.0, duration: const Duration(milliseconds: 500), child: Center(child: Container(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12), decoration: BoxDecoration(color: AppColors.overlayDark, borderRadius: BorderRadius.circular(30)), child: Text('Swipe up to watch more', style: AppTypography.titleLarge.copyWith(color: AppColors.textPrimary))))))),
           ]),
         ),
       ),
@@ -1226,18 +1327,26 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
   Widget _buildFeedItem(int index) {
     final v = _videos[index];
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     final isPortrait = !isLandscape;
 
     return SafeArea(
       top: isPortrait, bottom: false, left: false, right: false,
       child: VayuFeedItem(
       key: ValueKey(v.id),
-      index: index, video: v, controller: _controllers[index], chewie: _chewieControllers[index], isCurrent: index == _currentIndex, isFullScreenManual: _isFullScreenManual, showControlsVN: showControlsVN, isControlsLockedVN: isControlsLockedVN, showScrubbingOverlayVN: showScrubbingOverlayVN,
-      onToggleFullScreen: _toggleFullScreen, onOpenExternalPlayer: () => _openInExternalPlayer(v), onHandleTap: () => handleTap(MediaQuery.of(context).orientation), onDoubleTapToSeek: (details) => handleDoubleTapToSeek(details, MediaQuery.of(context).size, MediaQuery.of(context).orientation), onHorizontalDragEnd: handleHorizontalDragEnd, onVerticalDragUpdate: (dy, lp) => handleVerticalDragUpdate(dy, lp, MediaQuery.of(context).size), onVerticalDragEnd: () {}, onUnifiedHorizontalDrag: handleUnifiedHorizontalDrag,
+      index: index, video: v, controller: _controllers[index], chewie: _chewieControllers[index], isCurrent: index == _currentIndex, isFullScreenManual: _isFullScreenManual, suppressTransientPauseOverlayVN: _suppressTransientPauseOverlayVN, showControlsVN: showControlsVN, isControlsLockedVN: isControlsLockedVN, showScrubbingOverlayVN: showScrubbingOverlayVN,
+      onToggleFullScreen: _toggleFullScreen, onOpenExternalPlayer: () => _openInExternalPlayer(v), onHandleTap: () => handleTap(MediaQuery.orientationOf(context)), onDoubleTapToSeek: (details) => handleDoubleTapToSeek(details, MediaQuery.sizeOf(context), MediaQuery.orientationOf(context)), onHorizontalDragEnd: handleHorizontalDragEnd, onVerticalDragUpdate: (dy, lp) => handleVerticalDragUpdate(dy, lp, MediaQuery.sizeOf(context)), onVerticalDragEnd: () {}, onUnifiedHorizontalDrag: handleUnifiedHorizontalDrag,
       onScrollingLock: (l) => isScrollingLockedVN.value = l, onShowSnackBar: _showSnackBar, buildAdSection: _buildAdSection, buildVideoInfo: (_) => const SizedBox.shrink(), buildChannelRow: (_) => const SizedBox.shrink(), buildScrubbingOverlay: _buildScrubbingOverlay, buildCustomControls: (_) => const SizedBox.shrink(), buildDubbingProgress: (_) => const SizedBox.shrink(), formatDuration: _formatDuration, onQuizDismiss: () => setState(() => _activeQuiz = null), activeQuiz: index == _currentIndex ? _activeQuiz : null,
+      onResumeAfterSeek: () async {
+        final controller = _controllers[index];
+        if (controller != null) await _playIfAllowed(index, controller);
+      },
       metadataSection: VayuMetadataSection(video: v, isPortrait: isPortrait, isLoading: _controllers[index] == null || !_controllers[index]!.value.isInitialized, onShare: () => _showShareOptions(v), onSave: () => _handleToggleSave(index), onVisitLink: () async { final enrichedUrl = UrlUtils.enrichUrl(_sanitizeUrl(v.link!), medium: 'long_form_player', campaign: 'creator_visit'); final u = Uri.parse(enrichedUrl); if (await canLaunchUrl(u)) launchUrl(u, mode: LaunchMode.externalApplication); }, onMoreOptions: _showMoreOptions, onEpisodes: () => _showEpisodeList(context, v), onSuggestion: () => _showShareSuggestionBottomSheet(v), onShowError: (m) => _showSnackBar(m, type: VayuSnackBarType.error)),
-      channelInfo: VayuChannelInfo(video: v, isPortrait: isPortrait),
+      channelInfo: VayuChannelInfo(
+        video: v,
+        isPortrait: isPortrait,
+        onProfileTap: () => _openUploaderProfile(v),
+      ),
       playerOverlay: VayuPlayerOverlay(controller: _controllers[index], showControlsVN: showControlsVN, isControlsLockedVN: isControlsLockedVN, isPortrait: isPortrait, isFullScreenManual: _isFullScreenManual, onTogglePlay: togglePlay, onMoreOptions: _showMoreOptions, onNext: _nextVideo, onPrevious: _previousVideo),
       dubbingOverlay: _buildDubbingOverlay(index),
     ));
@@ -1265,11 +1374,21 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
         adService: _activeAdsService,
         onVideoPause: () => _controllers[index]?.pause(),
         onVideoResume: () {
-          if (index == _currentIndex) {
-            _controllers[index]?.play();
+          final controller = _controllers[index];
+          if (controller != null) {
+            _playIfAllowed(index, controller);
           }
         },
         onImpression: () async {},
+      ),
+    );
+  }
+
+  Future<void> _openUploaderProfile(VideoModel video) async {
+    _pauseAllPlayback();
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(userId: video.uploader.id),
       ),
     );
   }

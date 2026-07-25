@@ -22,6 +22,7 @@ import 'package:vayug/features/ads/data/ad_model.dart';
 import 'dart:io';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/app_text.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/shared/managers/activity_recovery_manager.dart';
 import 'package:vayug/shared/models/app_activity.dart';
@@ -169,12 +170,8 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     }
     // Inform user
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(AppText.get('ad_created_success')),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      VayuSnackBar.showSuccess(context, AppText.get('ad_created_success'),
+          duration: const Duration(seconds: 2));
     }
   }
 
@@ -412,15 +409,13 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
 
   @override
   Widget build(BuildContext context) {
+    final authController = ref.watch(googleSignInProvider);
+    final isSignedIn = authController.isSignedIn;
+
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
-      body: Consumer(
-        builder: (context, ref, _) {
-          final authController = ref.watch(googleSignInProvider);
-          final isSignedIn = authController.isSignedIn;
-
-          if (!isSignedIn) {
-            return CustomScrollView(
+      body: !isSignedIn
+          ? CustomScrollView(
               slivers: [
                 _buildSliverAppBar(),
                 SliverFillRemaining(
@@ -435,11 +430,36 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                   ),
                 ),
               ],
-            );
-          }
+            )
+          : _buildCreateAdForm(),
+      // Pinned so the primary action is visible without scrolling
+      bottomNavigationBar: isSignedIn ? _buildSubmitBar() : null,
+    );
+  }
 
-          return _buildCreateAdForm();
-        },
+  Widget _buildSubmitBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.backgroundPrimary,
+        border: Border(
+          top: BorderSide(color: AppColors.borderPrimary.withValues(alpha: 0.4)),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: AppButton(
+            onPressed: _isLoading ? null : _submitAd,
+            icon: const Icon(Icons.flash_on_rounded, color: Colors.white),
+            label: _isLoading
+                ? AppText.get('btn_creating_ad')
+                : AppText.get('btn_create_ad'),
+            variant: AppButtonVariant.primary,
+            isLoading: _isLoading,
+            isFullWidth: true,
+          ),
+        ),
       ),
     );
   }
@@ -581,19 +601,7 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
               ),
               _buildLegalAgreement(),
               _buildValidationSummary(),
-
-              // Submit Button (scrolls with content)
-              Padding(
-                padding: const EdgeInsets.only(top: 16, bottom: 32),
-                child: AppButton(
-                  onPressed: _isLoading ? null : _submitAd,
-                  icon: const Icon(Icons.flash_on_rounded, color: Colors.white),
-                  label: _isLoading ? AppText.get('btn_creating_ad') : AppText.get('btn_create_ad'),
-                  variant: AppButtonVariant.primary,
-                  isLoading: _isLoading,
-                  isFullWidth: true,
-                ),
-              ),
+              const SizedBox(height: 24),
             ]),
           ),
         ),
@@ -860,9 +868,7 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       } else {
         AppLogger.log('❌ Could not launch $url');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not open link')),
-          );
+          VayuSnackBar.showError(context, 'Could not open link');
         }
       }
     } catch (e) {

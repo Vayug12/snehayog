@@ -12,6 +12,7 @@ class VayuVideoProgressBar extends StatefulWidget {
   final double thumbRadius;
   final VoidCallback? onDragStart;
   final VoidCallback? onDragEnd;
+  final Future<void> Function() onResumeAfterSeek;
   final void Function(double relative, Duration position)? onProgressUpdate;
 
   const VayuVideoProgressBar({
@@ -24,6 +25,7 @@ class VayuVideoProgressBar extends StatefulWidget {
     this.thumbRadius = 6.0,
     this.onDragStart,
     this.onDragEnd,
+    required this.onResumeAfterSeek,
     this.onProgressUpdate,
   });
 
@@ -161,7 +163,7 @@ class _VayuVideoProgressBarState extends State<VayuVideoProgressBar> with Ticker
     _seekTo(_dragPosition.value);
 
     if (_wasPlayingBeforeDrag) {
-      widget.controller.play();
+      widget.onResumeAfterSeek();
     }
 
     _expansionController.reverse();

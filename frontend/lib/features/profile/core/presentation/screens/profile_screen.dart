@@ -16,22 +16,17 @@ import 'package:flutter/foundation.dart';
 import 'package:vayug/core/providers/profile_providers.dart';
 import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'package:vayug/shared/services/profile_screen_logger.dart';
-
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
-
 import 'dart:async';
 import 'package:share_plus/share_plus.dart' as sp;
-
 import 'package:vayug/shared/services/http_client_service.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_static_views.dart';
 import 'package:vayug/features/ads/data/services/ad_service.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
-import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/profile/analytics/presentation/screens/creator_revenue_screen.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
-
 import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/features/profile/core/data/services/user_service.dart';
 import 'package:vayug/features/profile/core/data/services/notification_service.dart';
@@ -52,7 +47,6 @@ import 'package:vayug/features/profile/content/presentation/screens/profile_tabs
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/vayu_grid_tab.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/about_user_tab.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
-
 import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/core/providers/navigation_providers.dart';
 
@@ -100,10 +94,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   late final TabController _tabController;
   final ValueNotifier<int> _activeProfileTabIndex = ValueNotifier<int>(0);
 
-  // UPI ID status tracking
   final ValueNotifier<bool> _hasUpiId = ValueNotifier<bool>(
       false); // Default to false - show notice until confirmed
-  final ValueNotifier<bool> _isCheckingUpiId = ValueNotifier<bool>(false);
 
   bool _isDeleteLoadingDialogVisible = false;
 
@@ -154,7 +146,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
     // NO SETSTATE NEEDED: The UI components that need the active tab index 
     // use a ValueListenableBuilder for granular updates.
-    _activeProfileTabIndex.addListener(() {});
   }
 
   void _handleTabChange() {
@@ -334,9 +325,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-
-    // **DISABLED: Preload profile videos to prevent video playback conflicts**
-    // _preloadProfileVideos();
   }
 
 
@@ -345,7 +333,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
     _activeProfileTabIndex.dispose();
-    _isCheckingUpiId.dispose();
     ProfileScreenLogger.logProfileScreenDispose();
     
     // **NEW: Stop all background downloads immediately on exit**
@@ -403,9 +390,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
   /// **FIXED: Use GoogleSignInController Provider for unified auth state**
   Future<void> _handleGoogleSignIn() async {
+    final authController = ref.read(googleSignInProvider);
+    if (_isSigningIn || authController.isLoading) return;
+
     try {
       ProfileScreenLogger.logGoogleSignIn();
-      final authController = ref.read(googleSignInProvider);
 
       if (mounted) setState(() => _isSigningIn = true);
 
@@ -513,11 +502,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       // **REMOVED: No setState needed, ValueNotifier automatically updates listeners**
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppText.get('error_share')),
-          ),
-        );
+        VayuSnackBar.showError(context, AppText.get('error_share'));
       }
     }
   }
@@ -577,12 +562,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
       await _profileStateManager.saveProfile();
 
-      // **ENHANCED: Update cache immediately with new data (no server fetch needed)**
-      if (_profileStateManager.userData != null) {
-        await _cacheProfileData(_profileStateManager.userData!);
-        AppLogger.log(
-            '✅ ProfileScreen: Updated profile cache immediately after name update');
-      }
+      await _cacheCurrentProfile();
 
       if (mounted) {
         VayuSnackBar.showSuccess(context, AppText.get('profile_updated_success'), duration: const Duration(seconds: 2));
@@ -609,7 +589,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       if (!shouldDelete) return;
 
       // Show loading indicator
-      _showLoadingDialog();
+      _showLoadingDialog(count: initialCount);
 
       try {
         await _profileStateManager.deleteSelectedVideos();
@@ -644,7 +624,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     }
   }
 
-  void _showLoadingDialog() {
+  void _showLoadingDialog({required int count}) {
     if (_isDeleteLoadingDialogVisible) return;
     _isDeleteLoadingDialogVisible = true;
     showDialog(
@@ -654,12 +634,41 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       builder: (BuildContext context) {
         return Center(
           child: Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             decoration: BoxDecoration(
               color: AppColors.surfacePrimary,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: const CircularProgressIndicator(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  count == 1 ? 'Deleting video...' : 'Deleting $count videos...',
+                  style: AppTypography.titleSmall.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Please wait a moment.',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -817,12 +826,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
         await _profileStateManager.updateProfilePhoto(image.path);
 
-        // **ENHANCED: Update cache immediately with new data (no server fetch needed)**
-        if (_profileStateManager.userData != null) {
-          await _cacheProfileData(_profileStateManager.userData!);
-          AppLogger.log(
-              '✅ ProfileScreen: Updated profile cache immediately after photo update');
-        }
+        await _cacheCurrentProfile();
 
         if (mounted) {
           VayuSnackBar.showSuccess(context, AppText.get('profile_photo_updated'));
@@ -962,7 +966,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                           targetType: 'user',
                           targetId: widget.userId!,
                         ),
-                        onShowFeedback: _showFeedbackDialog,
                         onShowWhatsApp: _openWhatsAppGroupChat,
                         onShowFAQ: _showFAQDialog,
                         onEnterSelectionMode: () =>
@@ -974,51 +977,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                     : null,
                 body: _buildBody(activeManager, globalAuthState, isViewingOwnProfile),
               ),
-              // **NEW: Signing In Overlay**
-              if (_isSigningIn)
-                Container(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 32, vertical: 24),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(
-                            width: 32,
-                            height: 32,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 3,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.green),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            AppText.get('profile_signing_in_label', fallback: 'Signing in...'),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -1029,7 +987,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
   Widget _buildBody(ProfileStateManager manager, GoogleSignInController authController, bool isViewingOwnProfile) {
     // **FIXED: If auth is still loading, show skeleton instead of sign-in UI**
-    if (authController.isLoading) {
+    if (authController.isLoading && !_isSigningIn) {
       return _wrapWithSliverAppBar(const ProfileSkeleton(), isViewingOwnProfile, manager);
     }
 
@@ -1041,6 +999,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           onGoogleSignIn: _handleGoogleSignIn,
           onPhoneSignIn: _handlePhoneSignIn,
           sessionExpired: isSessionExpired,
+          isSigningIn: _isSigningIn || authController.isLoading,
         ),
         isViewingOwnProfile,
         manager,
@@ -1072,26 +1031,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                     onGoogleSignIn: _handleGoogleSignIn,
                     onPhoneSignIn: _handlePhoneSignIn,
                     sessionExpired: isSessionExpired,
+                    isSigningIn: _isSigningIn || authController.isLoading,
                   ),
                   isViewingOwnProfile,
                   manager,
                 );
               }
               
-              // **FIX: Allow viewing other profiles even if not signed in**
-              if (widget.userId == null && !authController.isSignedIn) {
-                final isSessionExpired = authController.error?.contains('expired') == true;
-                return _wrapWithSliverAppBar(
-                  ProfileSignInView(
-                    onGoogleSignIn: _handleGoogleSignIn,
-                    onPhoneSignIn: _handlePhoneSignIn,
-                    sessionExpired: isSessionExpired,
-                  ),
-                  isViewingOwnProfile,
-                  manager,
-                );
-              }
-
               // Otherwise show error with retry
               return _wrapWithSliverAppBar(
                 Center(
@@ -1139,16 +1085,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
             // Check if we have user data
             if (manager.userData == null) {
-              if (widget.userId == null && !authController.isSignedIn) {
-                return _wrapWithSliverAppBar(
-                  ProfileSignInView(
-                    onGoogleSignIn: _handleGoogleSignIn,
-                    onPhoneSignIn: _handlePhoneSignIn,
-                  ),
-                  isViewingOwnProfile,
-                  manager,
-                );
-              }
               // If viewing someone else's profile, we might not have data yet
               if (widget.userId != null) {
                 return _wrapWithSliverAppBar(
@@ -1191,6 +1127,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                 ProfileSignInView(
                   onGoogleSignIn: _handleGoogleSignIn,
                   onPhoneSignIn: _handlePhoneSignIn,
+                  isSigningIn: _isSigningIn || authController.isLoading,
                 ),
                 isViewingOwnProfile,
                 manager,
@@ -1216,7 +1153,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   children: [
                     YugGridTab(manager: manager, onReferFriends: _handleReferFriends),
                     VayuGridTab(manager: manager, onReferFriends: _handleReferFriends),
-                    const AboutUserTab(),
+                    AboutUserTab(manager: manager),
                   ],
                 ),
               ),
@@ -1231,6 +1168,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   List<Widget> _buildProfileHeaderSlivers(
       BuildContext context, ProfileStateManager manager, GoogleSignInController authController) {
     final List<Widget> slivers = [];
+
+    final loggedInUserId = authController.userData?['id']?.toString() ??
+        authController.userData?['googleId']?.toString();
+    final displayedUserId = widget.userId ??
+        manager.userData?['googleId']?.toString() ??
+        manager.userData?['id']?.toString();
+    final bool isViewingOwnProfile = widget.userId == null ||
+        (loggedInUserId != null &&
+            displayedUserId != null &&
+            loggedInUserId == displayedUserId);
 
     if (manager.activeNotice != null) {
       slivers.add(
@@ -1277,9 +1224,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   onPressed: () async {
                     await _authService.debugExpireToken();
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('🧪 Case 1: Access token expired. Watch logs for silent refresh...'),
-                    ));
+                    VayuSnackBar.showInfo(context,
+                        'Case 1: Access token expired. Watch logs for silent refresh...');
                     _refreshData();
                   },
                 ),
@@ -1295,9 +1241,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   onPressed: () async {
                     await _authService.debugFullSessionLoss();
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('🧪 Case 2: Both tokens deleted. Watch for sign-in screen...'),
-                    ));
+                    VayuSnackBar.showInfo(context,
+                        'Case 2: Both tokens deleted. Watch for sign-in screen...');
                     _refreshData();
                   },
                 ),
@@ -1313,9 +1258,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   onPressed: () async {
                     await _authService.debugRotationMismatch();
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('🧪 Case 3: Refresh token corrupted (stale). Watch for Google Silent Sign-In fallback...'),
-                    ));
+                    VayuSnackBar.showInfo(context,
+                        'Case 3: Refresh token corrupted (stale). Watch for Google Silent Sign-In fallback...');
                     _refreshData();
                   },
                 ),
@@ -1332,16 +1276,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         child: ValueListenableBuilder<int>(
           valueListenable: _invitedCount,
           builder: (context, invitedCount, _) {
-            final loggedInUserId = authController.userData?['id']?.toString() ??
-                authController.userData?['googleId']?.toString();
-            final displayedUserId = widget.userId ??
-                manager.userData?['googleId']?.toString() ??
-                manager.userData?['id']?.toString();
-            final bool isViewingOwnProfile = widget.userId == null ||
-                (loggedInUserId != null &&
-                    displayedUserId != null &&
-                    loggedInUserId == displayedUserId);
-
             return ProfileHeaderWidget(
               isViewingOwnProfile: isViewingOwnProfile,
               stateManager: manager,
@@ -1373,16 +1307,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
               child: ValueListenableBuilder<int>(
                 valueListenable: _activeProfileTabIndex,
                 builder: (context, activeIndex, child) {
-                  final loggedInUserId = authController.userData?['id']?.toString() ??
-                      authController.userData?['googleId']?.toString();
-                  final displayedUserId = widget.userId ??
-                      manager.userData?['googleId']?.toString() ??
-                      manager.userData?['id']?.toString();
-                  final bool isViewingOwnProfile = widget.userId == null ||
-                      (loggedInUserId != null &&
-                          displayedUserId != null &&
-                          loggedInUserId == displayedUserId);
-
                   return ProfileTabsWidget(
                     activeIndex: activeIndex,
                     showTopCreators: isViewingOwnProfile,
@@ -1592,11 +1516,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   }
 
   void _showChatSupportError() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(AppText.get('error_whatsapp')),
-      ),
-    );
+    VayuSnackBar.showError(context, AppText.get('error_whatsapp'));
   }
 
 
@@ -1637,9 +1557,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
 
 
-  /// Recommendations tab – shows Top Earners from following (Professional List view)
-
-  /// **NEW: Build UPI ID Notice Banner**
 
 
   Future<bool> _checkPaymentSetupStatus() async {
@@ -1773,8 +1690,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         return;
       }
 
-      _isCheckingUpiId.value = true;
-
       // **FIXED: Do NOT exit early based on generic "hasPaymentSetup" flag**
       // We want to specifically check for the existence of a UPI ID.
       // Generic setup flags might include Bank/Bank Transfer which don't fulfill the "UPI" requirement.
@@ -1794,7 +1709,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
             _hasUpiId.value = true;
             AppLogger.log(
                 '✅ ProfileScreen: UPI ID found in local state - hiding notice');
-            _isCheckingUpiId.value = false;
             return;
           }
         }
@@ -1806,7 +1720,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         AppLogger.log('⚠️ ProfileScreen: No token available for UPI ID check');
         _hasUpiId.value =
             false; // Show notice if not signed in (they need to sign in first)
-        _isCheckingUpiId.value = false;
         return;
       }
 
@@ -1856,8 +1769,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       _hasUpiId.value = hasUpiLocal;
       AppLogger.log(
           '⚠️ ProfileScreen: Using local state fallback: ${hasUpiLocal ? "HAS UPI" : "NO UPI"}');
-    } finally {
-      _isCheckingUpiId.value = false;
     }
   }
 
@@ -1884,6 +1795,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     }
   }
 
+  Future<void> _cacheCurrentProfile() async {
+    if (_profileStateManager.userData != null) {
+      await _cacheProfileData(_profileStateManager.userData!);
+    }
+  }
 
 
   /// **SIMPLIFIED: Cache earnings - simple timestamp only**
@@ -2046,288 +1962,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     } catch (e) {
       AppLogger.log('⚠️ ProfileScreen: Earnings refresh error: $e');
     }
-  }
-}
-
-/// **NEW: Earnings Bottom Sheet Content Widget**
-class EarningsBottomSheetContent extends StatefulWidget {
-  final List<VideoModel> videos;
-  final ScrollController scrollController;
-
-  const EarningsBottomSheetContent({
-    super.key,
-    required this.videos,
-    required this.scrollController,
-  });
-
-  @override
-  State<EarningsBottomSheetContent> createState() =>
-      _EarningsBottomSheetContentState();
-}
-
-class _EarningsBottomSheetContentState
-    extends State<EarningsBottomSheetContent> {
-  final Map<String, double> _videoEarnings = {};
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadEarnings();
-  }
-
-  Future<void> _loadEarnings() async {
-    setState(() => _isLoading = true);
-    try {
-      final authService = AuthService();
-      final userData = await authService.getUserData();
-      final userId = userData?['googleId'] ?? userData?['id'];
-
-      if (userId == null) {
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      final prefs = await SharedPreferences.getInstance();
-      final cacheKey = 'earnings_cache_$userId';
-      final cacheTimestampKey = 'earnings_cache_ts_$userId';
-      final cachedDataJson = prefs.getString(cacheKey);
-      final cacheTimestamp = prefs.getInt(cacheTimestampKey);
-
-      // **OPTIMIZED: Only use cache if it's less than 10 minutes old**
-      bool isCacheValid = false;
-      if (cacheTimestamp != null) {
-        final cacheAge = DateTime.now().difference(
-          DateTime.fromMillisecondsSinceEpoch(cacheTimestamp),
-        );
-        isCacheValid = cacheAge.inMinutes < 5;
-      }
-
-      if (cachedDataJson != null && isCacheValid) {
-        // **OPTIMIZED: Use background isolate for non-blocking JSON decoding**
-        final Map<String, dynamic> revenueData = await compute(_parseJsonData, cachedDataJson);
-        if (revenueData.containsKey('videos')) {
-           final List<dynamic> videoStatsList = revenueData['videos'] ?? [];
-           
-           for (var stat in videoStatsList) {
-             final String videoId = stat['videoId']?.toString() ?? '';
-             final double creatorRevenue = (stat['creatorRevenue'] as num?)?.toDouble() ?? 0.0;
-             if (videoId.isNotEmpty) {
-               _videoEarnings[videoId] = creatorRevenue;
-             }
-           }
-        }
-      }
-    } catch (e) {
-      AppLogger.log('⚠️ Error loading earnings for bottom sheet: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inDays == 0) {
-      return 'Today';
-    } else if (difference.inDays == 1) {
-      return 'Yesterday';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else if (difference.inDays < 30) {
-      final weeks = (difference.inDays / 7).floor();
-      return '$weeks week${weeks > 1 ? 's' : ''} ago';
-    } else if (difference.inDays < 365) {
-      final months = (difference.inDays / 30).floor();
-      return '$months month${months > 1 ? 's' : ''} ago';
-    } else {
-      final years = (difference.inDays / 365).floor();
-      return '$years year${years > 1 ? 's' : ''} ago';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    double totalEarnings = 0.0;
-    for (var earnings in _videoEarnings.values) {
-      totalEarnings += earnings;
-    }
-
-    return Column(
-      children: [
-        // Header
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(20),
-            ),
-          ),
-          child: Row(
-            children: [
-              const HugeIcon(icon: HugeIcons.strokeRoundedWallet01,
-                  color: Colors.black87, size: 24),
-              const SizedBox(width: 12),
-              Text(
-                AppText.get('profile_video_earnings'),
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                totalEarnings.toStringAsFixed(2),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF10B981),
-                ),
-              ),
-              const SizedBox(width: 12),
-              IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const HugeIcon(icon: HugeIcons.strokeRoundedCancel01, color: Colors.black54),
-              ),
-            ],
-          ),
-        ),
-        Divider(color: Colors.grey[300], height: 1),
-
-        // Content
-        Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : widget.videos.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32.0),
-                        child: Text(
-                          AppText.get('profile_no_videos'),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: widget.scrollController,
-                      padding: const EdgeInsets.all(16),
-                      itemCount: widget.videos.length,
-                      itemBuilder: (context, index) {
-                        final video = widget.videos[index];
-                        final earnings = _videoEarnings[video.id] ?? 0.0;
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                                color: Colors.grey.shade200, width: 1),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha:0.05),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Video name
-                              Text(
-                                video.videoName,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Stats row
-                              Row(
-                                children: [
-                                  // Views
-                                  Expanded(
-                                    child: _buildStatItem(
-                                      icon: HugeIcons.strokeRoundedView,
-                                      label: 'Views',
-                                      value: '${video.views}',
-                                      color: Colors.blue,
-                                    ),
-                                  ),
-
-                                  // Upload date
-                                  Expanded(
-                                    child: _buildStatItem(
-                                      icon: HugeIcons.strokeRoundedCalendar03,
-                                      label: 'Uploaded',
-                                      value: _formatDate(video.uploadedAt),
-                                      color: Colors.orange,
-                                    ),
-                                  ),
-
-                                  // Rewards
-                                  Expanded(
-                                    child: _buildStatItem(
-                                      icon: HugeIcons.strokeRoundedWallet01,
-                                      label: 'Rewards',
-                                      value: earnings.toStringAsFixed(2),
-                                      color: const Color(0xFF10B981),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatItem({
-    required dynamic icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Column(
-      children: [
-        Icon(icon, size: 20, color: color),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.grey.shade600,
-          ),
-        ),
-      ],
-    );
   }
 }
 

@@ -31,26 +31,27 @@ class VayuSnackBar {
     // Clear existing snackbars
     messenger.hideCurrentSnackBar();
 
-    Color backgroundColor;
+    // Minimal style: one neutral elevated surface for every type; the status
+    // is carried by a small tinted icon, never by a loud background color.
+    Color accentColor;
     IconData? defaultIcon;
-    Color iconColor = Colors.white;
 
     switch (type) {
       case VayuSnackBarType.success:
-        backgroundColor = AppColors.success.withValues(alpha: 0.95);
+        accentColor = AppColors.success;
         defaultIcon = Icons.check_circle_rounded;
         break;
       case VayuSnackBarType.error:
-        backgroundColor = AppColors.error.withValues(alpha: 0.95);
-        defaultIcon = Icons.error_rounded;
+        accentColor = AppColors.error;
+        defaultIcon = Icons.error_outline_rounded;
         break;
       case VayuSnackBarType.warning:
-        backgroundColor = AppColors.warning.withValues(alpha: 0.95);
-        defaultIcon = Icons.warning_rounded;
+        accentColor = AppColors.warning;
+        defaultIcon = Icons.warning_amber_rounded;
         break;
       case VayuSnackBarType.info:
-        backgroundColor = AppColors.surfacePrimary.withValues(alpha: 0.95);
-        defaultIcon = Icons.info_rounded;
+        accentColor = AppColors.textSecondary;
+        defaultIcon = Icons.info_outline_rounded;
         break;
     }
 
@@ -61,15 +62,17 @@ class VayuSnackBar {
         content: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(effectiveIcon, color: iconColor, size: isLandscape ? 18 : 20),
+            Icon(effectiveIcon, color: accentColor, size: isLandscape ? 16 : 18),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 message,
                 style: AppTypography.bodyMedium.copyWith(
-                  color: Colors.white,
+                  color: AppColors.textPrimary,
                   fontWeight: FontWeight.w500,
-                  fontSize: isLandscape ? 13.0 : null,
+                  fontSize: isLandscape ? 13.0 : 14.0,
+                  height: 1.35,
+                  letterSpacing: -0.1,
                 ),
                 textAlign: isLandscape ? TextAlign.center : TextAlign.start,
               ),
@@ -79,14 +82,16 @@ class VayuSnackBar {
         duration: duration,
         action: action,
         behavior: SnackBarBehavior.floating,
-        backgroundColor: backgroundColor,
+        backgroundColor: AppColors.backgroundSecondary.withValues(alpha: 0.98),
         width: isLandscape ? 340.0 : null,
-        elevation: 8,
+        elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(isLandscape ? 16 : 12),
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
-        margin: isLandscape 
-          ? null 
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        margin: isLandscape
+          ? null
           : const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       ),
     );

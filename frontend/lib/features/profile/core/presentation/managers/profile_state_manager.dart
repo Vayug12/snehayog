@@ -185,6 +185,11 @@ class ProfileStateManager extends ChangeNotifier {
 
   void removeVideo(String videoId) => videoManager.removeVideo(videoId);
 
+  /// Updates a video in the list with data returned from EditVideoDetails.
+  /// Called when Navigator.pop returns updated video/series data.
+  void updateVideoInList(String videoId, Map<String, dynamic> updatedData) =>
+      videoManager.updateVideoInList(videoId, updatedData);
+
   bool get isSelecting => videoManager.isSelecting;
   void toggleSelectionMode() => videoManager.toggleSelectionMode();
   void enterSelectionMode() => videoManager.enterSelectionMode();

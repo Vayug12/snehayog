@@ -12,6 +12,7 @@ import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/features/profile/core/presentation/screens/settings_screen.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:vayug/features/profile/core/presentation/screens/edit_profile_screen.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class ProfileMenuWidget extends StatelessWidget {
   final ProfileStateManager stateManager;
@@ -20,7 +21,6 @@ class ProfileMenuWidget extends StatelessWidget {
   final VoidCallback? onSaveProfile;
   final VoidCallback? onCancelEdit;
   final VoidCallback? onReportUser;
-  final VoidCallback? onShowFeedback;
   final VoidCallback? onShowWhatsApp;
   final VoidCallback? onShowFAQ;
   final VoidCallback? onEnterSelectionMode;
@@ -36,7 +36,6 @@ class ProfileMenuWidget extends StatelessWidget {
     this.onSaveProfile,
     this.onCancelEdit,
     this.onReportUser,
-    this.onShowFeedback,
     this.onShowWhatsApp,
     this.onShowFAQ,
     this.onEnterSelectionMode,
@@ -117,13 +116,10 @@ class ProfileMenuWidget extends StatelessWidget {
                         final enabled = await AutoScrollSettings.isEnabled();
                         await AutoScrollSettings.setEnabled(!enabled);
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                  'Auto Scroll: ${!enabled ? 'ON' : 'OFF'}'),
-                              duration: const Duration(seconds: 1),
-                              backgroundColor: AppColors.surfacePrimary,
-                            ),
+                          VayuSnackBar.showInfo(
+                            context,
+                            'Auto Scroll: ${!enabled ? 'ON' : 'OFF'}',
+                            duration: const Duration(seconds: 1),
                           );
                           Navigator.pop(context);
                         }

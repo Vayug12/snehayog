@@ -11,6 +11,7 @@ import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:video_player/video_player.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 // Helper class to store episode details
 class EpisodeItem {
@@ -77,12 +78,8 @@ class _MakeEpisodeScreenState extends ConsumerState<MakeEpisodeScreen> {
         }
 
         if (files.length != validEpisodes.length && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Some episodes were skipped. Duration must be at least 8 seconds.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          VayuSnackBar.showWarning(context,
+              'Some episodes were skipped. Duration must be at least 8 seconds.');
         }
 
         setState(() {
@@ -141,12 +138,8 @@ class _MakeEpisodeScreenState extends ConsumerState<MakeEpisodeScreen> {
     // Enforce minimum 2 videos for an episode
     if (_selectedEpisodes.length < 2) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You must select at least 2 episodes to create a series.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        VayuSnackBar.showError(context,
+            'You must select at least 2 episodes to create a series.');
       }
       return;
     }
@@ -198,12 +191,8 @@ class _MakeEpisodeScreenState extends ConsumerState<MakeEpisodeScreen> {
       } catch (e) {
         AppLogger.log('Error uploading video $i: $e');
         if (mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Failed to upload episode ${i + 1}: $e'),
-                backgroundColor: Colors.red,
-              ),
-            );
+          VayuSnackBar.showError(
+              context, 'Failed to upload episode ${i + 1}: $e');
         }
         setState(() {
           _isUploading = false;

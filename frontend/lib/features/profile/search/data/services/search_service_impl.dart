@@ -44,10 +44,15 @@ class SearchServiceImpl implements ISearchService {
     AppLogger.log('🔍 SearchServiceImpl: searchVideos q="$trimmed"');
 
     try {
-      final res = await httpClientService.get(
-        uri,
-        headers: const {'Content-Type': 'application/json'},
-        timeout: const Duration(seconds: 10),
+      final res = await httpClientService.withRequestContext(
+        feature: 'search',
+        uiAction: 'submit',
+        screen: 'search',
+        request: () => httpClientService.get(
+          uri,
+          headers: const {'Content-Type': 'application/json'},
+          timeout: const Duration(seconds: 10),
+        ),
       );
 
       if (res.statusCode != 200) {
@@ -84,10 +89,15 @@ class SearchServiceImpl implements ISearchService {
     AppLogger.log('🔍 SearchServiceImpl: searchCreators q="$trimmed"');
 
     try {
-      final res = await httpClientService.get(
-        uri,
-        headers: const {'Content-Type': 'application/json'},
-        timeout: const Duration(seconds: 10),
+      final res = await httpClientService.withRequestContext(
+        feature: 'search',
+        uiAction: 'submit',
+        screen: 'search',
+        request: () => httpClientService.get(
+          uri,
+          headers: const {'Content-Type': 'application/json'},
+          timeout: const Duration(seconds: 10),
+        ),
       );
 
       if (res.statusCode != 200) {
@@ -128,18 +138,23 @@ class SearchServiceImpl implements ISearchService {
     );
 
     try {
-      final results = await Future.wait([
-        httpClientService.get(
-          creatorsUri,
-          headers: const {'Content-Type': 'application/json'},
-          timeout: const Duration(seconds: 5),
-        ),
-        httpClientService.get(
-          videosUri,
-          headers: const {'Content-Type': 'application/json'},
-          timeout: const Duration(seconds: 5),
-        ),
-      ]);
+      final results = await httpClientService.withRequestContext(
+        feature: 'search',
+        uiAction: 'suggestions',
+        screen: 'search',
+        request: () => Future.wait([
+          httpClientService.get(
+            creatorsUri,
+            headers: const {'Content-Type': 'application/json'},
+            timeout: const Duration(seconds: 5),
+          ),
+          httpClientService.get(
+            videosUri,
+            headers: const {'Content-Type': 'application/json'},
+            timeout: const Duration(seconds: 5),
+          ),
+        ]),
+      );
 
       final creatorsRes = results[0];
       final videosRes = results[1];

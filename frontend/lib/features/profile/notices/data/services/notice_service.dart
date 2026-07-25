@@ -10,12 +10,15 @@ class NoticeService implements INoticeService {
   Future<List<NoticeModel>> fetchNotices() async {
     try {
       final response = await httpClientService.get(
-        Uri.parse('${NetworkHelper.apiBaseUrl}/notices'),
+        Uri.parse('${NetworkHelper.usersEndpoint}/notices'),
       );
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => NoticeModel.fromJson(json)).toList();
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final notices = data['notices'] as List<dynamic>? ?? const [];
+        return notices
+            .map((json) => NoticeModel.fromJson(Map<String, dynamic>.from(json)))
+            .toList();
       } else {
         AppLogger.log('Failed to fetch notices: ${response.statusCode}');
         return [];
@@ -39,8 +42,8 @@ class NoticeService implements INoticeService {
   @override
   Future<void> markAsSeen(String noticeId) async {
     try {
-      await httpClientService.post(
-        Uri.parse('${NetworkHelper.apiBaseUrl}/notices/$noticeId/seen'),
+      await httpClientService.put(
+        Uri.parse('${NetworkHelper.usersEndpoint}/notices/$noticeId/seen'),
         body: {},
       );
     } catch (e) {

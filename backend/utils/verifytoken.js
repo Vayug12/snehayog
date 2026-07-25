@@ -1,14 +1,20 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
 import jwt from 'jsonwebtoken';
-import { OAuth2Client } from 'google-auth-library';
+// import { OAuth2Client } from 'google-auth-library'; // LAZY loaded — sirf Google ID token pe load
 import { config } from '../config.js';
 import User from '../models/User.js';
 
 // Ensure we're using the correct Google Client ID
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '406195883653-qp49f9nauq4t428ndscuu3nr9jb10g4h.apps.googleusercontent.com';
-const client = new OAuth2Client(GOOGLE_CLIENT_ID);
+
+// LAZY: OAuth2Client sirf tab load jab Google ID token verify karna ho
+let _googleClient = null;
+const getGoogleClient = async () => {
+  if (!_googleClient) {
+    const { OAuth2Client } = await import('google-auth-library');
+    _googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
+  }
+  return _googleClient;
+};
 
 // **OPTIMIZATION: Cache for verified Google tokens (5 min TTL)**
 const googleTokenCache = new Map();
@@ -40,7 +46,8 @@ export const verifyGoogleToken = async (idToken) => {
         return cached.payload;
     }
 
-    const ticket = await client.verifyIdToken({
+    const googleClient = await getGoogleClient();
+    const ticket = await googleClient.verifyIdToken({
         idToken,
         audience: GOOGLE_CLIENT_ID,
     });
@@ -188,7 +195,8 @@ export const verifyToken = async (req, res, next) => {
 
         // Fallback: try to verify as Google ID token
         try {
-            const ticket = await client.verifyIdToken({
+            const googleClient = await getGoogleClient();
+            const ticket = await googleClient.verifyIdToken({
                 idToken: token,
                 audience: GOOGLE_CLIENT_ID,
             });
@@ -269,7 +277,8 @@ export const passiveVerifyToken = async (req, res, next) => {
 
         // Try ID Token
         try {
-            const ticket = await client.verifyIdToken({
+            const googleClient = await getGoogleClient();
+            const ticket = await googleClient.verifyIdToken({
                 idToken: token,
                 audience: GOOGLE_CLIENT_ID,
             });

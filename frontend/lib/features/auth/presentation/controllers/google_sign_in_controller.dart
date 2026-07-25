@@ -224,14 +224,19 @@ class GoogleSignInController extends ChangeNotifier {
 
       // **FIXED: Get fresh user data from AuthService**
       final freshData = await _authService.getUserData();
+      final sessionInvalidated =
+          prefs.getBool('auth_needs_login') ?? false;
 
       if (freshData != null) {
         _userData = freshData;
         _error = null;
-      } else {
-        // getUserData returned null — treat as signed-out
+      } else if (_userData == null || sessionInvalidated) {
+        // Without an existing session, a null profile means sign-in is still needed.
         _userData = null;
         _error = 'Session expired. Please sign in again.';
+      } else {
+        // Keep an existing session during transient profile/network failures.
+        _error = null;
       }
 
       _isLoading = false;

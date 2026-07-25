@@ -24,7 +24,7 @@ class VayuDubbingStatusOverlay extends StatelessWidget {
 
     final progressValue = result.progress / 100.0;
     final statusText = result.statusLabel;
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
 
     final horizontalMargin = isLandscape ? 32.0 : 16.0;
     final bottomMargin = isLandscape ? 48.0 : 12.0;
@@ -32,7 +32,7 @@ class VayuDubbingStatusOverlay extends StatelessWidget {
     return Center(
       child: Container(
         constraints: BoxConstraints(
-            maxWidth: isLandscape ? MediaQuery.of(context).size.width * 0.5 : double.infinity),
+            maxWidth: isLandscape ? MediaQuery.sizeOf(context).width * 0.5 : double.infinity),
         margin: EdgeInsets.fromLTRB(horizontalMargin, 0, horizontalMargin, bottomMargin),
         padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
         decoration: BoxDecoration(

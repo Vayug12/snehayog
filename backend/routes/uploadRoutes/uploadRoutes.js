@@ -12,7 +12,6 @@ import { verifyToken } from '../../utils/verifytoken.js';
 import cloudflareR2Service from '../../services/uploadServices/cloudflareR2Service.js';
 import { uploadLimiter } from '../../middleware/rateLimiter.js';
 import AdmZip from 'adm-zip';
-import { addSocialJob } from '../../services/socialQueue.js';
 import queueService from '../../services/yugFeedServices/queueService.js';
 import redisService from '../../services/caching/redisService.js';
 

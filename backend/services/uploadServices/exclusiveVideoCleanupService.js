@@ -1,11 +1,8 @@
 import cron from 'node-cron';
-import { ListObjectsV2Command } from '@aws-sdk/client-s3';
 import Video from '../../models/Video.js';
 import User from '../../models/User.js';
-import cloudflareR2Service from './cloudflareR2Service.js';
 import redisService from '../caching/redisService.js';
 import { invalidateCache, VideoCacheKeys } from '../../middleware/cacheMiddleware.js';
-import queueService from '../yugFeedServices/queueService.js';
 
 /**
  * Parses a public URL to extract the corresponding Cloudflare R2 storage key.
@@ -37,6 +34,9 @@ const getR2KeyFromUrl = (url) => {
 const deleteFolderFromR2 = async (prefix) => {
   if (!prefix) return;
   try {
+    const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    const { default: cloudflareR2Service } = await import('./cloudflareR2Service.js');
+    
     console.log(`🧹 Listing and deleting all objects under R2 prefix folder: ${prefix}`);
     const listCommand = new ListObjectsV2Command({
       Bucket: cloudflareR2Service.bucketName,
@@ -60,6 +60,10 @@ const deleteFolderFromR2 = async (prefix) => {
  */
 export const runCleanup = async () => {
   try {
+    // Lazy load heavy dependencies only when cleanup actually runs
+    const { default: cloudflareR2Service } = await import('./cloudflareR2Service.js');
+    const { default: queueService } = await import('../yugFeedServices/queueService.js');
+
     console.log('⏰ Starting Exclusive/Private Video 7-Day Auto-Cleanup Job...');
     
     const sevenDaysAgo = new Date();

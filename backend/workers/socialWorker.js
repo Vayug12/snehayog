@@ -1,4 +1,4 @@
-import '../config/env.js';
+import '../config/config.js';
 import { Worker } from 'bullmq';
 import mongoose from 'mongoose';
 import fs from 'fs';

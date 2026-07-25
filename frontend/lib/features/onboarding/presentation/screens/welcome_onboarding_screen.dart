@@ -7,6 +7,7 @@ import 'package:vayug/features/onboarding/data/services/welcome_onboarding_servi
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/onboarding/presentation/widgets/onboarding_video_player.dart';
 
 class WelcomeOnboardingScreen extends StatefulWidget {
@@ -87,9 +88,7 @@ class _WelcomeOnboardingScreenState extends State<WelcomeOnboardingScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open link: $url')),
-        );
+        VayuSnackBar.showError(context, 'Could not open link: $url');
       }
     }
   }

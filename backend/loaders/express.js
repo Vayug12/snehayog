@@ -10,9 +10,7 @@ import videoRoutes from '../routes/videoRoutes.js';
 import userRoutes from '../routes/userRoutes.js';
 import authRoutes from '../routes/authRoutes.js';
 import adRoutes from '../routes/adRoutes/index.js';
-import billingRoutes from '../routes/billing/billingRoutes.js';
 import creatorPayoutRoutes from '../routes/billing/creatorPayoutRoutes.js';
-import uploadRoutes from '../routes/uploadRoutes/uploadRoutes.js';
 import adminRoutes from '../routes/adminRoutes.js';
 import feedbackRoutes from '../routes/feedback/feedbackRoutes.js';
 import referralRoutes from '../routes/referralRoutes.js';
@@ -20,8 +18,8 @@ import reportRoutes from '../routes/report/reportRoutes.js';
 import notificationRoutes from '../routes/notification/notificationRoutes.js';
 import searchRoutes from '../routes/searchRoutes.js';
 import appConfigRoutes from '../routes/appConfigRoutes.js';
-import youtubeAuthRoutes from '../routes/youtubeAuthRoutes.js';
 import systemRoutes from '../routes/systemRoutes.js';
+// uploadRoutes → LAZY loaded (only when /upload is hit)
 import dubbingRoutes from '../routes/dubbingRoutes.js';
 import e2eeRoutes from '../routes/e2ee/e2eeRoutes.js';
 import agentRoutes from '../routes/agentRoutes.js';
@@ -107,6 +105,8 @@ export default async ({ app }) => {
       'x-admin-key', 'X-Admin-Key', 'x-api-version', 'X-API-Version',
       'x-device-id', 'X-Device-ID', 'x-api-key', 'X-API-Key',
       'x-trace-id', 'X-Trace-ID',
+      'x-app-screen', 'X-App-Screen', 'x-feature', 'X-Feature',
+      'x-ui-action', 'X-UI-Action',
       'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'Retry-After'
     ],
     exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'Retry-After'],
@@ -129,10 +129,15 @@ export default async ({ app }) => {
   });
 
   // Logging
+  morgan.token('trace-id', (req) => req.traceId || '-');
+  morgan.token('app-screen', (req) => req.get('x-app-screen') || '-');
+  morgan.token('feature', (req) => req.get('x-feature') || '-');
+  morgan.token('ui-action', (req) => req.get('x-ui-action') || '-');
+
   if (process.env.NODE_ENV === 'production') {
-    app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms'));
+    app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms trace=:trace-id screen=:app-screen feature=:feature action=:ui-action'));
   } else {
-    app.use(morgan('dev'));
+    app.use(morgan('dev trace=:trace-id screen=:app-screen feature=:feature action=:ui-action'));
   }
 
   // Static files serving
@@ -169,13 +174,21 @@ export default async ({ app }) => {
   const apiRouter = express.Router();
   apiRouter.use('/users', userRoutes);
   apiRouter.use('/auth', authRoutes);
-  apiRouter.use('/auth', youtubeAuthRoutes);
   apiRouter.use('/ads', createCacheMiddleware('public, max-age=180, stale-while-revalidate=600'), adRoutes);
-  apiRouter.use('/billing', billingRoutes);
   apiRouter.use('/creator-payouts', creatorPayoutRoutes);
   apiRouter.use('/videos', createCacheMiddleware('public, max-age=180, stale-while-revalidate=600'), videoRoutes);
   apiRouter.use('/admin', adminRoutes);
-  apiRouter.use('/upload', uploadRoutes);
+
+  // LAZY: uploadRoutes — @aws-sdk, bullmq, adm-zip sirf upload pe load hoga
+  let _uploadRouter = null;
+  apiRouter.use('/upload', async (req, res, next) => {
+    if (!_uploadRouter) {
+      const mod = await import('../routes/uploadRoutes/uploadRoutes.js');
+      _uploadRouter = mod.default;
+    }
+    _uploadRouter(req, res, next);
+  });
+
   apiRouter.use('/feedback', feedbackRoutes);
   apiRouter.use('/referrals', referralRoutes);
   apiRouter.use('/report', reportRoutes);

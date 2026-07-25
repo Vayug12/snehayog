@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
@@ -5,7 +6,8 @@ import 'package:chewie/chewie.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/presentation/widgets/quiz_overlay.dart';
 import 'package:vayug/features/video/vayu/presentation/widgets/vayu_video_progress_bar.dart';
-import 'dart:ui';
+import 'package:shimmer/shimmer.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 
 enum GestureType { none, horizontal, vertical, scale }
@@ -17,6 +19,7 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   final ChewieController? chewie;
   final bool isCurrent;
   final bool isFullScreenManual;
+  final ValueListenable<bool>? suppressTransientPauseOverlayVN;
   final ValueNotifier<bool> showControlsVN;
   final ValueNotifier<bool> isControlsLockedVN;
   final ValueNotifier<bool> showScrubbingOverlayVN;
@@ -40,6 +43,7 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   final QuizModel? activeQuiz;
   final VoidCallback onQuizDismiss;
   final VoidCallback? onQuizBack;
+  final Future<void> Function() onResumeAfterSeek;
 
   // New component-based callbacks/widgets passed from parent
   final Widget metadataSection;
@@ -55,6 +59,7 @@ class VayuFeedItem extends ConsumerStatefulWidget {
     this.chewie,
     required this.isCurrent,
     required this.isFullScreenManual,
+    this.suppressTransientPauseOverlayVN,
     required this.showControlsVN,
     required this.isControlsLockedVN,
     required this.showScrubbingOverlayVN,
@@ -78,6 +83,7 @@ class VayuFeedItem extends ConsumerStatefulWidget {
     this.activeQuiz,
     this.onQuizBack,
     required this.onQuizDismiss,
+    required this.onResumeAfterSeek,
     required this.metadataSection,
     required this.channelInfo,
     required this.playerOverlay,
@@ -107,7 +113,7 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final orientation = MediaQuery.of(context).orientation;
+    final orientation = MediaQuery.orientationOf(context);
     final isFull = orientation == Orientation.landscape || widget.isFullScreenManual;
     final lateralPadding = orientation == Orientation.landscape ? 60.0 : 14.0;
 
@@ -115,17 +121,20 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
     return Stack(
       children: [
         // ── LAYER 1: Ambient blurred thumbnail (Portrait & Landscape) ──────────
+        // A tiny decode stretched full-screen looks like a gaussian blur but
+        // costs almost nothing to paint — a live ImageFiltered blur here
+        // repaints on every frame of a rotation and drops frames.
         if (widget.video.thumbnailUrl.isNotEmpty)
           Positioned.fill(
             child: RepaintBoundary(
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 32, sigmaY: 32, tileMode: TileMode.clamp),
-                child: Image.network(
-                  widget.video.thumbnailUrl,
-                  fit: BoxFit.cover,
-                  cacheWidth: 180,
-                  errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.transparent),
-                ),
+              child: CachedNetworkImage(
+                imageUrl: widget.video.thumbnailUrl,
+                fit: BoxFit.cover,
+                memCacheWidth: 24,
+                filterQuality: FilterQuality.low,
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
+                errorWidget: (_, __, ___) => const ColoredBox(color: Colors.transparent),
               ),
             ),
           )
@@ -160,12 +169,8 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
         Column(
           children: [
             _buildVideoSection(orientation),
-            // Preserve metadata state even in full screen to avoid "reloading"
-            Expanded(
-              flex: isFull ? 0 : 1,
-              child: Visibility(
-                visible: !isFull,
-                maintainState: true,
+            if (!isFull)
+              Expanded(
                 child: SingleChildScrollView(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -191,7 +196,6 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                   ),
                 ),
               ),
-            ),
           ],
         ),
 
@@ -220,17 +224,44 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
     );
   }
 
+  // Shared circular treatment for the bottom action buttons so they match
+  // the overlay's compact control rail.
+  Widget _bottomCircleButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    required bool isPortrait,
+  }) {
+    final double size = isPortrait ? 36 : 40;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: IconButton(
+        constraints: const BoxConstraints(),
+        padding: EdgeInsets.zero,
+        icon: Icon(icon, color: Colors.white, size: isPortrait ? 18 : 20),
+        onPressed: onPressed,
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.black.withValues(alpha: 0.46),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: const CircleBorder(),
+        ),
+      ),
+    );
+  }
+
   Widget _buildVideoSection(Orientation orientation) {
-    final size = MediaQuery.of(context).size;
+    final size = MediaQuery.sizeOf(context);
     final controller = widget.controller;
     final chewie = widget.chewie;
 
     bool controllerIsHealthy = false;
     bool isPlaying = false;
+    bool hasVideoError = false;
     try {
       if (controller != null) {
         controllerIsHealthy = controller.value.isInitialized;
         isPlaying = controller.value.isPlaying;
+        hasVideoError = controller.value.hasError;
       }
     } catch (_) {
       controllerIsHealthy = false;
@@ -259,14 +290,52 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                   child: Center(
                     child: AspectRatio(
                       aspectRatio: 16 / 9,
-                      child: Image.network(
-                        widget.video.thumbnailUrl,
+                      child: CachedNetworkImage(
+                        imageUrl: widget.video.thumbnailUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black),
+                        fadeInDuration: Duration.zero,
+                        fadeOutDuration: Duration.zero,
+                        errorWidget: (_, __, ___) => const ColoredBox(color: Colors.black),
                       ),
                     ),
                   ),
                 ),
+
+                // 1b. LOADING SHIMMER / ERROR STATE over the poster while the
+                // video is not ready. Uses the same shimmer treatment as
+                // VayuMetadataSection so loading looks consistent app-wide.
+                // Guarded by isCurrent so kept-alive neighbour pages don't
+                // run offscreen shimmer animations.
+                if (widget.isCurrent && !controllerIsHealthy)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: hasVideoError
+                              ? Container(
+                                  color: Colors.black54,
+                                  child: const Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.error_outline_rounded, color: Colors.white70, size: 32),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        "Couldn't load video. Retrying…",
+                                        style: TextStyle(color: Colors.white70, fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : Shimmer.fromColors(
+                                  baseColor: Colors.white12,
+                                  highlightColor: Colors.white24,
+                                  child: Container(color: Colors.white),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
 
                 // 2. VIDEO LAYER with Cross-Fade
                 if (controllerIsHealthy && chewie != null)
@@ -299,7 +368,7 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                       builder: (context, value, _) {
                         return IgnorePointer(
                           child: AnimatedOpacity(
-                            opacity: (!value.isPlaying && value.isInitialized) ? 1.0 : 0.0,
+                            opacity: (!(widget.suppressTransientPauseOverlayVN?.value ?? false) && !value.isPlaying && value.isInitialized) ? 1.0 : 0.0,
                             duration: const Duration(milliseconds: 250),
                             curve: Curves.easeInOut,
                             child: Container(
@@ -345,7 +414,14 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                     });
                     widget.onScrollingLock(false);
                   }
-                  // Let GestureDetector handle the drag ends, but reset state here just in case
+                  if (_activeGesture == GestureType.horizontal) {
+                    widget.onHorizontalDragEnd();
+                    widget.onScrollingLock(false);
+                  }
+                  if (_activeGesture == GestureType.vertical) {
+                    widget.onVerticalDragEnd();
+                    widget.onScrollingLock(false);
+                  }
                   _activeGesture = GestureType.none;
                   _dragHorizontalDeltaAccumulated = 0;
                   _dragVerticalDeltaAccumulated = 0;
@@ -455,7 +531,7 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                         child: IgnorePointer(
                           ignoring: !showControls,
                           child: Padding(
-                            padding: EdgeInsets.fromLTRB(leftPadding, 0, rightPadding, isFull ? 8 : 4),
+                            padding: EdgeInsets.fromLTRB(leftPadding, 0, rightPadding, 8),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -465,25 +541,24 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                                     valueListenable: controller,
                                     builder: (context, value, _) {
                                       return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                         decoration: BoxDecoration(
-                                          color: Colors.black.withValues(alpha: 0.45),
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 0.5),
+                                          color: Colors.black45,
+                                          borderRadius: BorderRadius.circular(20),
                                         ),
                                         child: Text(
                                           '${widget.formatDuration(value.position)} / ${widget.formatDuration(value.duration)}',
                                           style: const TextStyle(
                                             color: Colors.white,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
                                             fontFeatures: [FontFeature.tabularFigures()],
                                           ),
                                         ),
                                       );
                                     }
                                   ),
-        
+
                                 // Action Buttons (Play/External & Fullscreen)
                                 ValueListenableBuilder<bool>(
                                   valueListenable: widget.isControlsLockedVN,
@@ -492,52 +567,18 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                                     return Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        // External Player Button
-                                        SizedBox(
-                                          width: isPortrait ? 30 : 34,
-                                          height: isPortrait ? 30 : 34,
-                                          child: IconButton(
-                                            constraints: const BoxConstraints(),
-                                            icon: Icon(
-                                              Icons.play_circle_outline_rounded,
-                                              color: Colors.white,
-                                              size: isPortrait ? 18 : 22,
-                                            ),
-                                            onPressed: widget.onOpenExternalPlayer,
-                                            style: IconButton.styleFrom(
-                                              backgroundColor: Colors.black.withValues(alpha: 0.45),
-                                              padding: const EdgeInsets.all(4),
-                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                              shape: const CircleBorder(),
-                                              side: BorderSide(
-                                                  color: Colors.white.withValues(alpha: 0.15), width: 0.5),
-                                            ),
-                                          ),
+                                        _bottomCircleButton(
+                                          icon: Icons.play_circle_outline_rounded,
+                                          onPressed: widget.onOpenExternalPlayer,
+                                          isPortrait: isPortrait,
                                         ),
                                         const SizedBox(width: 12),
-                                        // Fullscreen Button
-                                        SizedBox(
-                                          width: isPortrait ? 30 : 34,
-                                          height: isPortrait ? 30 : 34,
-                                          child: IconButton(
-                                            constraints: const BoxConstraints(),
-                                            icon: Icon(
-                                              isPortrait
-                                                  ? Icons.fullscreen_rounded
-                                                  : Icons.fullscreen_exit_rounded,
-                                              color: Colors.white,
-                                              size: isPortrait ? 20 : 24,
-                                            ),
-                                            onPressed: widget.onToggleFullScreen,
-                                            style: IconButton.styleFrom(
-                                              backgroundColor: Colors.black.withValues(alpha: 0.45),
-                                              padding: const EdgeInsets.all(4),
-                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                              shape: const CircleBorder(),
-                                              side: BorderSide(
-                                                  color: Colors.white.withValues(alpha: 0.15), width: 0.5),
-                                            ),
-                                          ),
+                                        _bottomCircleButton(
+                                          icon: isPortrait
+                                              ? Icons.fullscreen_rounded
+                                              : Icons.fullscreen_exit_rounded,
+                                          onPressed: widget.onToggleFullScreen,
+                                          isPortrait: isPortrait,
                                         ),
                                       ],
                                     );
@@ -574,6 +615,7 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                               barCenterOffset: isFull ? null : 10,
                               onDragStart: () => widget.onScrollingLock(true),
                               onDragEnd: () => widget.onScrollingLock(false),
+                              onResumeAfterSeek: widget.onResumeAfterSeek,
                             ),
                           ),
                         ),

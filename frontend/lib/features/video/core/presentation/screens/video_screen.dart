@@ -13,6 +13,8 @@ class VideoScreen extends ConsumerStatefulWidget {
   final String? videoType;
   final bool isMainYugTab; // **NEW: Flag to identify the primary Yug feed**
   final int? parentTabIndex; // **NEW: Tab context for autoplay logic**
+  final int? startAtSeconds; // Share links: start playback of initialVideoId here
+  final int? endAtSeconds; // Share links: pause playback of initialVideoId here
 
   const VideoScreen({
     Key? key,
@@ -22,6 +24,8 @@ class VideoScreen extends ConsumerStatefulWidget {
     this.videoType,
     this.isMainYugTab = false,
     this.parentTabIndex,
+    this.startAtSeconds,
+    this.endAtSeconds,
   }) : super(key: key);
 
   @override
@@ -120,6 +124,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       initialIndex: widget.initialIndex,
       initialVideos: widget.initialVideos,
       initialVideoId: widget.initialVideoId,
+      startAtSeconds: widget.startAtSeconds,
+      endAtSeconds: widget.endAtSeconds,
       videoType: videoType,
       isMainYugTab: widget.isMainYugTab,
       parentTabIndex: widget.parentTabIndex ?? ref.read(mainControllerProvider).currentIndex,

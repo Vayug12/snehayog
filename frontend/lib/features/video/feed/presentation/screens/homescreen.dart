@@ -23,6 +23,8 @@ import 'package:in_app_update/in_app_update.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vayug/shared/services/http_client_service.dart';
+import 'package:vayug/shared/services/deep_link_service.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/profile/core/presentation/screens/edit_profile_screen.dart';
 import 'package:vayug/features/profile/core/presentation/screens/settings_screen.dart';
 import 'package:vayug/features/profile/core/presentation/screens/saved_videos_screen.dart';
@@ -131,66 +133,21 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
         // Show success feedback
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Row(
-                children: [
-                  Icon(Icons.refresh, color: Colors.white, size: 20),
-                  SizedBox(width: 8),
-                  Text('Videos refreshed!'),
-                ],
-              ),
-              backgroundColor: Colors.green[600],
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
+          VayuSnackBar.showSuccess(context, 'Videos refreshed!',
+              duration: const Duration(seconds: 2));
         }
       } else {
         AppLogger.log('❌ MainScreen: VideoScreen state not found');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Row(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.white, size: 20),
-                  SizedBox(width: 8),
-                  Text('Failed to refresh videos'),
-                ],
-              ),
-              backgroundColor: Colors.red[600],
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
+          VayuSnackBar.showError(context, 'Failed to refresh videos',
+              duration: const Duration(seconds: 2));
         }
       }
     } catch (e) {
       AppLogger.log('❌ MainScreen: Error in double-tap refresh: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.white, size: 20),
-                SizedBox(width: 8),
-                Text('Failed to refresh videos'),
-              ],
-            ),
-            backgroundColor: Colors.red[600],
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
+        VayuSnackBar.showError(context, 'Failed to refresh videos',
+            duration: const Duration(seconds: 2));
       }
     } finally {
       // Reset refreshing state and stop animation
@@ -230,13 +187,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
           if (result == AppUpdateResult.success) {
             await InAppUpdate.completeFlexibleUpdate();
             if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Update installed, restarting...'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 2),
-              ),
-            );
+            VayuSnackBar.showSuccess(context, 'Update installed, restarting...',
+                duration: const Duration(seconds: 2));
           }
         }
       }
@@ -269,6 +221,10 @@ class _MainScreenState extends ConsumerState<MainScreen>
     // **NEW: Restore last tab index when app starts**
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _restoreLastTabIndex();
+
+      // **DEEP LINK FIX: Home UI is mounted — safe to navigate now.**
+      // Any video link that arrived during splash/cold start is flushed here.
+      DeepLinkService().markAppReady();
     });
 
     // **BACKGROUND PRELOADING: Start preloading profile data when app opens (user starts on Yug tab)**

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/shared/widgets/interactive_scale_button.dart';
 
 class VayuPlayerOverlay extends StatelessWidget {
@@ -30,13 +31,11 @@ class VayuPlayerOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     if (controller == null) return const SizedBox.shrink();
 
-    final isFull = !isPortrait || isFullScreenManual;
-    final viewPadding = MediaQuery.of(context).viewPadding;
-    final sidePadding = isPortrait ? 14.0 : 20.0;
-    // Using a fixed 48px offset for landscape to ensure controls never jump
-    final horizontalPadding = isFull ? (isPortrait ? 24.0 : 48.0) : 14.0;
-    // Stable top offset for landscape
-    final topOffset = isPortrait ? 8.0 : 32.0;
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    // Landscape right offset matches the bottom action buttons (64) so the
+    // top ⋮ and bottom controls form one aligned right rail.
+    final double rightOffset = isPortrait ? (isFullScreenManual ? 24.0 : 14.0) : 64.0;
+    final double topOffset = isPortrait ? 8.0 : viewPadding.top + 16.0;
 
     return ValueListenableBuilder<bool>(
       valueListenable: showControlsVN,
@@ -48,138 +47,105 @@ class VayuPlayerOverlay extends StatelessWidget {
             ignoring: !showControls,
             child: Stack(
               children: [
-                // Top Controls (More menu)
+                // Top rail — single more-options control
                 Positioned(
-                  top: 0,
-                  right: 0,
-                  left: 0,
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      isPortrait ? sidePadding : horizontalPadding,
-                      topOffset,
-                      isPortrait ? sidePadding : horizontalPadding,
-                      0,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const SizedBox(width: 30), // Balance
-                        SizedBox(
-                          width: isPortrait ? 30 : 34,
-                          height: isPortrait ? 30 : 34,
-                          child: IconButton(
-                            constraints: const BoxConstraints(),
-                            icon: Icon(
-                              Icons.more_vert_rounded,
-                              color: Colors.white,
-                              size: isPortrait ? 22 : 26,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black.withValues(alpha: 0.5),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 1),
-                                ),
-                              ],
-                            ),
-                            onPressed: onMoreOptions,
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black.withValues(alpha: 0.45),
-                              padding: const EdgeInsets.all(4),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              shape: const CircleBorder(),
-                              side: BorderSide(color: Colors.white.withValues(alpha: 0.15), width: 0.5),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                  top: topOffset,
+                  right: rightOffset,
+                  child: _circleButton(
+                    onTap: onMoreOptions,
+                    size: isPortrait ? 36 : 40,
+                    icon: Icons.more_vert_rounded,
+                    iconSize: isPortrait ? 18 : 20,
                   ),
                 ),
-    
-                // Center Controls (Skip/Play/Skip)
+
+                // Center controls — symmetrical previous · play/pause · next.
+                // One shared circle treatment; the primary control is simply
+                // the largest, which is all the hierarchy this zone needs.
                 ValueListenableBuilder<bool>(
                   valueListenable: isControlsLockedVN,
                   builder: (context, isLocked, _) {
                     if (isLocked) return const SizedBox.shrink();
+                    final double primarySize = isPortrait ? 56 : 64;
                     return Center(
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           if (!isPortrait) ...[
-                            InteractiveScaleButton(
+                            _circleButton(
                               onTap: onPrevious,
-                              child: Container(
-                                width: 38,
-                                height: 38,
-                                decoration:
-                                    const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                                child: const Icon(
-                                  Icons.skip_previous_rounded,
-                                  color: Colors.white,
-                                  size: 38,
-                                  shadows: [
-                                    Shadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2)),
-                                  ],
+                              size: 44,
+                              icon: Icons.skip_previous_rounded,
+                              iconSize: 22,
+                            ),
+                            const SizedBox(width: 32),
+                          ],
+                          InteractiveScaleButton(
+                            onTap: onTogglePlay,
+                            child: Container(
+                              width: primarySize,
+                              height: primarySize,
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceSecondary.withValues(alpha: 0.58),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: AppColors.borderPrimary.withValues(alpha: 0.42),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 42),
-                          ],
-                          Container(
-                            width: isPortrait ? 64 : 76,
-                            height: isPortrait ? 64 : 76,
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.45),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 0.5),
-                            ),
-                            child: InteractiveScaleButton(
-                              onTap: onTogglePlay,
                               child: ValueListenableBuilder<VideoPlayerValue>(
                                 valueListenable: controller!,
                                 builder: (context, value, _) {
                                   return Icon(
                                     value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                                     color: Colors.white,
-                                    size: isPortrait ? 48 : 56,
-                                    shadows: const [
-                                      Shadow(color: Colors.black54, blurRadius: 15, offset: Offset(0, 2)),
-                                    ],
+                                    size: isPortrait ? 30 : 34,
                                   );
-                                }
+                                },
                               ),
                             ),
                           ),
                           if (!isPortrait) ...[
-                            const SizedBox(width: 42),
-                            InteractiveScaleButton(
+                            const SizedBox(width: 32),
+                            _circleButton(
                               onTap: onNext,
-                              child: Container(
-                                width: 38,
-                                height: 38,
-                                decoration:
-                                    const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                                child: const Icon(
-                                  Icons.skip_next_rounded,
-                                  color: Colors.white,
-                                  size: 38,
-                                  shadows: [
-                                    Shadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2)),
-                                  ],
-                                ),
-                              ),
+                              size: 44,
+                              icon: Icons.skip_next_rounded,
+                              iconSize: 22,
                             ),
                           ],
                         ],
                       ),
                     );
-                  }
+                  },
                 ),
               ],
             ),
           ),
         );
-      }
+      },
+    );
+  }
+
+  Widget _circleButton({
+    required VoidCallback onTap,
+    required double size,
+    required IconData icon,
+    required double iconSize,
+  }) {
+    return InteractiveScaleButton(
+      onTap: onTap,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceSecondary.withValues(alpha: 0.58),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: AppColors.borderPrimary.withValues(alpha: 0.42),
+          ),
+        ),
+        child: Icon(icon, color: Colors.white, size: iconSize),
+      ),
     );
   }
 }

@@ -3,7 +3,6 @@ import path from 'path';
 import AdCampaign from '../../models/AdCampaign.js';
 import AdCreative from '../../models/AdCreative.js';
 import Invoice from '../../models/Invoice.js';
-import cloudflareR2Service from '../uploadServices/cloudflareR2Service.js';
 
 class AdCleanupService {
   /**
@@ -36,7 +35,8 @@ class AdCleanupService {
         return;
       }
       
-      // 2. Check if it's a Cloudflare R2 URL
+      // 2. Check if it's a Cloudflare R2 URL — lazy load only when needed
+      const { default: cloudflareR2Service } = await import('../uploadServices/cloudflareR2Service.js');
       try {
         const parsed = new URL(url);
         const pathname = decodeURIComponent(parsed.pathname);

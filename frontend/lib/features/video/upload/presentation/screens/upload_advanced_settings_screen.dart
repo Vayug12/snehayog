@@ -146,24 +146,38 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
 
                     _buildCrossPostingTile(),
                     
-                    const SizedBox(height: 40),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
             ]),
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-              child: AppButton(
-                onPressed: () => Navigator.pop(context),
-                label: 'Done',
-                variant: AppButtonVariant.primary,
-                isFullWidth: true,
-              ),
-            ),
-          ),
         ],
+      ),
+      // Pinned so the primary action is visible without scrolling
+      bottomNavigationBar: _buildBottomBar(),
+    );
+  }
+
+  Widget _buildBottomBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.backgroundPrimary,
+        border: Border(
+          top: BorderSide(color: AppColors.borderPrimary.withValues(alpha: 0.4)),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: AppButton(
+            onPressed: () => Navigator.pop(context),
+            label: 'Done',
+            variant: AppButtonVariant.primary,
+            isFullWidth: true,
+          ),
+        ),
       ),
     );
   }

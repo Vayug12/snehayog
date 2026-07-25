@@ -1,4 +1,4 @@
-import './config/env.js';
+import './config/config.js';
 import mongoose from 'mongoose';
 import Video from './models/Video.js';
 import geminiService from './services/geminiService.js';

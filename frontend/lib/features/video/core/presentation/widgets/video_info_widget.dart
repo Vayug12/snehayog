@@ -3,6 +3,7 @@ import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/shared/constants/app_constants.dart';
 import 'package:vayug/features/profile/core/presentation/screens/profile_screen.dart';
 import 'package:vayug/shared/widgets/follow_button_widget.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/profile/core/data/services/profile_preloader.dart';
 import 'package:vayug/features/video/core/presentation/managers/shared_video_controller_pool.dart';
 import 'package:vayug/features/video/core/presentation/managers/video_controller_manager.dart';
@@ -283,11 +284,8 @@ class _VisitNowButton extends StatelessWidget {
           final Uri uri = Uri.parse(enrichedUrl);
           if (await canLaunchUrl(uri)) {
             await launchUrl(uri, mode: LaunchMode.externalApplication);
-          } else {
-            // Handle error, e.g., show a snackbar
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Could not open link: $link')),
-            );
+          } else if (context.mounted) {
+            VayuSnackBar.showError(context, 'Could not open link: $link');
           }
         },
         icon: const Icon(Icons.open_in_new, size: 14),

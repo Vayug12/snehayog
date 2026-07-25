@@ -1,8 +1,6 @@
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
+import './config/config.js';
 import AppConfig from './models/AppConfig.js';
-
-dotenv.config();
 
 const seedConfig = async () => {
   try {

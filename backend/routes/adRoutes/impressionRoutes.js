@@ -82,6 +82,87 @@ async function updateMonthlyStats(creatorId, adType) {
   }
 }
 
+// POST /ads/impressions/batch - Sync impressions captured while the app was offline.
+router.post('/impressions/batch', async (req, res) => {
+  try {
+    const impressions = req.body?.impressions;
+    if (!Array.isArray(impressions) || impressions.length === 0) {
+      return res.status(400).json({ error: 'A non-empty impressions array is required' });
+    }
+    if (impressions.length > 50) {
+      return res.status(400).json({ error: 'A maximum of 50 impressions can be synced at once' });
+    }
+
+    let processed = 0;
+    let ignored = 0;
+
+    for (const impression of impressions) {
+      const { videoId, adId, userId, adType, impressionType } = impression || {};
+      const supportedType = adType === 'banner' || adType === 'carousel';
+      const supportedImpression = impressionType === 'view' ||
+        impressionType === 'scroll_view' || impressionType === 'click';
+
+      if (!supportedType || !supportedImpression || !mongoose.isValidObjectId(adId)) {
+        ignored += 1;
+        continue;
+      }
+
+      if (impressionType === 'click') {
+        const clickResult = await AdCreative.updateOne(
+          { _id: adId },
+          { $inc: { clicks: 1 } },
+        );
+        if (clickResult.matchedCount === 0) {
+          ignored += 1;
+        } else {
+          processed += 1;
+        }
+        continue;
+      }
+
+      if (!mongoose.isValidObjectId(videoId)) {
+        ignored += 1;
+        continue;
+      }
+
+      const [creative, video, normalizedUserId] = await Promise.all([
+        AdCreative.findById(adId).select('_id').lean(),
+        Video.findById(videoId).select('uploader').lean(),
+        normalizeUserId(userId),
+      ]);
+
+      if (!creative || !video) {
+        ignored += 1;
+        continue;
+      }
+
+      const creatorId = video.uploader || null;
+      if (normalizedUserId && creatorId && normalizedUserId.toString() === creatorId.toString()) {
+        ignored += 1;
+        continue;
+      }
+
+      const parsedTimestamp = new Date(impression.timestamp);
+      await AdImpression.create({
+        videoId,
+        adId,
+        userId: normalizedUserId,
+        creatorId,
+        adType,
+        impressionType: adType === 'carousel' ? 'scroll_view' : 'view',
+        timestamp: Number.isNaN(parsedTimestamp.getTime()) ? new Date() : parsedTimestamp,
+      });
+      await AdCreative.updateOne({ _id: adId }, { $inc: { impressions: 1 } });
+      processed += 1;
+    }
+
+    return res.status(200).json({ success: true, processed, ignored });
+  } catch (error) {
+    console.error('Error syncing offline ad impressions:', error);
+    return res.status(500).json({ error: 'Failed to sync offline ad impressions' });
+  }
+});
+
 // POST /ads/impressions/banner - Track banner ad impression
 router.post('/impressions/banner', async (req, res) => {
   try {

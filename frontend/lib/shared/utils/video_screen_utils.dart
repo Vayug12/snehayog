@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/shared/services/video_screen_logger.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 /// Utility class for video screen helper methods
 class VideoScreenUtils {
@@ -9,32 +10,16 @@ class VideoScreenUtils {
   static Future<void> showRefreshInstructions(BuildContext context) async {
     try {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.info, color: Colors.white),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '💡 Tip: Pull down to refresh or double-tap the Yog tab',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 4),
-            backgroundColor: Colors.blue,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(16),
-            action: SnackBarAction(
-              label: 'Got it',
-              textColor: Colors.white,
-              onPressed: () {
-                VideoScreenLogger.logInfo(
-                    'User acknowledged refresh instructions');
-              },
-            ),
+        VayuSnackBar.showInfo(
+          context,
+          'Tip: Pull down to refresh or double-tap the Yog tab',
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Got it',
+            onPressed: () {
+              VideoScreenLogger.logInfo(
+                  'User acknowledged refresh instructions');
+            },
           ),
         );
       }
@@ -52,13 +37,7 @@ class VideoScreenUtils {
   }) {
     if (isRefreshing) {
       // Already refreshing, show feedback
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🔄 Already refreshing videos...'),
-          duration: Duration(seconds: 1),
-          backgroundColor: Colors.blue,
-        ),
-      );
+      _showAlreadyRefreshing(context);
       return;
     }
 
@@ -68,19 +47,16 @@ class VideoScreenUtils {
     HapticFeedback.lightImpact();
 
     // Show visual feedback
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('🔄 Refreshing videos...'),
-        duration: const Duration(seconds: 1),
-        backgroundColor: Colors.blue,
-        action: SnackBarAction(
-          label: 'Cancel',
-          textColor: Colors.white,
-          onPressed: () {
-            // Could implement cancel refresh if needed
-            VideoScreenLogger.logInfo('Refresh cancelled by user');
-          },
-        ),
+    VayuSnackBar.showInfo(
+      context,
+      'Refreshing videos...',
+      duration: const Duration(seconds: 1),
+      action: SnackBarAction(
+        label: 'Cancel',
+        onPressed: () {
+          // Could implement cancel refresh if needed
+          VideoScreenLogger.logInfo('Refresh cancelled by user');
+        },
       ),
     );
 
@@ -95,13 +71,7 @@ class VideoScreenUtils {
   }) {
     if (isRefreshing) {
       // Already refreshing, show feedback
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🔄 Already refreshing videos...'),
-          duration: Duration(seconds: 1),
-          backgroundColor: Colors.blue,
-        ),
-      );
+      _showAlreadyRefreshing(context);
       return;
     }
 
@@ -111,14 +81,18 @@ class VideoScreenUtils {
     HapticFeedback.mediumImpact();
 
     // Show visual feedback
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('🔄 Pull down to refresh videos'),
-        duration: Duration(seconds: 2),
-        backgroundColor: Colors.blue,
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.all(16),
-      ),
+    VayuSnackBar.showInfo(
+      context,
+      'Pull down to refresh videos',
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  static void _showAlreadyRefreshing(BuildContext context) {
+    VayuSnackBar.showInfo(
+      context,
+      'Already refreshing videos...',
+      duration: const Duration(seconds: 1),
     );
   }
 
@@ -129,12 +103,8 @@ class VideoScreenUtils {
     required Function(Map<String, dynamic>) copyTestResultsToClipboard,
   }) {
     // HLS conversion testing disabled - VideoUrlService was removed
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('🧪 HLS conversion testing is currently disabled'),
-        backgroundColor: Colors.orange,
-      ),
-    );
+    VayuSnackBar.showWarning(
+        context, 'HLS conversion testing is currently disabled');
   }
 
   /// Copy test results to clipboard for debugging
@@ -147,13 +117,8 @@ class VideoScreenUtils {
 
       Clipboard.setData(ClipboardData(text: resultsText));
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('📋 Test results copied to clipboard'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
+      VayuSnackBar.showSuccess(context, 'Test results copied to clipboard',
+          duration: const Duration(seconds: 2));
     } catch (e) {
       VideoScreenLogger.logError('Error copying to clipboard: $e');
     }

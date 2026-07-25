@@ -34,9 +34,11 @@ class VideoViewTracker with WidgetsBindingObserver {
 
   // **NEW: Track recent views to prevent rapid repeat spam**
   final Map<String, DateTime> _recentViews = <String, DateTime>{};
+  static final Map<String, DateTime> _recentSkips = <String, DateTime>{};
   // **RELAXED**: Allow repeat views after a short cooldown instead of 1 minute
   static const Duration _minViewInterval =
       Duration(seconds: 10); // Minimum 10 seconds between views
+  static const Duration _minSkipInterval = Duration(seconds: 30);
 
   // **NEW: Batching for watch events**
   final List<Map<String, dynamic>> _pendingWatchEvents = [];
@@ -308,10 +310,14 @@ class VideoViewTracker with WidgetsBindingObserver {
 
       // **BACKEND: POST /api/videos/watch/batch**
       final url = Uri.parse('$_baseUrl/api/videos/watch/batch');
-      final response = await httpClientService.post(
-        url,
-        headers: headers,
-        body: json.encode({'events': eventsToSync}),
+      final response = await httpClientService.withRequestContext(
+        feature: 'video_feed',
+        uiAction: 'watch_batch',
+        request: () => httpClientService.post(
+          url,
+          headers: headers,
+          body: json.encode({'events': eventsToSync}),
+        ),
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -333,6 +339,19 @@ class VideoViewTracker with WidgetsBindingObserver {
   /// **NEW: Track video skip via API**
   Future<void> _trackSkip(String videoId) async {
     try {
+      final now = DateTime.now();
+      final lastSkip = _recentSkips[videoId];
+      if (lastSkip != null && now.difference(lastSkip) < _minSkipInterval) {
+        AppLogger.log('VideoViewTracker: Duplicate skip ignored for $videoId');
+        return;
+      }
+      _recentSkips[videoId] = now;
+      if (_recentSkips.length > 100) {
+        _recentSkips.removeWhere(
+          (_, timestamp) => now.difference(timestamp) >= _minSkipInterval,
+        );
+      }
+
       final token = await AuthService.getToken();
       final platformId = await PlatformIdService().getPlatformId();
       
@@ -351,10 +370,14 @@ class VideoViewTracker with WidgetsBindingObserver {
       final url = Uri.parse('$_baseUrl/api/videos/$videoId/skip');
       
       // Fire and forget
-      httpClientService.post(
-        url,
-        headers: headers,
-        body: json.encode({}),
+      httpClientService.withRequestContext(
+        feature: 'video_feed',
+        uiAction: 'skip',
+        request: () => httpClientService.post(
+          url,
+          headers: headers,
+          body: json.encode({}),
+        ),
       ).then((response) {
         if (response.statusCode == 200) {
           AppLogger.log('✅ VideoViewTracker: Skip tracked for $videoId');

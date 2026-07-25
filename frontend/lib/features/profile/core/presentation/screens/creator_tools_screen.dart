@@ -7,6 +7,7 @@ import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
 import 'package:vayug/features/profile/core/data/services/user_service.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class CreatorToolsScreen extends ConsumerStatefulWidget {
   const CreatorToolsScreen({super.key});
@@ -508,12 +509,12 @@ class _CreatorToolsScreenState extends ConsumerState<CreatorToolsScreen> {
 
   Future<void> _handleSend() async {
     if (_messageController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a message')));
+      VayuSnackBar.showError(context, 'Please enter a message');
       return;
     }
 
     if (_selectedSubscriberIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select at least one subscriber')));
+      VayuSnackBar.showError(context, 'Please select at least one subscriber');
       return;
     }
 
@@ -534,12 +535,12 @@ class _CreatorToolsScreenState extends ConsumerState<CreatorToolsScreen> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Broadcast sent successfully!')));
+        VayuSnackBar.showSuccess(context, 'Broadcast sent successfully!');
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        VayuSnackBar.showError(context, 'Error: $e');
       }
     }
   }

@@ -10,6 +10,7 @@ import 'package:vayug/features/ads/data/services/ad_service.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/features/auth/data/services/logout_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/shared/widgets/vayu_bottom_sheet.dart';
@@ -312,9 +313,7 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
       
       if (subscribers.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No subscribers to export.')),
-          );
+          VayuSnackBar.showInfo(context, 'No subscribers to export.');
         }
         return;
       }
@@ -346,9 +345,7 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
     } catch (e) {
       AppLogger.log('❌ Failed to export subscribers: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to export subscribers: $e')),
-        );
+        VayuSnackBar.showError(context, 'Failed to export subscribers: $e');
       }
     } finally {
       if (mounted) {
@@ -618,7 +615,11 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
   Widget _buildRevenueOverviewCard() {
     final thisMonth = (_revenueData?['thisMonth'] as num?)?.toDouble() ?? 0.0;
     final lastMonth = (_revenueData?['lastMonth'] as num?)?.toDouble() ?? 0.0;
-    final lifetimeReward =
+    final lifetimeCreatorReward =
+        (_revenueData?['totalRevenue'] as num?)?.toDouble() ??
+        (_revenueData?['netRevenue'] as num?)?.toDouble() ??
+        0.0;
+    final availableForPayout =
         (_revenueData?['availableForPayout'] as num?)?.toDouble() ?? 0.0;
 
     return Container(
@@ -629,12 +630,37 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
         border: Border.all(color: AppColors.borderPrimary),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Lifetime Reward", style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
+          Row(
+            children: [
+              const Icon(Icons.workspace_premium_rounded, color: AppColors.primary),
+              AppSpacing.hSpace8,
+              Text("Lifetime Creator Reward", style: AppTypography.titleMedium),
+            ],
+          ),
           AppSpacing.vSpace8,
           Text(
-            lifetimeReward.toStringAsFixed(2),
+            lifetimeCreatorReward.toStringAsFixed(2),
             style: AppTypography.displaySmall.copyWith(color: AppColors.success, fontWeight: FontWeight.bold),
+          ),
+          Text(
+            "Total reward earned from eligible ad revenue",
+            style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
+          ),
+          AppSpacing.vSpace24,
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(AppSpacing.spacing3),
+            decoration: BoxDecoration(
+              color: AppColors.backgroundPrimary.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: _buildRevenueStat(
+              "Available to Redeem",
+              availableForPayout.toStringAsFixed(2),
+              Icons.account_balance_wallet_outlined,
+            ),
           ),
           AppSpacing.vSpace24,
           Row(

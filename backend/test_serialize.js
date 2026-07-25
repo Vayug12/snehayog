@@ -1,10 +1,8 @@
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
+import './config/config.js';
 import User from './models/User.js';
 import Video from './models/Video.js';
 import { serializeVideos } from './utils/serializers/videoSerializer.js';
-
-dotenv.config();
 
 async function run() {
   try {

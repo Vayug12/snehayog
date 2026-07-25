@@ -17,12 +17,14 @@ import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/video/upload/presentation/screens/upload_advanced_settings_screen.dart';
 // AI Video generation is not completed yet — screen hidden from UI.
 // import 'package:vayug/features/video/upload/presentation/screens/ai_video_generate_screen.dart';
 import 'package:vayug/shared/constants/interests.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/core/design/spacing.dart';
+import 'package:video_player/video_player.dart';
 
 class UploadScreen extends ConsumerStatefulWidget {
   final VoidCallback? onVideoUploaded;
@@ -115,9 +117,32 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
         ref.read(uploadStateManagerProvider).setVideo(pickedFile);
         _titleController.text = _deriveTitleFromFile(pickedFile);
         _showUploadForm.value = true;
+        _probeVideoMetadata(pickedFile);
       }
     } catch (e) {
       AppLogger.log('Error picking video: $e');
+    }
+  }
+
+  /// Reads duration and aspect ratio from the picked file. The quiz editor
+  /// derives its per-video quiz limit from this duration, so without it the
+  /// limit is computed from 0s and blocks quiz creation.
+  Future<void> _probeVideoMetadata(File file) async {
+    VideoPlayerController? controller;
+    try {
+      controller = VideoPlayerController.file(file);
+      await controller.initialize();
+      final value = controller.value;
+      _videoDuration.value = value.duration.inMilliseconds / 1000.0;
+      if (value.size.width > 0 && value.size.height > 0) {
+        _videoAspectRatio.value = value.size.width / value.size.height;
+      }
+      AppLogger.log(
+          'UploadScreen: Video metadata — ${_videoDuration.value.toStringAsFixed(1)}s, AR ${_videoAspectRatio.value.toStringAsFixed(2)}');
+    } catch (e) {
+      AppLogger.log('UploadScreen: Could not read video metadata: $e');
+    } finally {
+      await controller?.dispose();
     }
   }
 
@@ -142,13 +167,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 
     if (manager.status == UploadStatus.success) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppText.get('upload_success_message')),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        VayuSnackBar.showSuccess(context, AppText.get('upload_success_message'));
       }
       if (widget.onVideoUploaded != null) {
         widget.onVideoUploaded!();
@@ -306,6 +325,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
               onPressed: () => authController.signIn(),
               label: AppText.get('btn_sign_in_google'),
               isFullWidth: true,
+              isLoading: authController.isLoading,
             ),
           ],
         ),

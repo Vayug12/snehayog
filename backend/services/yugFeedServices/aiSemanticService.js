@@ -17,6 +17,7 @@ class AISemanticService {
   constructor() {
     this.cache = new Map();
     this.apiKey = process.env.GEMINI_API_KEY;
+    this.embeddingUnavailable = false;
   }
 
   /**
@@ -32,6 +33,7 @@ class AISemanticService {
    */
   async getEmbedding(text) {
     if (!text) return null;
+    if (this.embeddingUnavailable) return null;
     if (!this.apiKey) {
       console.warn('⚠️ AISemanticService: GEMINI_API_KEY not set');
       return null;
@@ -57,6 +59,10 @@ class AISemanticService {
       }
     } catch (error) {
       const errMsg = error.response?.data?.error?.message || error.message;
+      if (error.response?.status === 404) {
+        this.embeddingUnavailable = true;
+        console.warn('AISemanticService: Embeddings disabled after unsupported Gemini model response');
+      }
       console.warn(`⚠️ AISemanticService: Gemini embedding failed: ${errMsg}`);
     }
 

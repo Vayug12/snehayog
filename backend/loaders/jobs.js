@@ -3,7 +3,6 @@ import automatedPayoutService from '../services/payoutServices/automatedPayoutSe
 import monthlyNotificationCron from '../services/notificationServices/monthlyNotificationCron.js';
 import recommendationScoreCron from '../services/yugFeedServices/recommendationScoreCron.js';
 import adCleanupService from '../services/adServices/adCleanupService.js';
-import exclusiveVideoCleanupService from '../services/uploadServices/exclusiveVideoCleanupService.js';
 
 export default async () => {
   try {
@@ -25,8 +24,15 @@ export default async () => {
     // Start recommendation score recalculation cron job (runs every 15 minutes)
     recommendationScoreCron.start();
 
-    // Start exclusive video 7-day auto-cleanup cron job (runs daily at 00:00 midnight)
-    exclusiveVideoCleanupService.startScheduler();
+    // Lazy load exclusiveVideoCleanupService — only loads @aws-sdk + cloudflareR2Service when cron runs
+    cron.schedule('0 0 * * *', async () => {
+      try {
+        const { default: exclusiveVideoCleanupService } = await import('../services/uploadServices/exclusiveVideoCleanupService.js');
+        await exclusiveVideoCleanupService.runCleanup();
+      } catch (error) {
+        console.error('❌ Error in exclusive video cleanup:', error);
+      }
+    });
 
     console.log('✅ Background jobs initialized');
   } catch (error) {

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E2EE Subscriber-Only Videos | Vayug</title>
+  <meta name="description" content="Learn how Vayug helps creators protect subscriber-only videos with end-to-end encrypted delivery and subscriber-specific encrypted keys.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://snehayog.site/e2ee">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://snehayog.site/e2ee">
+  <meta property="og:title" content="E2EE Subscriber-Only Videos | Vayug">
+  <meta property="og:description" content="Protect exclusive subscriber-only videos with Vayug's end-to-end encrypted delivery workflow.">
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"WebPage","name":"E2EE Subscriber-Only Videos on Vayug","description":"End-to-end encrypted delivery for protected creator videos and authorized subscribers.","about":{"@type":"SoftwareApplication","name":"Vayug"}}
+  </script>
+  <style>
+    :root { --bg:#0f172a; --surface:#1e293b; --text:#f8fafc; --muted:#cbd5e1; --accent:#60a5fa; --line:rgba(255,255,255,.09); }
+    * { box-sizing:border-box; } body { margin:0; padding:40px 20px; background:var(--bg); color:var(--text); font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif; }
+    .wrap { max-width:900px; margin:auto; } .hero,.step,.warning { background:var(--surface); border:1px solid var(--line); border-radius:20px; padding:28px; } .hero { margin-bottom:16px; }
+    h1 { margin:0 0 12px; color:var(--accent); font-size:clamp(2rem,5vw,3.3rem); line-height:1.08; } h2 { margin:0 0 8px; font-size:1.2rem; } p,li { color:var(--muted); } .steps { display:grid; gap:12px; } .step { display:grid; grid-template-columns:44px 1fr; gap:14px; align-items:start; } .number { width:36px; height:36px; display:grid; place-items:center; border-radius:50%; background:rgba(96,165,250,.14); color:var(--accent); font-weight:800; } .warning { margin-top:16px; border-color:rgba(245,158,11,.35); } .warning h2 { color:#fbbf24; } a { color:var(--accent); font-weight:700; text-decoration:none; } .back { display:inline-block; margin-bottom:18px; } footer { margin-top:24px; display:flex; flex-wrap:wrap; gap:16px; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <a class="back" href="/">← Back to Vayug</a>
+    <section class="hero"><h1>Private subscriber-only video with E2EE</h1><p>Vayug gives creators a way to publish exclusive subscriber-only videos using an end-to-end encrypted delivery workflow.</p></section>
+    <section class="steps">
+      <article class="step"><span class="number">1</span><div><h2>Creator encrypts protected content</h2><p>The creator/client side prepares the protected video and its symmetric decryption key before subscriber access is granted.</p></div></article>
+      <article class="step"><span class="number">2</span><div><h2>Keys are prepared per subscriber</h2><p>The creator app can fetch public keys for active subscribers and create encrypted key material for each authorized subscriber.</p></div></article>
+      <article class="step"><span class="number">3</span><div><h2>Backend stores encrypted key material</h2><p>The backend can store encrypted per-subscriber keys, but it does not store the raw video decryption key. An authenticated subscriber must have a matching key record.</p></div></article>
+      <article class="step"><span class="number">4</span><div><h2>Subscriber decrypts locally</h2><p>The subscriber app obtains its authorized encrypted key and uses its E2EE playback path to decrypt the protected video locally.</p></div></article>
+    </section>
+    <section class="warning"><h2>Important security and availability note</h2><p>E2EE is intended for private or exclusive creator content. It does not make public videos private. Effective security also depends on authentication, device security, private-key protection, implementation version and current feature configuration. Creators should follow applicable privacy, copyright and subscriber-consent requirements.</p></section>
+    <p><a href="/for-creators">See creator tools</a> · <a href="/faq.html">Read the FAQ</a> · <a href="/creator-monetization">See creator rewards</a></p>
+    <footer><a href="/">Home</a><a href="/for-creators">For creators</a><a href="/creator-monetization">Monetization</a><a href="/contact.html">Contact</a></footer>
+  </main>
+</body>
+</html>

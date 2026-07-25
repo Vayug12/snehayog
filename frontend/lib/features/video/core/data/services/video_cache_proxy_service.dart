@@ -2362,7 +2362,7 @@ class VideoCacheProxyService {
         }
         // For full-file requests, use a sentinel so the loop never breaks early.
         final int contentLength = isFullFileRequest
-            ? 0x7FFFFFFFFFFFFFFF
+            ? 0x1FFFFFFFFFFFFF
             : endPlainValue - startPlain + 1;
 
         response.headers.add('Access-Control-Allow-Origin', '*');

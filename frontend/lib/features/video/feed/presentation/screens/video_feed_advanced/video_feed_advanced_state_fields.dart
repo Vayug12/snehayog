@@ -19,6 +19,9 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   int _currentPage = 1;
   String? _nextCursor; // **NEW: Cursor for the next page of videos**
 
+  // Share links: the initial seek must run exactly once, on the shared video only
+  bool _hasAppliedInitialStartSeek = false;
+
   // final Set<String> _followingUsers = {}; // **REMOVED: Now using global UserProvider**
   final Set<String> _seenVideoKeys = <String>{};
   final ValueNotifier<String?> _errorMessageVN = ValueNotifier<String?>(null);

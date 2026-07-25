@@ -1,0 +1,27 @@
+{
+  "rules": [
+    {
+      "id": "vayug-public-video-playback",
+      "allowed": {
+        "origins": [
+          "https://snehayog.site",
+          "https://www.snehayog.site"
+        ],
+        "methods": [
+          "GET",
+          "HEAD"
+        ],
+        "headers": [
+          "Range"
+        ]
+      },
+      "exposeHeaders": [
+        "Accept-Ranges",
+        "Content-Length",
+        "Content-Range",
+        "Content-Type"
+      ],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

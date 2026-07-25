@@ -15,6 +15,7 @@ import 'package:vayug/features/video/edit/presentation/screens/edit_video_detail
 import 'package:vayug/shared/widgets/episode_grid_widget.dart';
 import 'package:vayug/shared/widgets/unified_video_card.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_dialogs_widget.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class ProfileVideosWidget extends StatelessWidget {
   final ProfileStateManager stateManager;
@@ -282,12 +283,9 @@ class ProfileVideosWidget extends StatelessWidget {
           cardType: _normalizedVideoType(video) == 'vayu' ? UnifiedVideoCardType.vayu : UnifiedVideoCardType.yug,
           onTap: () async {
             if (isProcessing && !manager.isSelecting) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Video is still processing. It will be playable shortly.'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
+              VayuSnackBar.showInfo(context,
+                  'Video is still processing. It will be playable shortly.',
+                  duration: const Duration(seconds: 2));
               return;
             }
 

@@ -592,7 +592,7 @@ class _EditVideoDetailsState extends State<EditVideoDetails> {
               AppSpacing.vSpace24,
               AppButton(
                 onPressed: () => Navigator.pop(context),
-                label: 'Save Series Flow',
+                label: 'Done',
                 variant: AppButtonVariant.primary,
                 isFullWidth: true,
                 size: AppButtonSize.large,

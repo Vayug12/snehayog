@@ -8,6 +8,7 @@ import 'package:vayug/features/ads/data/services/ad_service.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/features/ads/data/services/ad_impression_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 class AdDetailScreen extends StatefulWidget {
   final AdModel ad;
   final VoidCallback onRefresh;
@@ -89,9 +90,7 @@ class _AdDetailScreenState extends State<AdDetailScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
-        );
+        VayuSnackBar.showError(context, 'Error: $e');
       }
     }
   }
@@ -123,9 +122,7 @@ class _AdDetailScreenState extends State<AdDetailScreen> {
       } catch (e) {
         setState(() => _isLoading = false);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
-          );
+          VayuSnackBar.showError(context, 'Error: $e');
         }
       }
     }

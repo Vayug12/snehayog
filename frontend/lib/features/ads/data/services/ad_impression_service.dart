@@ -228,7 +228,7 @@ class AdImpressionService {
       AppLogger.log('   Ad ID: $adId');
       AppLogger.log('   User ID: $userId');
 
-      final url = '${NetworkHelper.adsEndpoint}/clicks/carousel';
+      final url = '${NetworkHelper.adsEndpoint}/track-click/$adId';
       final response = await httpClientService.post(
         Uri.parse(url),
         headers: {
@@ -283,7 +283,7 @@ class AdImpressionService {
       AppLogger.log('   Ad ID: $adId');
       AppLogger.log('   User ID: $userId');
 
-      final url = '${NetworkHelper.adsEndpoint}/clicks/$adType';
+      final url = '${NetworkHelper.adsEndpoint}/track-click/$adId';
       final response = await httpClientService.post(
         Uri.parse(url),
         headers: {
@@ -433,6 +433,9 @@ class AdImpressionService {
     required String userId,
     required double viewDuration, // Duration in seconds
   }) async {
+    final dedupeKey = 'banner-view:$videoId:$adId:$userId';
+    if (_isDuplicate(dedupeKey)) return;
+
     try {
       AppLogger.log('👁️ AdImpressionService: Tracking banner ad VIEW:');
       AppLogger.log('   Video ID: $videoId');
@@ -474,6 +477,9 @@ class AdImpressionService {
     required String userId,
     required double viewDuration, // Duration in seconds
   }) async {
+    final dedupeKey = 'carousel-view:$videoId:$adId:$userId';
+    if (_isDuplicate(dedupeKey)) return;
+
     try {
       AppLogger.log('👁️ AdImpressionService: Tracking carousel ad VIEW:');
       AppLogger.log('   Video ID: $videoId');

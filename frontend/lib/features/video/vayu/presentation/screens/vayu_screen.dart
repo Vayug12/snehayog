@@ -230,6 +230,7 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
           builder: (context) => VayuLongFormPlayerScreen(
             video: _videos[index],
             relatedVideos: _videos,
+            parentTabIndex: 1,
           ),
         ),
       );

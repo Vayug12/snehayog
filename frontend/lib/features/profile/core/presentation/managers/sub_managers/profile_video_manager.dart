@@ -250,8 +250,6 @@ class ProfileVideoManager extends ChangeNotifier {
   Future<void> deleteSelectedVideos() async {
     if (_selectedVideoIds.isEmpty) return;
     try {
-      _isVideosLoading = true;
-      notifyListenersSafe();
       final count = await _videoService.deleteVideos(_selectedVideoIds.toList());
       if (count > 0) {
         _userVideos.removeWhere((v) => _selectedVideoIds.contains(v.id));
@@ -261,10 +259,44 @@ class ProfileVideoManager extends ChangeNotifier {
         await _smartCacheManager.invalidateVideoCache();
       }
     } finally {
-      _isVideosLoading = false;
       notifyListenersSafe();
     }
   }
+  /// Updates a specific video in the list with data returned from EditVideoDetails.
+  /// Called when Navigator.pop returns updated video/series data.
+  void updateVideoInList(String videoId, Map<String, dynamic> updatedData) {
+    final index = _userVideos.indexWhere((v) => v.id == videoId);
+    if (index == -1) return;
+
+    final old = _userVideos[index];
+    _userVideos[index] = VideoModel(
+      id: old.id,
+      videoName: updatedData['videoName'] as String? ?? old.videoName,
+      videoUrl: old.videoUrl,
+      thumbnailUrl: old.thumbnailUrl,
+      likes: old.likes,
+      views: old.views,
+      shares: old.shares,
+      uploadedAt: old.uploadedAt,
+      uploader: old.uploader,
+      likedBy: old.likedBy,
+      videoType: old.videoType,
+      aspectRatio: old.aspectRatio,
+      duration: old.duration,
+      seriesId: updatedData['seriesId'] as String? ?? old.seriesId,
+      episodes: updatedData['episodes'] != null
+          ? (updatedData['episodes'] as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList()
+          : old.episodes,
+      link: updatedData['link'] as String? ?? old.link,
+      tags: updatedData['tags'] != null
+          ? (updatedData['tags'] as List).map((e) => e.toString()).toList()
+          : old.tags,
+    );
+    notifyListenersSafe();
+  }
+
   void clearData() {
     _userVideos = [];
     _selectedVideoIds.clear();

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:http/http.dart' as http;
@@ -34,6 +35,38 @@ class HttpClientService {
   
   /// Cached app version string (e.g., "2.5.8+47")
   String? _appVersion;
+
+  /// Default context for requests made outside an explicitly tagged action.
+  String _activeScreen = 'app_startup';
+
+  static final Object _requestContextZoneKey = Object();
+
+  /// Updates the screen attached to centrally managed API requests.
+  void setActiveScreen(String? screen) {
+    final normalizedScreen = screen?.trim();
+    if (normalizedScreen == null || normalizedScreen.isEmpty) return;
+    _activeScreen = normalizedScreen;
+  }
+
+  /// Adds optional feature/action metadata to requests made inside [request].
+  /// Use this only for important flows that need a more precise label than screen.
+  Future<T> withRequestContext<T>({
+    String? feature,
+    String? uiAction,
+    String? screen,
+    required Future<T> Function() request,
+  }) {
+    return runZoned(
+      request,
+      zoneValues: {
+        _requestContextZoneKey: _RequestContext(
+          feature: feature,
+          uiAction: uiAction,
+          screen: screen,
+        ),
+      },
+    );
+  }
 
   /// Initialize the Dio client with optimized settings
   void initialize() {
@@ -126,6 +159,26 @@ class HttpClientService {
             options.headers['X-Trace-ID'] = traceId;
             options.extra['traceId'] = traceId;
             AppLogger.log('🆔 Trace ID: $traceId for ${options.method} ${options.path}');
+
+            // Attach lightweight UI context for backend request counting.
+            final requestContext =
+                Zone.current[_requestContextZoneKey] as _RequestContext?;
+            final requestMetadata = _inferRequestMetadata(options.uri.path);
+            _setTelemetryHeader(
+              options.headers,
+              'X-App-Screen',
+              requestContext?.screen ?? _activeScreen,
+            );
+            _setTelemetryHeader(
+              options.headers,
+              'X-Feature',
+              requestContext?.feature ?? requestMetadata.feature,
+            );
+            _setTelemetryHeader(
+              options.headers,
+              'X-UI-Action',
+              requestContext?.uiAction ?? requestMetadata.action,
+            );
 
             // **NEW: Automatically inject Auth Token if missing**
             if (!options.headers.containsKey('Authorization')) {
@@ -718,6 +771,101 @@ class HttpClientService {
     }
   }
 
+  void _setTelemetryHeader(
+    Map<String, dynamic> headers,
+    String name,
+    String? value,
+  ) {
+    final normalizedValue = value?.trim();
+    if (normalizedValue == null || normalizedValue.isEmpty) return;
+
+    final headerAlreadySet = headers.keys
+        .any((existingName) => existingName.toLowerCase() == name.toLowerCase());
+    if (!headerAlreadySet) {
+      headers[name] = normalizedValue;
+    }
+  }
+
+  _RequestMetadata _inferRequestMetadata(String path) {
+    final normalizedPath = path.toLowerCase();
+
+    if (normalizedPath.contains('/api/ads/')) {
+      if (normalizedPath.contains('/impressions/banner/view')) {
+        return const _RequestMetadata('ads', 'banner_view');
+      }
+      if (normalizedPath.contains('/impressions/banner')) {
+        return const _RequestMetadata('ads', 'banner_impression');
+      }
+      if (normalizedPath.contains('/impressions/carousel/view')) {
+        return const _RequestMetadata('ads', 'carousel_view');
+      }
+      if (normalizedPath.contains('/impressions/carousel')) {
+        return const _RequestMetadata('ads', 'carousel_impression');
+      }
+      if (normalizedPath.contains('/impressions/batch')) {
+        return const _RequestMetadata('ads', 'offline_impression_sync');
+      }
+      if (normalizedPath.contains('/track-click/')) {
+        return const _RequestMetadata('ads', 'ad_click');
+      }
+      if (normalizedPath.contains('/carousel')) {
+        return const _RequestMetadata('ads', 'carousel_load');
+      }
+      if (normalizedPath.contains('/serve')) {
+        return const _RequestMetadata('ads', 'ad_load');
+      }
+      return const _RequestMetadata('ads', null);
+    }
+
+    if (normalizedPath.contains('/api/videos')) {
+      if (normalizedPath.contains('/watch/batch')) {
+        return const _RequestMetadata('video_feed', 'watch_batch');
+      }
+      if (normalizedPath.endsWith('/skip')) {
+        return const _RequestMetadata('video_feed', 'skip');
+      }
+      if (normalizedPath.endsWith('/like')) {
+        return const _RequestMetadata('video_feed', 'like');
+      }
+      return const _RequestMetadata('video_feed', null);
+    }
+
+    if (normalizedPath.contains('/api/search/')) {
+      if (normalizedPath.endsWith('/videos')) {
+        return const _RequestMetadata('search', 'search_videos');
+      }
+      if (normalizedPath.endsWith('/creators')) {
+        return const _RequestMetadata('search', 'search_creators');
+      }
+      return const _RequestMetadata('search', null);
+    }
+
+    if (normalizedPath.contains('/api/users/')) {
+      if (normalizedPath.contains('/isfollowing/batch')) {
+        return const _RequestMetadata('profile', 'following_status_batch');
+      }
+      if (normalizedPath.contains('/notices')) {
+        return const _RequestMetadata('profile', 'notices');
+      }
+      if (normalizedPath.endsWith('/follow')) {
+        return const _RequestMetadata('profile', 'follow');
+      }
+      if (normalizedPath.endsWith('/unfollow')) {
+        return const _RequestMetadata('profile', 'unfollow');
+      }
+      return const _RequestMetadata('profile', null);
+    }
+
+    if (normalizedPath.contains('/api/app-config')) {
+      return const _RequestMetadata('app_config', 'fetch');
+    }
+    if (normalizedPath.contains('/api/notifications/')) {
+      return const _RequestMetadata('notifications', null);
+    }
+
+    return const _RequestMetadata(null, null);
+  }
+
   /// Generate a unique Trace ID for distributed tracing (UUID v4 style)
   String _generateTraceId() {
     final random = Random.secure();
@@ -731,6 +879,25 @@ class HttpClientService {
     final hex = values.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
+}
+
+class _RequestContext {
+  const _RequestContext({
+    this.feature,
+    this.uiAction,
+    this.screen,
+  });
+
+  final String? feature;
+  final String? uiAction;
+  final String? screen;
+}
+
+class _RequestMetadata {
+  const _RequestMetadata(this.feature, this.action);
+
+  final String? feature;
+  final String? action;
 }
 
 /// Global HTTP client service instance

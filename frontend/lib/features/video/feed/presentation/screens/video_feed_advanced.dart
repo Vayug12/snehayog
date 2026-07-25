@@ -48,7 +48,7 @@ import 'package:vayug/features/video/core/presentation/managers/shared_video_con
 import 'package:vayug/shared/widgets/report_dialog_widget.dart';
 import 'package:vayug/shared/widgets/vayu_bottom_sheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:vayug/shared/services/share_service.dart';
+import 'package:vayug/shared/widgets/share_options_sheet.dart';
 import 'package:vayug/shared/widgets/episode_grid_widget.dart';
 import 'video_feed_advanced/widgets/throttled_progress_bar.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
@@ -61,6 +61,7 @@ import 'package:vayug/features/video/feed/presentation/widgets/video_feed_skelet
 
 import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'package:vayug/shared/services/local_gallery_service.dart';
+import 'package:vayug/shared/services/deep_link_playback_gate.dart';
 import 'package:vayug/features/video/edit/presentation/screens/edit_video_details.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/core/interfaces/i_dubbing_service.dart';
@@ -95,6 +96,8 @@ class VideoFeedAdvanced extends ConsumerStatefulWidget {
   final String? videoType;
   final bool isMainYugTab; // **NEW: Flag to identify the primary Yug feed**
   final int? parentTabIndex; // **NEW: Tab index where this feed resides (0 for Yug, 1 for Vayu, etc.)**
+  final int? startAtSeconds; // Share links: start playback of initialVideoId here
+  final int? endAtSeconds; // Share links: pause playback of initialVideoId here
   final IDubbingService? dubbingService;
   final IAdService? adService;
   final IQuizEngine? quizEngine;
@@ -107,6 +110,8 @@ class VideoFeedAdvanced extends ConsumerStatefulWidget {
     this.videoType,
     this.isMainYugTab = false,
     this.parentTabIndex,
+    this.startAtSeconds,
+    this.endAtSeconds,
     this.dubbingService,
     this.adService,
     this.quizEngine,
@@ -124,7 +129,6 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   final Map<String, bool> _likeInProgress = {};
   Timer?
       _pageChangeDebounceTimer; // **NEW: Timer for debouncing page rapid scrolls**
-  final ShareService _shareService = ShareService();
 
   @override
   bool get wantKeepAlive => true;
@@ -395,6 +399,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           } catch (_) {}
           if (!_shouldAutoplayForContext('autoplay current immediate')) return;
           _pauseAllOtherVideos(_videos[_currentIndex].id);
+          _maybeApplyInitialStartSeek(video.id, controller);
           controller.play();
           _ensureWakelockForVisibility();
           _controllerStates[video.id] = true;
@@ -678,6 +683,11 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       widget.initialVideoId != null && widget.initialVideos == null;
 
   bool _shouldAutoplayForContext(String reason) {
+    if (widget.isMainYugTab && DeepLinkPlaybackGate.isActive) {
+      AppLogger.log('AUTOPLAY[$reason]: Shared video link is resolving');
+      return false;
+    }
+
     // 1. Tab-Active Guard: If tab is hidden, NEVER play audio/video
     if (widget.parentTabIndex != null) {
       final currentTabIndex = _mainController?.currentIndex ?? 0;
@@ -1418,10 +1428,15 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     }
   }
 
-  /// **HANDLE SHARE: Use ShareService for native sharing**
+  /// **HANDLE SHARE: Same timestamp sheet as the Vayu long-form player**
   Future<void> _handleShare(VideoModel video) async {
     try {
-      await _shareService.shareVideo(video);
+      final index = _videos.indexWhere((v) => v.id == video.id);
+      ShareOptionsSheet.show(
+        context,
+        video: video,
+        controller: index != -1 ? _getController(index) : null,
+      );
     } catch (e) {
       AppLogger.log('❌ Error showing share options: $e');
       _showSnackBar('Failed to share video', isError: true);
@@ -1549,19 +1564,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       await _videoService.getVideos(page: 1, limit: 1);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Connection successful!'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        VayuSnackBar.showSuccess(context, 'Connection successful!',
+            duration: const Duration(seconds: 2));
 
         // Clear error and try to refresh
         setState(() {
@@ -2013,9 +2017,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Dubbing started it takes time..')),
-    );
+    VayuSnackBar.showInfo(context, 'Dubbing started, it takes time...');
 
     final sub = _dubbingService.dubVideo(video.id, video.videoUrl).listen((result) {
       if (!mounted) return;

@@ -26,6 +26,8 @@ import 'package:vayug/core/providers/navigation_providers.dart';
 import 'package:vayug/core/providers/video_providers.dart';
 import 'package:vayug/shared/services/error_logging_service.dart';
 import 'package:vayug/shared/services/deep_link_service.dart';
+import 'package:vayug/shared/services/http_client_service.dart';
+import 'package:vayug/shared/navigation/app_route_observer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -217,7 +219,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       title: 'Vayug',
       theme: AppTheme.lightTheme,
-      navigatorObservers: [AppNavigatorObserver()],
+      navigatorObservers: [AppNavigatorObserver(), appRouteObserver],
       builder: (context, child) {
         return MediaQuery(
           data: MediaQuery.of(context)
@@ -231,7 +233,11 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
           final args = ModalRoute.of(context)?.settings.arguments
               as Map<String, dynamic>?;
           final videoId = args?['videoId'] as String?;
-          return VideoScreen(initialVideoId: videoId);
+          final startAtSeconds = args?['startAtSeconds'] as int?;
+          return VideoScreen(
+            initialVideoId: videoId,
+            startAtSeconds: startAtSeconds,
+          );
         },
       },
       home: const SplashScreen(),
@@ -431,6 +437,7 @@ class AppNavigatorObserver extends NavigatorObserver {
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     super.didPush(route, previousRoute);
     final String? routeName = route.settings.name;
+    httpClientService.setActiveScreen(routeName);
     AppLogger.log(
         '🚀 NAV: Pushed $routeName (Previous: ${previousRoute?.settings.name})');
 
@@ -458,6 +465,7 @@ class AppNavigatorObserver extends NavigatorObserver {
   @override
   void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
     super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+    httpClientService.setActiveScreen(newRoute?.settings.name);
     AppLogger.log('🚀 NAV: Replaced ${oldRoute?.settings.name} with ${newRoute?.settings.name}');
     if (newRoute?.settings.name == '/') {
        AppLogger.log('⚠️ NAV ALERT: Replaced with root (Splash?) route! StackTrace:');
@@ -468,6 +476,7 @@ class AppNavigatorObserver extends NavigatorObserver {
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
     super.didPop(route, previousRoute);
+    httpClientService.setActiveScreen(previousRoute?.settings.name);
     AppLogger.log('🚀 NAV: Popped ${route.settings.name} (Now on: ${previousRoute?.settings.name})');
     // **ROUTE-POP FIX: Notify the Yug feed to re-validate its video controllers.**
     // When a profile-launched VideoFeedAdvanced is popped, it fully disposes its

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vayug/shared/services/feedback_service.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class FeedbackFormWidget extends StatefulWidget {
   const FeedbackFormWidget({Key? key}) : super(key: key);
@@ -59,9 +60,7 @@ class _FeedbackFormWidgetState extends State<FeedbackFormWidget> {
 
       if (success) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Feedback submitted successfully!')),
-          );
+          VayuSnackBar.showSuccess(context, 'Feedback submitted successfully!');
           _messageController.clear();
           setState(() {
             _rating = 5;
@@ -70,17 +69,13 @@ class _FeedbackFormWidgetState extends State<FeedbackFormWidget> {
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Failed to submit feedback. Please try again.')),
-          );
+          VayuSnackBar.showError(
+              context, 'Failed to submit feedback. Please try again.');
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        VayuSnackBar.showError(context, 'Error: $e');
       }
     } finally {
       if (mounted) {

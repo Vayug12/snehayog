@@ -1,4 +1,4 @@
-import '../../config/env.js';
+import '../../config/config.js';
 import { Queue } from 'bullmq';
 import axios from 'axios';
 

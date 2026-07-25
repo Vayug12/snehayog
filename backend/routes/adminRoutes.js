@@ -12,7 +12,6 @@ import { AD_CONFIG } from '../constants/index.js';
 import RecommendationService from '../services/yugFeedServices/recommendationService.js';
 import WatchHistory from '../models/WatchHistory.js';
 import RevenueService from '../services/adServices/revenueService.js';
-import brevoService from '../services/notificationServices/brevoService.js';
 import queueService from '../services/yugFeedServices/queueService.js';
 
 const router = express.Router();
@@ -1307,6 +1306,9 @@ router.post('/email/blast', requireAdminDashboardKey, async (req, res) => {
     if (!subject || !htmlContent) {
       return res.status(400).json({ success: false, error: 'Subject and content are required' });
     }
+
+    // Lazy load brevoService — only when admin actually sends email blast
+    const { default: brevoService } = await import('../services/notificationServices/brevoService.js');
 
     let recipients = [];
 

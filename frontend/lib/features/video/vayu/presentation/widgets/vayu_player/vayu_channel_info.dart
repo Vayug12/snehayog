@@ -11,11 +11,13 @@ import 'package:vayug/features/profile/core/presentation/screens/profile_screen.
 class VayuChannelInfo extends StatelessWidget {
   final VideoModel video;
   final bool isPortrait;
+  final VoidCallback? onProfileTap;
 
   const VayuChannelInfo({
     super.key,
     required this.video,
     this.isPortrait = true,
+    this.onProfileTap,
   });
 
   @override
@@ -27,12 +29,13 @@ class VayuChannelInfo extends StatelessWidget {
       child: Row(
         children: [
           InteractiveScaleButton(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (c) => ProfileScreen(userId: video.uploader.id),
-              ),
-            ),
+            onTap: onProfileTap ??
+                () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (c) => ProfileScreen(userId: video.uploader.id),
+                      ),
+                    ),
             child: CircleAvatar(
               radius: 18,
               backgroundImage: video.uploader.profilePic.isNotEmpty
