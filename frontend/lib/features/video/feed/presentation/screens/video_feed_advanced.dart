@@ -16,7 +16,6 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
-import 'package:vayug/features/auth/presentation/widgets/auth_options_sheet.dart';
 import 'package:vayug/shared/managers/carousel_ad_manager.dart';
 import 'package:like_button/like_button.dart';
 import 'package:vayug/shared/constants/app_constants.dart';
@@ -1404,27 +1403,53 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
   /// **NEW: Trigger Google Sign-In directly (shows account picker popup)**
   Future<bool> _triggerSignInOptions() async {
+    if (_isGoogleSignInInProgress) return false;
+
     try {
       final authController = ref.read(googleSignInProvider);
       if (authController.isSignedIn) return true;
-      final user = await showAuthOptionsSheet(
-        context: context,
-        authController: authController,
-      );
+      if (mounted) {
+        setState(() => _isGoogleSignInInProgress = true);
+        VayuSnackBar.showInfo(
+          context,
+          'Opening Google sign-in...',
+          duration: const Duration(seconds: 2),
+        );
+      }
+
+      final user = await authController.signIn();
       if (user != null) {
         AppLogger.log('✅ Sign-in successful after like/comment action');
         final userId = (user['googleId'] ?? user['id'] ?? user['_id'])?.toString();
         if (userId != null && userId.isNotEmpty && mounted) {
           setState(() => _currentUserId = userId);
         }
+        if (mounted) {
+          VayuSnackBar.showSuccess(
+            context,
+            'Signed in successfully',
+            duration: const Duration(seconds: 2),
+          );
+        }
       } else {
         AppLogger.log('ℹ️ User cancelled sign-in');
+      }
+      if (user == null && mounted) {
+        VayuSnackBar.showInfo(
+          context,
+          'Google sign-in was cancelled',
+          duration: const Duration(seconds: 2),
+        );
       }
       return user != null;
     } catch (e) {
       AppLogger.log('❌ Error triggering sign-in: $e');
       _showSnackBar('Failed to sign in. Please try again.', isError: true);
       return false;
+    } finally {
+      if (mounted) {
+        setState(() => _isGoogleSignInInProgress = false);
+      }
     }
   }
 
@@ -1704,7 +1729,70 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           buildBody(),
           // **OFFLINE INDICATOR: Show when no internet connection**
           _buildOfflineIndicator(),
+          if (_isGoogleSignInInProgress) _buildGoogleSignInProgressOverlay(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildGoogleSignInProgressOverlay() {
+    return Positioned.fill(
+      child: AbsorbPointer(
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.42),
+          alignment: Alignment.center,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: Container(
+                width: 248,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 20,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF171717).withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.10),
+                  ),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox.square(
+                      dimension: 26,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.6,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      'Opening Google sign-in',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      'Choose your account to continue.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

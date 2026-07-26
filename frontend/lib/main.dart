@@ -9,6 +9,7 @@ import 'dart:async';
 import 'package:vayug/features/video/feed/presentation/screens/homescreen.dart';
 import 'package:vayug/features/onboarding/presentation/screens/splash_screen.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:device_preview/device_preview.dart';
 import 'package:vayug/features/video/core/presentation/screens/video_screen.dart';
 import 'package:vayug/shared/managers/hot_ui_state_manager.dart';
 import 'package:vayug/core/design/theme.dart';
@@ -29,19 +30,23 @@ import 'package:vayug/shared/services/deep_link_service.dart';
 import 'package:vayug/shared/services/http_client_service.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
 
+// Enable on a desktop/web debug run with --dart-define=DEVICE_PREVIEW=true.
+const _enableDevicePreview = bool.fromEnvironment('DEVICE_PREVIEW');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Enable Edge-to-Edge display
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarContrastEnforced: false, // Prevents Android from adding black background
+      systemNavigationBarContrastEnforced:
+          false, // Prevents Android from adding black background
       statusBarIconBrightness: Brightness.light,
       systemNavigationBarIconBrightness: Brightness.light,
-      systemNavigationBarDividerColor: Colors.transparent, 
+      systemNavigationBarDividerColor: Colors.transparent,
     ),
   );
 
@@ -50,7 +55,7 @@ void main() async {
   // **NEW: Ensure Firebase is initialized (if not already handled elsewhere)**
   try {
     await Firebase.initializeApp();
-    
+
     // **NEW: Crashlytics Integration**
     // Pass all uncaught "fatal" errors from the framework to Crashlytics
     FlutterError.onError = (errorDetails) {
@@ -65,13 +70,13 @@ void main() async {
   } catch (e) {
     debugPrint('Firebase initialization error: $e');
   }
-  
+
   // **OPTIMIZATION: Limit Image Cache for Low-RAM devices**
   // 100MB limit (default is 1000MB which is too high for 3GB RAM phones)
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 100 * 1024 * 1024; 
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 100 * 1024 * 1024;
 
   // **NEW: Initialize Ad Impression Service for offline syncing**
-  
+
   AdImpressionService().initialize();
 
   // **STAGE 1: BASIC CONFIG (Moved to Splash Screen for Parallelism)**
@@ -79,12 +84,15 @@ void main() async {
 
   // **OPTIMIZED: Start app immediately**
   runApp(
-    ProviderScope(
-      child: ScreenUtilInit(
-        designSize: const Size(375, 812),
-        minTextAdapt: true,
-        splitScreenMode: true,
-        builder: (context, child) => const MyApp(),
+    DevicePreview(
+      enabled: kDebugMode && _enableDevicePreview,
+      builder: (context) => ProviderScope(
+        child: ScreenUtilInit(
+          designSize: const Size(375, 812),
+          minTextAdapt: true,
+          splitScreenMode: true,
+          builder: (context, child) => const MyApp(),
+        ),
       ),
     ),
   );
@@ -108,7 +116,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     ErrorLoggingService.logAppLifecycle('started');
-    
+
     // Initialize Deep Link Service
     DeepLinkService().initialize();
   }
@@ -131,7 +139,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
         ErrorLoggingService.logAppLifecycle('Resumed');
         mainController.setAppInForeground(true);
         hotUIManager.handleAppLifecycleChange(state);
-        
+
         // **NEW: Proactive Token Refresh on App Resume**
         // This ensures that if the user opens the app after few days,
         // we refresh the token immediately before they see expired data.
@@ -168,7 +176,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
         // **AGGRESSIVE CACHING: Save stale videos for next cold start**
         // Note: Context might be unstable here, but worth a try
         try {
-           ref.read(videoProvider).saveStaleVideos();
+          ref.read(videoProvider).saveStaleVideos();
         } catch (_) {}
         hotUIManager.handleAppLifecycleChange(state);
         break;
@@ -188,7 +196,8 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
       // 1. Pause and cleanup VideoControllerManager (singleton)
       try {
         final videoManager = VideoControllerManager();
-        videoManager.onAppPaused(); // This now calls onAppBackgrounded internally
+        videoManager
+            .onAppPaused(); // This now calls onAppBackgrounded internally
         AppLogger.log('✅ MyApp: Cleaned VideoControllerManager');
       } catch (e) {
         AppLogger.log('⚠️ MyApp: Error cleaning VideoControllerManager: $e');
@@ -203,14 +212,12 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
       } catch (e) {
         AppLogger.log('⚠️ MyApp: Error cleaning SharedVideoControllerPool: $e');
       }
-      
+
       AppLogger.log('✅ MyApp: Background memory optimization completed');
     } catch (e) {
       AppLogger.log('❌ MyApp: Error during background cleanup: $e');
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -219,12 +226,14 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       title: 'Vayug',
       theme: AppTheme.lightTheme,
+      useInheritedMediaQuery: true,
+      locale: DevicePreview.locale(context),
       navigatorObservers: [AppNavigatorObserver(), appRouteObserver],
       builder: (context, child) {
         return MediaQuery(
           data: MediaQuery.of(context)
               .copyWith(textScaler: const TextScaler.linear(1.0)),
-          child: child!,
+          child: DevicePreview.appBuilder(context, child),
         );
       },
       routes: {
@@ -335,7 +344,6 @@ class _MainScreenWithLocationCheckState
         }
       }
     } catch (e) {
-
       if (mounted) {
         setState(() {
           _shouldShowWelcome = false;
@@ -350,12 +358,12 @@ class _MainScreenWithLocationCheckState
   void _handleGetStarted() async {
     // **FIX: Mark onboarding as shown FIRST and await it to ensure persistence**
     await WelcomeOnboardingService.markWelcomeOnboardingShown();
-    
+
     if (mounted) {
       setState(() {
         _shouldShowWelcome = false;
       });
-      
+
       // Check permissions in background after welcome screen
       _checkLocationInBackground();
       _checkGalleryInBackground();
@@ -368,13 +376,9 @@ class _MainScreenWithLocationCheckState
     _hasCheckedLocation = true;
 
     try {
-
-
       // Check if we should show location onboarding
       final shouldShow =
           await LocationOnboardingService.shouldShowLocationOnboarding();
-
-
 
       // If we should show the native permission dialog, show it after a delay
       if (shouldShow && mounted) {
@@ -385,9 +389,7 @@ class _MainScreenWithLocationCheckState
           }
         });
       }
-    } catch (e) {
-
-    }
+    } catch (e) {}
   }
 
   /// **Check gallery permission in background**
@@ -396,7 +398,8 @@ class _MainScreenWithLocationCheckState
     _hasCheckedGallery = true;
 
     try {
-      final shouldShow = await GalleryPermissionService.shouldShowGalleryOnboarding();
+      final shouldShow =
+          await GalleryPermissionService.shouldShowGalleryOnboarding();
 
       if (shouldShow && mounted) {
         // Wait 2 seconds (1s after location potentially starts)
@@ -410,8 +413,6 @@ class _MainScreenWithLocationCheckState
       AppLogger.log('❌ Main: Error checking gallery permission: $e');
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -442,8 +443,10 @@ class AppNavigatorObserver extends NavigatorObserver {
         '🚀 NAV: Pushed $routeName (Previous: ${previousRoute?.settings.name})');
 
     if (routeName == null) {
-      AppLogger.log('🔍 [NAV DIAGNOSTIC] Anonymous (null) route pushed. WHO CALLED THIS? StackTrace:');
-      AppLogger.log(StackTrace.current.toString().split('\n').take(10).join('\n'));
+      AppLogger.log(
+          '🔍 [NAV DIAGNOSTIC] Anonymous (null) route pushed. WHO CALLED THIS? StackTrace:');
+      AppLogger.log(
+          StackTrace.current.toString().split('\n').take(10).join('\n'));
     }
 
     if (routeName == '/') {
@@ -458,7 +461,8 @@ class AppNavigatorObserver extends NavigatorObserver {
       AppLogger.log('⏸️ NAV: Named route pushed - pausing videos');
       _pauseAllVideos();
     } else if (previousRoute != null && routeName == null) {
-      AppLogger.log('ℹ️ NAV: Anonymous route pushed - NOT pausing videos by default');
+      AppLogger.log(
+          'ℹ️ NAV: Anonymous route pushed - NOT pausing videos by default');
     }
   }
 
@@ -466,10 +470,13 @@ class AppNavigatorObserver extends NavigatorObserver {
   void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
     super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
     httpClientService.setActiveScreen(newRoute?.settings.name);
-    AppLogger.log('🚀 NAV: Replaced ${oldRoute?.settings.name} with ${newRoute?.settings.name}');
+    AppLogger.log(
+        '🚀 NAV: Replaced ${oldRoute?.settings.name} with ${newRoute?.settings.name}');
     if (newRoute?.settings.name == '/') {
-       AppLogger.log('⚠️ NAV ALERT: Replaced with root (Splash?) route! StackTrace:');
-       AppLogger.log(StackTrace.current.toString().split('\n').take(10).join('\n'));
+      AppLogger.log(
+          '⚠️ NAV ALERT: Replaced with root (Splash?) route! StackTrace:');
+      AppLogger.log(
+          StackTrace.current.toString().split('\n').take(10).join('\n'));
     }
   }
 
@@ -477,7 +484,8 @@ class AppNavigatorObserver extends NavigatorObserver {
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
     super.didPop(route, previousRoute);
     httpClientService.setActiveScreen(previousRoute?.settings.name);
-    AppLogger.log('🚀 NAV: Popped ${route.settings.name} (Now on: ${previousRoute?.settings.name})');
+    AppLogger.log(
+        '🚀 NAV: Popped ${route.settings.name} (Now on: ${previousRoute?.settings.name})');
     // **ROUTE-POP FIX: Notify the Yug feed to re-validate its video controllers.**
     // When a profile-launched VideoFeedAdvanced is popped, it fully disposes its
     // controllers. The Yug feed still has stale references → "Bad state: No active
@@ -495,4 +503,3 @@ class AppNavigatorObserver extends NavigatorObserver {
     } catch (_) {}
   }
 }
-

@@ -31,7 +31,7 @@ class ProfileStatsWidget extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileStateManager = ref.watch(profileStateManagerProvider);
-    
+
     final videosLoading = profileStateManager.isVideosLoading;
     final videoCountValue = videosLoading
         ? '...'
@@ -61,35 +61,37 @@ class ProfileStatsWidget extends ConsumerWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildStatColumn(
-              context,
-              'Videos',
-              videoCountValue,
-              isLoading: videosLoading,
+            Expanded(
+              child: _buildStatColumn(
+                context,
+                'Videos',
+                videoCountValue,
+                isLoading: videosLoading,
+              ),
             ),
-            Container(
-                width: 1, height: 40, color: AppColors.borderPrimary),
-            _buildStatColumn(
-              context,
-              'Subscribers',
-              isFollowersLoaded
-                  ? _getFollowersCount(context, ref)
-                  : '...',
-              isLoading: !isFollowersLoaded,
-              onTap: onFollowersTap,
+            Container(width: 1, height: 40, color: AppColors.borderPrimary),
+            Expanded(
+              child: _buildStatColumn(
+                context,
+                'Subscribers',
+                isFollowersLoaded ? _getFollowersCount(context, ref) : '...',
+                isLoading: !isFollowersLoaded,
+                onTap: onFollowersTap,
+              ),
             ),
-            Container(
-                width: 1, height: 40, color: AppColors.borderPrimary),
-            _buildStatColumn(
-              context,
-              AppText.get('profile_stat_earnings'),
-              shouldShowLoading
-                  ? 'Loading...'
-                  : profileStateManager.cachedEarnings,
-              isEarnings: true,
-              isLoading: shouldShowLoading,
-              loadingText: 'Loading...',
-              onTap: onEarningsTap,
+            Container(width: 1, height: 40, color: AppColors.borderPrimary),
+            Expanded(
+              child: _buildStatColumn(
+                context,
+                AppText.get('profile_stat_earnings'),
+                shouldShowLoading
+                    ? 'Loading...'
+                    : profileStateManager.cachedEarnings,
+                isEarnings: true,
+                isLoading: shouldShowLoading,
+                loadingText: 'Loading...',
+                onTap: onEarningsTap,
+              ),
             ),
           ],
         ),
@@ -128,6 +130,9 @@ class ProfileStatsWidget extends ConsumerWidget {
                       fontWeight: FontWeight.w700,
                       letterSpacing: -0.5,
                     ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
             ),
           ),
@@ -150,7 +155,7 @@ class ProfileStatsWidget extends ConsumerWidget {
   int _getFollowersCount(BuildContext context, WidgetRef ref) {
     ProfileScreenLogger.logDebugInfo('=== GETTING FOLLOWERS COUNT ===');
     ProfileScreenLogger.logDebugInfo('userId: $userId');
-    
+
     if (stateManager.userData != null) {
       final followersCount = stateManager.userData!['followersCount'] ??
           stateManager.userData!['followers'];
@@ -168,8 +173,7 @@ class ProfileStatsWidget extends ConsumerWidget {
     final List<String> idsToTry = <String?>[
       userId,
       stateManager.userData?['googleId'],
-      stateManager.userData?['_id'] ??
-          stateManager.userData?['id'],
+      stateManager.userData?['_id'] ?? stateManager.userData?['id'],
     ]
         .where((e) => e != null && (e).isNotEmpty)
         .map((e) => e as String)

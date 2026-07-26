@@ -23,6 +23,7 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   final ValueNotifier<bool> showControlsVN;
   final ValueNotifier<bool> isControlsLockedVN;
   final ValueNotifier<bool> showScrubbingOverlayVN;
+  final ValueNotifier<bool>? isSeekingBufferingVN;
   final VoidCallback onToggleFullScreen;
   final VoidCallback onOpenExternalPlayer;
   final VoidCallback onHandleTap;
@@ -63,6 +64,7 @@ class VayuFeedItem extends ConsumerStatefulWidget {
     required this.showControlsVN,
     required this.isControlsLockedVN,
     required this.showScrubbingOverlayVN,
+    this.isSeekingBufferingVN,
     required this.onToggleFullScreen,
     required this.onHandleTap,
     required this.onDoubleTapToSeek,
@@ -510,6 +512,39 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                 return widget.buildScrubbingOverlay();
               },
             ),
+            if (widget.isSeekingBufferingVN != null)
+              ValueListenableBuilder<bool>(
+                valueListenable: widget.isSeekingBufferingVN!,
+                builder: (context, isSeeking, _) {
+                  return AnimatedOpacity(
+                    opacity: isSeeking ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: isSeeking
+                        ? const IgnorePointer(
+                            child: Center(
+                              child: SizedBox(
+                                width: 44,
+                                height: 44,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Color(0x66000000),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Padding(
+                                    padding: EdgeInsets.all(11),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  );
+                },
+              ),
           ],
 
           // 4. SECONDARY CONTROLS & PROGRESS BAR
@@ -616,6 +651,7 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                               onDragStart: () => widget.onScrollingLock(true),
                               onDragEnd: () => widget.onScrollingLock(false),
                               onResumeAfterSeek: widget.onResumeAfterSeek,
+                              onSeekStarted: widget.isSeekingBufferingVN != null ? () => widget.isSeekingBufferingVN!.value = true : null,
                             ),
                           ),
                         ),

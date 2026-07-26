@@ -244,6 +244,7 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   bool _wakelockEnabled = false;
   bool _wasSignedIn = false;
   bool _pendingAutoplayAfterLogin = false;
+  bool _isGoogleSignInInProgress = false;
 
   // **NEW: Track when screen was first opened to delay sign-in prompts**
   DateTime? _lastPausedAt;

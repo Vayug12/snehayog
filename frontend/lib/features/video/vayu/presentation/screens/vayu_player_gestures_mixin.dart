@@ -18,6 +18,7 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
   final ValueNotifier<bool> isForwardVN = ValueNotifier<bool>(true);
   final ValueNotifier<bool> isScrollingLockedVN = ValueNotifier<bool>(false);
   final ValueNotifier<bool> isControlsLockedVN = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> isSeekingBufferingVN = ValueNotifier<bool>(false);
 
   // Getters for compatibility (optional, but good for transition)
   bool get showControls => showControlsVN.value;
@@ -27,6 +28,7 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
   bool get isForward => isForwardVN.value;
   bool get isScrollingLocked => isScrollingLockedVN.value;
   bool get isControlsLocked => isControlsLockedVN.value;
+  bool get isSeekingBuffering => isSeekingBufferingVN.value;
 
   double horizontalDragTotal = 0.0;
   Timer? controlsTimer;
@@ -67,6 +69,7 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
   void handleHorizontalDragEnd() {
     overlayTimer?.cancel();
     if (currentVideoController != null) {
+      isSeekingBufferingVN.value = true;
       currentVideoController!.seekTo(scrubbingTargetTimeVN.value);
     }
     showScrubbingOverlayVN.value = false;
@@ -124,6 +127,7 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
     if (target < Duration.zero) target = Duration.zero;
     if (target > controller.value.duration) target = controller.value.duration;
     
+    isSeekingBufferingVN.value = true;
     controller.seekTo(target);
     showControlsVN.value = true;
     showScrubbingOverlayVN.value = true;
@@ -168,5 +172,6 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
     isForwardVN.dispose();
     isScrollingLockedVN.dispose();
     isControlsLockedVN.dispose();
+    isSeekingBufferingVN.dispose();
   }
 }

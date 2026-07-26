@@ -52,6 +52,8 @@ dependencies:
   flutter_riverpod: ^2.5.1
   riverpod_annotation: ^2.3.5
   flutter_screenutil: ^5.9.3 
+  # Debug-only device and accessibility viewport simulator. Disabled in release.
+  device_preview: 1.2.0
   image_picker: ^1.0.4
   video_compress: ^3.1.4
   # **NEW: Image processing and cropping**

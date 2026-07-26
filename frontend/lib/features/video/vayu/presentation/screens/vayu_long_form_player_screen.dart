@@ -269,6 +269,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
         }
       }
     });
+
+    isSeekingBufferingVN.addListener(_onSeekingBufferingChanged);
   }
 
   @override
@@ -610,6 +612,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       }
       return;
     }
+    if (isSeekingBufferingVN.value && controller.value.isPlaying) {
+      isSeekingBufferingVN.value = false;
+    }
     _onPositionChanged();
   }
 
@@ -693,6 +698,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   void dispose() {
     _disableWakelock();
     appRouteObserver.unsubscribe(this);
+    _seekingBufferingTimeout?.cancel();
+    isSeekingBufferingVN.removeListener(_onSeekingBufferingChanged);
     disposeGestures();
     _suppressTransientPauseOverlayVN.dispose();
     _pageController.dispose();
@@ -714,7 +721,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       } catch (_) {}
     });
     _chewieControllers.forEach((index, c) => c?.dispose());
-    controlsTimer?.cancel(); overlayTimer?.cancel(); _orientationSettleTimer?.cancel();
+    controlsTimer?.cancel(); overlayTimer?.cancel(); _orientationSettleTimer?.cancel(); _seekingBufferingTimeout?.cancel();
     _stopViewTracking(_currentIndex); _poolDisposalSubscription?.cancel();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -980,6 +987,16 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     _orientationSettleTimer = Timer(const Duration(milliseconds: 450), () {
       if (mounted) _suppressTransientPauseOverlayVN.value = false;
     });
+  }
+
+  Timer? _seekingBufferingTimeout;
+  void _onSeekingBufferingChanged() {
+    _seekingBufferingTimeout?.cancel();
+    if (isSeekingBufferingVN.value) {
+      _seekingBufferingTimeout = Timer(const Duration(seconds: 5), () {
+        if (mounted) isSeekingBufferingVN.value = false;
+      });
+    }
   }
 
   void _toggleFullScreen() {
@@ -1334,7 +1351,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       top: isPortrait, bottom: false, left: false, right: false,
       child: VayuFeedItem(
       key: ValueKey(v.id),
-      index: index, video: v, controller: _controllers[index], chewie: _chewieControllers[index], isCurrent: index == _currentIndex, isFullScreenManual: _isFullScreenManual, suppressTransientPauseOverlayVN: _suppressTransientPauseOverlayVN, showControlsVN: showControlsVN, isControlsLockedVN: isControlsLockedVN, showScrubbingOverlayVN: showScrubbingOverlayVN,
+      index: index, video: v, controller: _controllers[index], chewie: _chewieControllers[index], isCurrent: index == _currentIndex, isFullScreenManual: _isFullScreenManual, suppressTransientPauseOverlayVN: _suppressTransientPauseOverlayVN, showControlsVN: showControlsVN, isControlsLockedVN: isControlsLockedVN, showScrubbingOverlayVN: showScrubbingOverlayVN, isSeekingBufferingVN: isSeekingBufferingVN,
       onToggleFullScreen: _toggleFullScreen, onOpenExternalPlayer: () => _openInExternalPlayer(v), onHandleTap: () => handleTap(MediaQuery.orientationOf(context)), onDoubleTapToSeek: (details) => handleDoubleTapToSeek(details, MediaQuery.sizeOf(context), MediaQuery.orientationOf(context)), onHorizontalDragEnd: handleHorizontalDragEnd, onVerticalDragUpdate: (dy, lp) => handleVerticalDragUpdate(dy, lp, MediaQuery.sizeOf(context)), onVerticalDragEnd: () {}, onUnifiedHorizontalDrag: handleUnifiedHorizontalDrag,
       onScrollingLock: (l) => isScrollingLockedVN.value = l, onShowSnackBar: _showSnackBar, buildAdSection: _buildAdSection, buildVideoInfo: (_) => const SizedBox.shrink(), buildChannelRow: (_) => const SizedBox.shrink(), buildScrubbingOverlay: _buildScrubbingOverlay, buildCustomControls: (_) => const SizedBox.shrink(), buildDubbingProgress: (_) => const SizedBox.shrink(), formatDuration: _formatDuration, onQuizDismiss: () => setState(() => _activeQuiz = null), activeQuiz: index == _currentIndex ? _activeQuiz : null,
       onResumeAfterSeek: () async {

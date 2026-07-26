@@ -9,7 +9,7 @@ class AppConfig {
   static const String kApiVersion = '2026-04-02';
 
   // Set to true to force local development server
-  static const bool isDevelopment = false;
+  static const bool isDevelopment = true;
   
   // Set to true to use production Cloudflare worker even in development
   static const bool useProductionWorker = true;
@@ -22,7 +22,7 @@ class AppConfig {
 
   // Find your IP: Windows: ipconfig | Linux/Mac: ifconfig or ip address
   // Make sure your phone/emulator is on the same Wi‑Fi network
-  static const String _currentMobileIp = 'http://192.168.0.186:5001';
+  static const String _currentMobileIp = 'http://192.168.0.200:5001';
   static const String _currentMobileIp2 = 'http://172.20.10.2:5001';
   static const String _localIpBaseUrl = _currentMobileIp2;
 

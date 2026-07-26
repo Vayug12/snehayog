@@ -40,7 +40,8 @@ class MediaUploaderWidget extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<MediaUploaderWidget> createState() => _MediaUploaderWidgetState();
+  ConsumerState<MediaUploaderWidget> createState() =>
+      _MediaUploaderWidgetState();
 }
 
 class _MediaUploaderWidgetState extends ConsumerState<MediaUploaderWidget> {
@@ -204,21 +205,23 @@ class _MediaUploaderWidgetState extends ConsumerState<MediaUploaderWidget> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Banner preview with correct aspect ratio
-              Container(
-                width: 320,
-                height: 100,
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.primary, width: 2),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: Image.file(
-                    widget.selectedImage!,
-                    fit: BoxFit.cover,
-                    width: 320,
-                    height: 100,
+              // Preserve the 320x100 design ratio without exceeding narrow cards.
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320),
+                child: AspectRatio(
+                  aspectRatio: 3.2,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.primary, width: 2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: Image.file(
+                        widget.selectedImage!,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -440,8 +443,7 @@ class _MediaUploaderWidgetState extends ConsumerState<MediaUploaderWidget> {
     final ImagePicker picker = ImagePicker();
     // prevent autoplay on resume
     if (mounted) {
-      ref.read(mainControllerProvider)
-          .setMediaPickerActive(true);
+      ref.read(mainControllerProvider).setMediaPickerActive(true);
     }
     final XFile? image = await picker.pickImage(
       source: ImageSource.gallery,
@@ -450,8 +452,7 @@ class _MediaUploaderWidgetState extends ConsumerState<MediaUploaderWidget> {
       imageQuality: 85,
     );
     if (mounted) {
-      ref.read(mainControllerProvider)
-          .setMediaPickerActive(false);
+      ref.read(mainControllerProvider).setMediaPickerActive(false);
     }
 
     if (image != null) {
@@ -612,8 +613,7 @@ class _MediaUploaderWidgetState extends ConsumerState<MediaUploaderWidget> {
 
     final ImagePicker picker = ImagePicker();
     if (mounted) {
-      ref.read(mainControllerProvider)
-          .setMediaPickerActive(true);
+      ref.read(mainControllerProvider).setMediaPickerActive(true);
     }
     final List<XFile> images = await picker.pickMultiImage(
       maxWidth: 1920,
@@ -621,8 +621,7 @@ class _MediaUploaderWidgetState extends ConsumerState<MediaUploaderWidget> {
       imageQuality: 85,
     );
     if (mounted) {
-      ref.read(mainControllerProvider)
-          .setMediaPickerActive(false);
+      ref.read(mainControllerProvider).setMediaPickerActive(false);
     }
 
     if (images.isNotEmpty) {
@@ -657,16 +656,14 @@ class _MediaUploaderWidgetState extends ConsumerState<MediaUploaderWidget> {
     // Restrict to gallery videos only
     final ImagePicker picker = ImagePicker();
     if (mounted) {
-      ref.read(mainControllerProvider)
-          .setMediaPickerActive(true);
+      ref.read(mainControllerProvider).setMediaPickerActive(true);
     }
     final XFile? picked = await picker.pickVideo(
       source: ImageSource.gallery,
       maxDuration: const Duration(minutes: 5),
     );
     if (mounted) {
-      ref.read(mainControllerProvider)
-          .setMediaPickerActive(false);
+      ref.read(mainControllerProvider).setMediaPickerActive(false);
     }
 
     if (picked != null) {
