@@ -1253,7 +1253,7 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
         final videoId = index < _videos.length ? _videos[index].id : null;
         if (videoId != null && _controllerPool.containsKey(videoId)) {
           if (!_shouldAutoplayForContext('ad resume')) return;
-          _controllerPool[videoId]!.play();
+          _playWithPolicy(_controllerPool[videoId]!, 'banner ad resume');
         }
       },
       onClick: () async {
@@ -2200,7 +2200,7 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
         // Resume the video when the browser is closed (if still active)
         if (videoId != null && _controllerPool.containsKey(videoId)) {
           if (!_shouldAutoplayForContext('carousel ad resume')) return;
-          _controllerPool[videoId]!.play();
+          _playWithPolicy(_controllerPool[videoId]!, 'carousel ad resume');
         }
       },
       onAdClosed: () {

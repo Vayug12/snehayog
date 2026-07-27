@@ -61,6 +61,8 @@ import 'package:vayug/features/video/feed/presentation/widgets/video_feed_skelet
 import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'package:vayug/shared/services/local_gallery_service.dart';
 import 'package:vayug/shared/services/deep_link_playback_gate.dart';
+import 'package:vayug/shared/services/playback_coordinator.dart';
+import 'package:vayug/shared/navigation/app_route_observer.dart';
 import 'package:vayug/features/video/edit/presentation/screens/edit_video_details.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/core/interfaces/i_dubbing_service.dart';
@@ -123,6 +125,7 @@ class VideoFeedAdvanced extends ConsumerStatefulWidget {
 class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     with
         WidgetsBindingObserver,
+        RouteAware,
         AutomaticKeepAliveClientMixin,
         VideoFeedStateFieldsMixin {
   final Map<String, bool> _likeInProgress = {};
@@ -135,6 +138,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   @override
   void initState() {
     super.initState();
+    _playbackCoordinator.setRouteActive(_playbackSession, true);
     // Removed redundant PageController and _loadVideos initialization.
     // These are now handled exclusively in _initializeServices() to prevent race conditions.
 
@@ -187,6 +191,15 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    final route = ModalRoute.of(context);
+    if (route != null && route != _playbackRoute) {
+      if (_playbackRoute != null) {
+        appRouteObserver.unsubscribe(this);
+      }
+      _playbackRoute = route;
+      appRouteObserver.subscribe(this, route);
+    }
 
     // **PERFORMANCE: Cache MainController to avoid repeated ref.read() calls**
     _mainController = ref.watch(mainControllerProvider);
@@ -281,12 +294,15 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     super.didChangeAppLifecycleState(state);
     switch (state) {
       case AppLifecycleState.paused:
+        _playbackCoordinator.setAppLifecycle(false);
         _handleAppMovedToBackground(state);
         break;
       case AppLifecycleState.inactive:
+        _playbackCoordinator.setAppLifecycle(false);
         _handleAppMovedToBackground(state);
         break;
       case AppLifecycleState.resumed:
+        _playbackCoordinator.setAppLifecycle(true);
         _videoControllerManager.onAppResumed();
         // **FIX: Stop setting _isScreenVisible = true unconditionally**
         // Relying on VisibilityDetector and MainController index instead
@@ -399,7 +415,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           if (!_shouldAutoplayForContext('autoplay current immediate')) return;
           _pauseAllOtherVideos(_videos[_currentIndex].id);
           _maybeApplyInitialStartSeek(video.id, controller);
-          controller.play();
+          _playWithPolicy(controller, 'feed autoplay immediate');
           _ensureWakelockForVisibility();
           _controllerStates[video.id] = true;
           _userPaused[video.id] = false;
@@ -451,7 +467,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
             pController.setVolume(1.0);
           } catch (_) {}
           _pauseAllOtherVideos(_videos[indexToPlay].id);
-          pController.play();
+          _playWithPolicy(pController, 'feed autoplay after preload');
           _ensureWakelockForVisibility();
           _controllerStates[videoToPlay.id] = true;
           _userPaused[videoToPlay.id] = false;
@@ -481,6 +497,13 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   void _handleVisibilityChange(bool isVisible) {
     if (_isScreenVisible != isVisible) {
       _isScreenVisible = isVisible;
+      final dedicatedRoute = _openedFromProfile || _openedFromDeepLink;
+      _playbackCoordinator.setRouteActive(
+        _playbackSession,
+        dedicatedRoute
+            ? (ModalRoute.of(context)?.isCurrent ?? true)
+            : isVisible,
+      );
 
       if (isVisible) {
         // Returning to Yug tab - ensure current video autoplays (no audio overlap)
@@ -688,7 +711,9 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     }
 
     // 1. Tab-Active Guard: If tab is hidden, NEVER play audio/video
-    if (widget.parentTabIndex != null) {
+    if (widget.parentTabIndex != null &&
+        !_openedFromProfile &&
+        !_openedFromDeepLink) {
       final currentTabIndex = _mainController?.currentIndex ?? 0;
       if (currentTabIndex != widget.parentTabIndex) {
         AppLogger.log('🚫 AUTOPLAY[$reason]: Parent tab hidden (feedTab=${widget.parentTabIndex}, currentTab=$currentTabIndex)');
@@ -1055,7 +1080,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           try {
             _pauseAllOtherVideos(videoId);
             _autoAdvancedForIndex.remove(index);
-            c.play();
+            _playWithPolicy(c, 'feed tap after preload');
             // **OPTIMIZED: Use ValueNotifier - NO setState**
             _controllerStates[videoId] = true;
             _userPaused[videoId] = false;
@@ -1109,6 +1134,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         _controllerStates[videoId] = false;
         _userPaused[videoId] = true;
         _userPausedVN[videoId]?.value = true;
+        _playbackCoordinator.setUserPaused(_playbackSession, true);
 
         // Now pause the controller
         controller.pause();
@@ -1145,6 +1171,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         _controllerStates[videoId] = true;
         _userPaused[videoId] = false; // hide when playing
         _userPausedVN[videoId]?.value = false;
+        _playbackCoordinator.setUserPaused(_playbackSession, false);
         _hideLongPressAdOverlay();
         _hidePauseAdOverlay(videoId: videoId); // **NEW: Hide pause ad when video plays**
 
@@ -1152,7 +1179,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
         // Now play the controller
         _autoAdvancedForIndex.remove(index);
-        controller.play();
+        _playWithPolicy(controller, 'feed tap play');
         _ensureWakelockForVisibility();
 
         AppLogger.log('▶️ Successfully played video at index $index');
@@ -1451,6 +1478,18 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         setState(() => _isGoogleSignInInProgress = false);
       }
     }
+  }
+
+  @override
+  void didPushNext() {
+    _playbackCoordinator.setRouteActive(_playbackSession, false);
+    _pauseCurrentVideo();
+  }
+
+  @override
+  void didPopNext() {
+    _playbackCoordinator.setRouteActive(_playbackSession, true);
+    _tryAutoplayCurrent();
   }
 
   /// **HANDLE SHARE: Same timestamp sheet as the Vayu long-form player**
@@ -1799,6 +1838,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
+    _playbackCoordinator.release(_playbackSession);
     // **1. UNREGISTER FROM EXTERNAL CALLBACKS & OBSERVERS**
     _mainController?.unregisterVideoObserver(
       onPause: _pauseCurrentVideo,

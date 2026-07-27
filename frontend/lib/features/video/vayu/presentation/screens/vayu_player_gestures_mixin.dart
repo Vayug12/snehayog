@@ -47,6 +47,9 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
     await currentVideoController?.play();
   }
 
+  /// Host screens can persist user intent in their playback session.
+  void onUserPlaybackChanged(bool isPlaying) {}
+
   void handleUnifiedHorizontalDrag(double deltaX) {
     if (isControlsLocked || currentVideoController == null) return;
     overlayTimer?.cancel();
@@ -148,8 +151,10 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
     Vibration.vibrate(duration: 50, amplitude: 128);
     if (controller.value.isPlaying) {
       controller.pause();
+      onUserPlaybackChanged(false);
     } else {
       playCurrentVideo();
+      onUserPlaybackChanged(true);
       hideControlsWithDelay();
     }
   }

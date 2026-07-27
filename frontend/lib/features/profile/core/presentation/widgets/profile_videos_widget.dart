@@ -39,6 +39,43 @@ class ProfileVideosWidget extends StatelessWidget {
     this.onReferFriends,
   });
 
+  static Widget buildRefreshNotice(
+    BuildContext context,
+    ProfileStateManager manager,
+  ) {
+    final isRetrying = manager.isVideosLoading;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundSecondary,
+          border: Border.all(color: AppColors.borderPrimary),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, size: 18, color: AppColors.textSecondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Couldn\'t refresh. Showing saved videos.',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: isRetrying ? null : () => manager.refreshVideosOnly(),
+              child: Text(isRetrying ? 'Trying...' : 'Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _preloadVideoThumbnails(BuildContext context, List<VideoModel> videos) {
     Future.microtask(() async {
       for (final video in videos.take(5)) {
@@ -93,6 +130,137 @@ class ProfileVideosWidget extends StatelessWidget {
     return normalizedType == filterVideoType!.toLowerCase();
   }
 
+  Widget _asSliver(Widget child) =>
+      isSliver ? SliverToBoxAdapter(child: child) : child;
+
+  Widget _buildVideoLoadError(BuildContext context, ProfileStateManager manager) {
+    final isRetrying = manager.isVideosLoading;
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 48, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 42,
+              color: AppColors.textTertiary,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Couldn\'t load videos',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Check your connection and try again.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 13,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              onPressed: isRetrying
+                  ? null
+                  : () => manager.refreshVideosOnly(),
+              icon: isRetrying
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded, size: 18),
+              label: Text(isRetrying ? 'Trying again...' : 'Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConfirmedEmptyState(ProfileStateManager manager) {
+    final canRefer = onReferFriends != null && manager.isOwner;
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 34, 24, 34),
+        child: Column(
+          children: [
+            Icon(
+              Icons.video_library_outlined,
+              size: 40,
+              color: AppColors.textTertiary,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'You haven\'t uploaded any videos yet.',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (canRefer) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Share Vayug with friends to unlock creator billing.',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onReferFriends,
+                  icon: const HugeIcon(
+                    icon: HugeIcons.strokeRoundedShare01,
+                    color: AppColors.textPrimary,
+                    size: 18,
+                  ),
+                  label: Text(AppText.get('btn_refer_friends')),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilteredEmptyState() {
+    final label = filterVideoType?.toLowerCase() == 'vayu' ? 'Vayu' : 'Yug';
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 42, 24, 42),
+        child: Column(
+          children: [
+            Icon(Icons.video_library_outlined,
+                size: 38, color: AppColors.textTertiary),
+            const SizedBox(height: 12),
+            Text(
+              'No $label videos yet.',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (stateManager.userVideos.isNotEmpty) {
@@ -101,7 +269,7 @@ class ProfileVideosWidget extends StatelessWidget {
 
     return provider.Consumer<ProfileStateManager>(
       builder: (context, manager, child) {
-        if (manager.isVideosLoading) {
+        if (manager.isVideosLoading && manager.userVideos.isEmpty) {
           final loadingWidget = RepaintBoundary(
             child: SizedBox(
               height: 200,
@@ -149,55 +317,22 @@ class ProfileVideosWidget extends StatelessWidget {
         final List<VideoModel> filteredVideos =
             manager.userVideos.where(_matchesFilter).toList(growable: false);
 
-        if (manager.userVideos.isEmpty || filteredVideos.isEmpty) {
-          final emptyWidget = RepaintBoundary(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-              child: Column(
-                children: [
-                   // Icon and text section removed for minimalist empty state
-                  if (onReferFriends != null && manager.isOwner) ...[
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        onPressed: onReferFriends,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.textPrimary,
-                          side: const BorderSide(color: AppColors.borderPrimary),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const HugeIcon(
-                              icon: HugeIcons.strokeRoundedShare01,
-                              color: AppColors.textPrimary,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              AppText.get('btn_refer_friends'),
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+        if (manager.error != null && manager.userVideos.isEmpty) {
+          return _asSliver(_buildVideoLoadError(context, manager));
+        }
+
+        if (manager.userVideos.isEmpty) {
+          final isConfirmedEmpty =
+              manager.hasLoadedVideosSuccessfully && manager.totalVideoCount == 0;
+          return _asSliver(
+            isConfirmedEmpty
+                ? _buildConfirmedEmptyState(manager)
+                : _buildVideoLoadError(context, manager),
           );
-          return isSliver
-              ? SliverToBoxAdapter(child: emptyWidget)
-              : emptyWidget;
+        }
+
+        if (filteredVideos.isEmpty) {
+          return _asSliver(_buildFilteredEmptyState());
         }
 
         final List<VideoModel> displayVideos = [];

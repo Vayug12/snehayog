@@ -47,6 +47,7 @@ import 'package:vayug/features/video/vayu/presentation/screens/vayu_player_gestu
 import 'package:vayug/shared/widgets/share_options_sheet.dart';
 import 'package:vayug/features/profile/core/presentation/screens/profile_screen.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
+import 'package:vayug/shared/services/playback_coordinator.dart';
 
 class VayuLongFormPlayerScreen extends ConsumerStatefulWidget {
   final VideoModel video;
@@ -107,6 +108,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   // Unified Controller Management
   final VideoControllerManager _videoControllerManager = VideoControllerManager();
   final SharedVideoControllerPool _controllerPool = SharedVideoControllerPool();
+  final PlaybackCoordinator _playbackCoordinator = PlaybackCoordinator();
+  late final PlaybackSession _playbackSession =
+      _playbackCoordinator.register(source: 'vayu-long-form');
   MainController? _mainController;
   bool _lifecyclePaused = false;
   int? _resolvedParentTabIndex;
@@ -300,9 +304,11 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
+        _playbackCoordinator.setAppLifecycle(false);
         _handleAppMovedToBackground();
         break;
       case AppLifecycleState.resumed:
+        _playbackCoordinator.setAppLifecycle(true);
         _handleAppResumed();
         break;
       case AppLifecycleState.detached:
@@ -356,6 +362,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   }
 
   void _pauseAllPlayback() {
+    _playbackCoordinator.pause(_playbackSession);
     _pauseCurrentVideo();
     _videoControllerManager.pauseAllVideos();
     _controllerPool.pauseAllControllers();
@@ -365,9 +372,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   bool _isPlayerRouteActive() => ModalRoute.of(context)?.isCurrent ?? false;
 
   bool _isParentTabActive() {
-    final parentTabIndex = _resolvedParentTabIndex;
-    return parentTabIndex == null ||
-        _mainController?.playbackActiveTabIndex == parentTabIndex;
+    // A pushed player is owned by its route. The originating bottom-tab index
+    // is metadata only and must not block profile/search/deep-link playback.
+    return _isPlayerRouteActive();
   }
 
   /// This is the sole permission check for starting Vayu playback.
@@ -391,17 +398,13 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       return false;
     }
 
-    try {
-      await controller.play();
-    } catch (_) {
-      return false;
-    }
-
-    // A route, tab, or page can change while play() is awaiting the platform.
-    if (!_canPlayCurrentVideo(index, controller)) {
-      try {
-        await controller.pause();
-      } catch (_) {}
+    final didPlay = await _playbackCoordinator.requestPlay(
+      _playbackSession,
+      controller,
+      reason: 'vayu index $index',
+    );
+    if (!didPlay || !_canPlayCurrentVideo(index, controller)) {
+      _playbackCoordinator.pause(_playbackSession);
       return false;
     }
 
@@ -418,12 +421,19 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   }
 
   @override
+  void onUserPlaybackChanged(bool isPlaying) {
+    _playbackCoordinator.setUserPaused(_playbackSession, !isPlaying);
+  }
+
+  @override
   void didPushNext() {
+    _playbackCoordinator.setRouteActive(_playbackSession, false);
     _pauseAllPlayback();
   }
 
   @override
   void didPopNext() {
+    _playbackCoordinator.setRouteActive(_playbackSession, true);
     _resumeCurrentVideo();
   }
 
@@ -535,6 +545,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       if (mounted) {
         final chewie = _createChewieController(newController, effectiveVideo);
         setState(() { _controllers[index] = newController; _chewieControllers[index] = chewie; });
+        _playbackCoordinator.attachController(_playbackSession, newController);
         _controllerPool.addController(videoToPlay.id, newController, index: index);
         _setupLateInitialization(index, newController);
       } else {
@@ -569,6 +580,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     int index,
     VideoPlayerController controller,
   ) async {
+    if (index == _currentIndex) {
+      _playbackCoordinator.attachController(_playbackSession, controller);
+    }
     final previousPositionListener = _positionListeners.remove(index);
     if (previousPositionListener != null) {
       controller.removeListener(previousPositionListener);
@@ -696,6 +710,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
   @override
   void dispose() {
+    _playbackCoordinator.release(_playbackSession);
     _disableWakelock();
     appRouteObserver.unsubscribe(this);
     _seekingBufferingTimeout?.cancel();

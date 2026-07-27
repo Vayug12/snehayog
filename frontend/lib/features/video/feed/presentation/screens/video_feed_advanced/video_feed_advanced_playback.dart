@@ -1,6 +1,16 @@
 part of '../video_feed_advanced.dart';
 
 extension _VideoFeedPlayback on _VideoFeedAdvancedState {
+  void _playWithPolicy(VideoPlayerController controller, String reason) {
+    if (_playbackCoordinator.claimForPlay(
+      _playbackSession,
+      controller,
+      reason: reason,
+    )) {
+      unawaited(controller.play());
+    }
+  }
+
   void _reprimeWindowIfNeeded() {
     final int start = _currentIndex;
     final int end = (_currentIndex + _decoderPrimeBudget - 1).clamp(
@@ -125,7 +135,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
       _pauseAllOtherVideos(videoId);
       _lifecyclePaused = false;
       _maybeApplyInitialStartSeek(videoId, controller);
-      controller.play();
+      _playWithPolicy(controller, 'feed force play');
       
       safeSetState(() {
         _controllerStates[videoId] = true;
@@ -154,7 +164,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
         _pauseAllOtherVideos(videoId);
         _lifecyclePaused = false;
         _maybeApplyInitialStartSeek(videoId, c);
-        c.play();
+        _playWithPolicy(c, 'feed force play after preload');
         
         safeSetState(() {
           _controllerStates[videoId] = true;
@@ -200,6 +210,8 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
   }
 
   void _pauseAllVideosOnTabSwitch() {
+    _playbackCoordinator.setRouteActive(_playbackSession, false);
+    _playbackCoordinator.pause(_playbackSession);
     _controllerPool.forEach((videoId, controller) {
       try {
         if (!SharedVideoControllerPool().isControllerDisposed(controller)) {

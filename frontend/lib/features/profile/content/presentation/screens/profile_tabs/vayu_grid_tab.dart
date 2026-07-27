@@ -37,6 +37,10 @@ class VayuGridTab extends StatelessWidget {
             isSliver: true,
             onReferFriends: onReferFriends,
           ),
+          if (manager.videoError != null && manager.userVideos.isNotEmpty)
+            SliverToBoxAdapter(
+              child: ProfileVideosWidget.buildRefreshNotice(context, manager),
+            ),
           if (manager.isFetchingMore)
             SliverToBoxAdapter(
               child: Center(
@@ -53,7 +57,9 @@ class VayuGridTab extends StatelessWidget {
                 ),
               ),
             ),
-          if (manager.isOwner)
+          if (manager.isOwner &&
+              manager.videoError == null &&
+              !manager.isVideosLoading)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.only(top: 24.0, bottom: 24.0),

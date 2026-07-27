@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:vayug/shared/services/playback_coordinator.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 
@@ -123,7 +124,10 @@ class HotUIStateManager {
       try {
         if (controller.value.isInitialized && !controller.value.hasError) {
           // **WhatsApp-style: Just resume, no re-init needed**
-          await controller.play();
+          await PlaybackCoordinator().requestOwnedPlay(
+            controller,
+            reason: 'hot UI resume',
+          );
           controller.setVolume(1.0); // Restore audio
         }
       } catch (e) {

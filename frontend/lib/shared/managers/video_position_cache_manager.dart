@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
+import 'package:vayug/shared/services/playback_coordinator.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 
 /// **VideoPositionCacheManager - Caches video positions for seamless resume**
@@ -169,7 +170,10 @@ class VideoPositionCacheManager {
       final savedPlaybackState = await getPlaybackState(videoId);
       if (savedPlaybackState == true) {
         // Resume playback if it was playing
-        await controller.play();
+        await PlaybackCoordinator().requestOwnedPlay(
+          controller,
+          reason: 'position restore',
+        );
         AppLogger.log(
             '▶️ VideoPositionCacheManager: Resumed playback for $videoId');
       }

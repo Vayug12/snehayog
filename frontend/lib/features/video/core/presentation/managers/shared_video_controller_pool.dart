@@ -14,8 +14,13 @@ class SharedVideoControllerPool {
 
   // **CONTROLLER STORAGE**
   final Map<String, VideoPlayerController> _controllerPool = {};
+  bool Function(VideoPlayerController controller)? _playbackGuard;
   final Map<String, bool> _controllerStates = {}; // Track if controller is active
   final Map<String, VoidCallback> _listeners = {};
+
+  void setPlaybackGuard(bool Function(VideoPlayerController controller)? guard) {
+    _playbackGuard = guard;
+  }
 
   // **DISPOSAL STREAM: Notify listeners when a controller is evicted**
   final StreamController<String> _disposalStreamController =
@@ -75,6 +80,17 @@ class SharedVideoControllerPool {
   bool isVideoLoaded(String videoId) {
     if (_cleanupQueue.containsKey(videoId)) return false; // Treat as not loaded if pending disposal
     return _validatedController(videoId) != null;
+  }
+
+  /// Returns the pooled video id for a controller, when it is currently
+  /// registered. This lets the playback coordinator pause competing pooled
+  /// controllers without pausing the controller it just claimed.
+  String? videoIdForController(VideoPlayerController? controller) {
+    if (controller == null) return null;
+    for (final entry in _controllerPool.entries) {
+      if (identical(entry.value, controller)) return entry.key;
+    }
+    return null;
   }
 
   /// **Check if a controller is effectively disposed**
@@ -562,7 +578,9 @@ class SharedVideoControllerPool {
       try {
         final controller = _controllerPool[videoId]!;
         if (controller.value.isInitialized && !controller.value.isPlaying) {
-          controller.play();
+          if (_playbackGuard?.call(controller) != false) {
+            controller.play();
+          }
           _controllerStates[videoId] = true;
           AppLogger.log('▶️ SharedPool: Resumed controller $videoId');
         }
@@ -624,8 +642,10 @@ class SharedVideoControllerPool {
         // Resume in background
         Future.microtask(() {
           if (controller.value.isInitialized && !controller.value.isPlaying) {
-            controller.play();
-            _controllerStates[videoId] = true;
+            if (_playbackGuard?.call(controller) != false) {
+              controller.play();
+              _controllerStates[videoId] = true;
+            }
             AppLogger.log(
                 '▶️ SharedPool: Resumed video $videoId in background');
           }

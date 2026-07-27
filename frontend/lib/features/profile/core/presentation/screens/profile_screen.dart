@@ -42,7 +42,6 @@ import 'package:vayug/features/profile/core/presentation/widgets/profile_menu_wi
 import 'package:vayug/features/profile/core/presentation/widgets/profile_tabs_widget.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_dialogs_widget.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_header_widget.dart';
-import 'package:vayug/features/profile/notices/presentation/widgets/notice_banner_widget.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/yug_grid_tab.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/vayu_grid_tab.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/about_user_tab.dart';
@@ -1178,14 +1177,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         (loggedInUserId != null &&
             displayedUserId != null &&
             loggedInUserId == displayedUserId);
-
-    if (manager.activeNotice != null) {
-      slivers.add(
-        SliverToBoxAdapter(
-          child: NoticeBannerWidget(manager: manager),
-        ),
-      );
-    }
 
     // 1. Debug Token Refresh Test (Only in Debug Mode)
     if (kDebugMode) {

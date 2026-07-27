@@ -1,6 +1,11 @@
 part of '../video_feed_advanced.dart';
 
 mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
+  final PlaybackCoordinator _playbackCoordinator = PlaybackCoordinator();
+  late final PlaybackSession _playbackSession =
+      _playbackCoordinator.register(source: 'video-feed');
+  ModalRoute<dynamic>? _playbackRoute;
+
   // Core state - **OPTIMIZED: Using ValueNotifiers for granular updates**
   List<VideoModel> _videos = [];
   final ValueNotifier<bool> _isLoadingVN = ValueNotifier<bool>(true);

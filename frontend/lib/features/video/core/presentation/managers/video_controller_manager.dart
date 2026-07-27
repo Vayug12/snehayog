@@ -16,11 +16,16 @@ class VideoControllerManager {
   VideoControllerManager._internal();
 
   final Map<int, VideoPlayerController> _controllers = {};
+  bool Function(VideoPlayerController controller)? _playbackGuard;
   final Queue<int> _order = Queue();
   final Set<int> _pinned = {};
   final Set<int> _intentionallyPaused = {};
   final Map<int, String> _controllerSourceUrl = {};
   final Map<int, String> _controllerVideoIds = {};
+
+  void setPlaybackGuard(bool Function(VideoPlayerController controller)? guard) {
+    _playbackGuard = guard;
+  }
 
   final VideoPositionCacheManager _positionCache = VideoPositionCacheManager();
   final HotUIStateManager _hotUIManager = HotUIStateManager();
@@ -337,6 +342,7 @@ class VideoControllerManager {
         try {
           controller.setVolume(1.0);
         } catch (_) {}
+        if (_playbackGuard?.call(controller) == false) return;
         await controller.play();
         _intentionallyPaused.remove(index);
 
@@ -800,6 +806,7 @@ class VideoControllerManager {
             !controller.value.hasError &&
             !controller.value.isPlaying) {
           try {
+            if (_playbackGuard?.call(controller) == false) return;
             await controller.play();
             _intentionallyPaused.remove(activeIndex);
             AppLogger.log(

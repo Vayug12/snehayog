@@ -497,7 +497,7 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
                           try {
                             if (!_shouldAutoplayForContext('deep link force play')) return;
                             controller.setVolume(1.0);
-                            controller.play();
+                            _playWithPolicy(controller, 'deep link force play');
                             _controllerStates[videoId] = true;
                             _userPaused[videoId] = false;
                             AppLogger.log(

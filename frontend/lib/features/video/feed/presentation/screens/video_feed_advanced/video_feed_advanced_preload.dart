@@ -1372,7 +1372,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       final controllerToPlay = controller;
       try {
         _maybeApplyInitialStartSeek(videoId, controllerToPlay);
-        controllerToPlay.play();
+        _playWithPolicy(controllerToPlay, 'feed immediate autoplay');
         _ensureWakelockForVisibility();
         _controllerStates[videoId] = true;
         _userPaused[videoId] = false;
@@ -1404,7 +1404,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
             AppLogger.log(
                 '⚠️ VideoFeedAdvanced: Play command didn\'t start for $videoId, retrying...');
             try {
-              controllerToPlay.play();
+              _playWithPolicy(controllerToPlay, 'feed immediate autoplay retry');
             } catch (e) {
               AppLogger.log('❌ VideoFeedAdvanced: Retry play failed for $videoId: $e');
             }
@@ -1425,7 +1425,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
             if (!_shouldAutoplayForContext('retry catch')) return;
 
             try {
-              controllerToPlay.play();
+              _playWithPolicy(controllerToPlay, 'feed autoplay catch retry');
               _ensureWakelockForVisibility();
               _controllerStates[videoId] = true;
               _userPaused[videoId] = false;

@@ -30,6 +30,7 @@ class ProfileVideoManager extends ChangeNotifier {
   final Set<String> _selectedVideoIds = {};
   bool _needsVideoRefresh = false;
   String? _error;
+  bool _hasLoadedVideosSuccessfully = false;
   
   static const int _pageSize = 1000;
   Timer? _processingStatusPoller;
@@ -46,6 +47,7 @@ class ProfileVideoManager extends ChangeNotifier {
   Set<String> get selectedVideoIds => _selectedVideoIds;
   bool get needsVideoRefresh => _needsVideoRefresh;
   String? get error => _error;
+  bool get hasLoadedVideosSuccessfully => _hasLoadedVideosSuccessfully;
 
   void setError(String? value) {
     _error = value;
@@ -76,7 +78,10 @@ class ProfileVideoManager extends ChangeNotifier {
       _currentPage = 1;
       _hasMoreVideos = true;
       _needsVideoRefresh = false;
-      if (!silent) {
+      _error = null;
+      // Silent refreshes should keep cached videos visible, but an initial
+      // request with no data still needs an explicit loading state.
+      if (!silent || _userVideos.isEmpty) {
         _isVideosLoading = true;
         notifyListenersSafe();
       }
@@ -95,6 +100,11 @@ class ProfileVideoManager extends ChangeNotifier {
           forceRefresh: forceRefresh, page: page, limit: _pageSize);
 
       if (page == 1) {
+        _hasLoadedVideosSuccessfully = true;
+        _error = null;
+      }
+
+      if (page == 1) {
         final optimisticVideos = _userVideos.where((v) => v.isOptimistic).toList();
         if (optimisticVideos.isNotEmpty) {
            final serverIds = videos.map((v) => v.id).toSet();
@@ -111,9 +121,9 @@ class ProfileVideoManager extends ChangeNotifier {
       _hasMoreVideos = videos.length >= _pageSize;
       
       // Sync total count
-      if (_userVideos.isNotEmpty) {
-        _totalVideoCount = _userVideos.first.uploader.totalVideos ?? _userVideos.length;
-      }
+      _totalVideoCount = _userVideos.isNotEmpty
+          ? (_userVideos.first.uploader.totalVideos ?? _userVideos.length)
+          : 0;
 
       if (_userVideos.any(_isVideoStillProcessing)) {
         _startProcessingStatusPolling();
@@ -122,7 +132,7 @@ class ProfileVideoManager extends ChangeNotifier {
       }
     } catch (e) {
       AppLogger.log('❌ ProfileVideoManager: Error loading videos: $e');
-      if (page == 1 && _userVideos.isEmpty) _error = 'Failed to load videos.';
+      if (page == 1) _error = 'Failed to load videos.';
     } finally {
       _isFetchingMore = false;
       _isVideosLoading = false;

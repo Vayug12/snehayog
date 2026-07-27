@@ -82,6 +82,9 @@ class ProfileStateManager extends ChangeNotifier {
   bool get isFetchingMore => videoManager.isFetchingMore;
   Set<String> get selectedVideoIds => videoManager.selectedVideoIds;
   bool get needsVideoRefresh => videoManager.needsVideoRefresh;
+  String? get videoError => videoManager.error;
+  bool get hasLoadedVideosSuccessfully =>
+      videoManager.hasLoadedVideosSuccessfully;
 
   bool get hasUpiId {
     final data = userData;
