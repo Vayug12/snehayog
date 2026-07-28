@@ -1132,15 +1132,24 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
             // ExoPlayer throws "Source error" when the encrypted download hasn't finished
             // and not enough bytes are available on disk. Retry with fresh controller.
             if (_videos[index].isSubscriberOnly) {
+              final errorLower = errorMessage.toLowerCase();
+              final isPreparingError = errorLower.contains('source') ||
+                  errorLower.contains('timeout') ||
+                  errorLower.contains('videoplayer') ||
+                  errorLower.contains('videoerror') ||
+                  errorLower.contains('exoplaybackexception') ||
+                  errorLower.contains('platformexception') ||
+                  errorLower.contains('still loading');
               final e2eeRetryCount = _preloadRetryCount[videoId] ?? 0;
-              if (e2eeRetryCount < 3) {
+              if (isPreparingError) {
                 _preloadRetryCount[videoId] = e2eeRetryCount + 1;
                 AppLogger.log(
-                  '🔄 E2EE Retry: Retrying video $videoId (attempt ${e2eeRetryCount + 1}/3). '
+                  '🔄 E2EE Prepare: Retrying video $videoId behind loading UI '
+                  '(attempt ${e2eeRetryCount + 1}). '
                   'Error: $errorMessage',
                 );
 
-                // Show "downloading" state instead of error
+                // Keep showing the secure preparation state instead of a false error.
                 safeSetState(() {
                   _videoErrors.remove(videoId);
                   _e2eeDecryptingVideos.add(videoId);
@@ -1157,8 +1166,8 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
                   _controllerPool.remove(videoId);
                 } catch (_) {}
 
-                // Wait then retry preload — _preloadVideo will re-wait for prebuffer
-                // (now 45-60s with 2MB min), giving the download time to complete.
+                // Wait then retry preload. If the user stays nearby, this keeps polling
+                // until the decrypted file is playable without flashing error UI.
                 Future.delayed(const Duration(seconds: 3), () {
                   if (mounted && !_preloadedVideos.contains(videoId) &&
                       (index - _currentIndex).abs() <= 1) {
@@ -1176,7 +1185,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
                 return;
               }
 
-              // Exhausted retries — show the actual E2EE error UI
+              // Non-preparation E2EE failures are real access/key errors.
               _preloadRetryCount.remove(videoId);
               safeSetState(() {
                  _videoErrors[videoId] = 'e2ee_error: $errorMessage';

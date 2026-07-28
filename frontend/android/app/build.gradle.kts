@@ -79,11 +79,11 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            // Disabled shrinking and obfuscation to resolve platform channel errors
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // Enable R8 code shrinking, obfuscation, optimization, and resource shrinking for release builds.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
-                getDefaultProguardFile("proguard-android.txt"),
+                getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
         }

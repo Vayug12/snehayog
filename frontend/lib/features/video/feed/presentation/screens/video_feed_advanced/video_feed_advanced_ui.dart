@@ -101,10 +101,32 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     );
   }
 
+  bool _isSecureVideoPreparingError(VideoModel? video, String error) {
+    final errorLower = error.toLowerCase();
+    final isSecureVideo = video?.isSubscriberOnly == true ||
+        errorLower.contains('e2ee_error') ||
+        errorLower.contains('secure video is still loading');
+
+    if (!isSecureVideo) return false;
+
+    return errorLower.contains('still loading') ||
+        errorLower.contains('source') ||
+        errorLower.contains('timeout') ||
+        errorLower.contains('videoplayer') ||
+        errorLower.contains('videoerror') ||
+        errorLower.contains('exoplaybackexception') ||
+        errorLower.contains('platformexception');
+  }
+
   // **NEW: Individual Video Error State widget**
   Widget _buildVideoErrorState(int index, String error) {
     final String videoId = index < _videos.length ? _videos[index].id : '';
+    final VideoModel? video = index < _videos.length ? _videos[index] : null;
     final String errorLower = error.toLowerCase();
+    if (_isSecureVideoPreparingError(video, error) && video != null) {
+      return _buildE2eeDecryptingState(video);
+    }
+
     final bool isE2eeError = errorLower.contains('decoding error') ||
         errorLower.contains('e2ee') ||
         errorLower.contains('decrypt') ||
@@ -153,7 +175,6 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                     color: AppColors.white,
                     fontSize: 20,
                     fontWeight: AppTypography.weightBold,
-                    letterSpacing: 0.5,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -276,27 +297,6 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                 ),
               ),
             ],
-            AppSpacing.vSpace8,
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                ),
-                child: SelectableText(
-                  error,
-                  style: const TextStyle(
-                    color: Color(0xFFEF4444),
-                    fontSize: 10,
-                    fontFamily: 'monospace',
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
             AppSpacing.vSpace16,
             AppButton(
               onPressed: () {
@@ -347,25 +347,37 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                 height: double.infinity,
               ),
             ),
-          Container(color: Colors.black.withValues(alpha: 0.6)),
+          Container(color: Colors.black.withValues(alpha: 0.68)),
           // Decrypting indicator with progress
           Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (progressNotifier != null)
-                  ValueListenableBuilder<E2eeDownloadProgress>(
-                    valueListenable: progressNotifier,
-                    builder: (context, progress, _) {
-                      final showProgress = progress.downloadedBytes > 0 && !progress.isComplete;
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 36),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (progressNotifier != null)
+                    ValueListenableBuilder<E2eeDownloadProgress>(
+                      valueListenable: progressNotifier,
+                      builder: (context, progress, _) {
+                        final showProgress =
+                            progress.downloadedBytes > 0 && !progress.isComplete;
+                        final isDecrypting = progress.isComplete || !isDownloading;
+                        final statusTitle = isDecrypting
+                            ? 'Decrypting secure video'
+                            : showProgress
+                                ? 'Downloading secure video'
+                                : 'Preparing secure video';
+                        final statusBody = isDecrypting
+                            ? 'Your video is being unlocked on this device. Playback will start automatically.'
+                            : 'Keeping this private video protected while it gets ready.';
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                           // Circular progress or shield icon
-                          if (showProgress)
+                          if (showProgress && !isDecrypting)
                             SizedBox(
-                              width: 56,
-                              height: 56,
+                              width: 64,
+                              height: 64,
                               child: Stack(
                                 alignment: Alignment.center,
                                 children: [
@@ -376,34 +388,55 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                                     backgroundColor: AppColors.primary.withValues(alpha: 0.15),
                                   ),
                                   const Icon(
-                                    Icons.lock_outline_rounded,
+                                    Icons.enhanced_encryption_rounded,
                                     color: AppColors.primary,
-                                    size: 22,
+                                    size: 24,
                                   ),
                                 ],
                               ),
                             )
                           else
                             SizedBox(
-                              width: 56,
-                              height: 56,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 3,
-                                color: AppColors.primary,
-                                backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                              width: 64,
+                              height: 64,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                    color: AppColors.primary,
+                                    backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                                  ),
+                                  const Icon(
+                                    Icons.lock_open_rounded,
+                                    color: AppColors.primary,
+                                    size: 24,
+                                  ),
+                                ],
                               ),
                             ),
                           AppSpacing.vSpace24,
                           Text(
-                            showProgress ? 'Downloading secure video...' : 'Preparing video...',
+                            statusTitle,
                             style: const TextStyle(
                               color: AppColors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
+                              fontSize: 20,
+                              fontWeight: AppTypography.weightBold,
                             ),
+                            textAlign: TextAlign.center,
                           ),
                           AppSpacing.vSpace8,
-                          if (showProgress) ...[
+                          Text(
+                            statusBody,
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: AppTypography.fontSizeSM,
+                              height: 1.35,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          if (showProgress && !isDecrypting) ...[
+                            AppSpacing.vSpace16,
                             Text(
                               '${progress.downloadedFormatted}${progress.totalFormatted != null ? ' / ${progress.totalFormatted}' : ''}',
                               style: TextStyle(
@@ -424,7 +457,7 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                             AppSpacing.vSpace12,
                             // Progress bar
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 60),
+                              padding: const EdgeInsets.symmetric(horizontal: 24),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(2),
                                 child: LinearProgressIndicator(
@@ -436,51 +469,65 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                               ),
                             ),
                           ] else ...[
+                            AppSpacing.vSpace16,
                             Text(
-                              'Loading secure content',
+                              'Please keep this screen open',
                               style: TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: AppTypography.fontSizeSM,
+                                color: AppColors.textTertiary,
+                                fontSize: AppTypography.fontSizeXS,
                               ),
                             ),
                           ],
-                        ],
-                      );
-                    },
-                  )
-                else
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 56,
-                        height: 56,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3,
-                          color: AppColors.primary,
-                          backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                          ],
+                        );
+                      },
+                    )
+                  else
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                      const SizedBox(
+                        width: 64,
+                        height: 64,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            CircularProgressIndicator(
+                              strokeWidth: 3,
+                              color: AppColors.primary,
+                            ),
+                            Icon(
+                              Icons.enhanced_encryption_rounded,
+                              color: AppColors.primary,
+                              size: 24,
+                            ),
+                          ],
                         ),
                       ),
                       AppSpacing.vSpace24,
                       const Text(
-                        'Preparing video...',
+                        'Preparing secure video',
                         style: TextStyle(
                           color: AppColors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 20,
+                          fontWeight: AppTypography.weightBold,
                         ),
+                        textAlign: TextAlign.center,
                       ),
                       AppSpacing.vSpace8,
                       Text(
-                        'Loading secure content',
+                        'Your private video is being prepared. Playback will start automatically.',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: AppTypography.fontSizeSM,
+                          height: 1.35,
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                    ],
-                  ),
-              ],
+                      ],
+                    ),
+                ],
+              ),
             ),
           ),
         ],
@@ -775,6 +822,20 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     }
 
     if (showError) {
+      final error = _videoErrors[videoId]!;
+      if (_isSecureVideoPreparingError(video, error)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          safeSetState(() {
+            _videoErrors.remove(videoId);
+            _e2eeDecryptingVideos.add(videoId);
+            _isBuffering[videoId] = false;
+            _isBufferingVN[videoId]?.value = false;
+          });
+        });
+        return _buildE2eeDecryptingState(video);
+      }
+
       // **FINAL SAFETY: Ensure controller is paused if we show error**
       try {
         if (controller != null && controllerUsable && controller.value.isPlaying) {
