@@ -168,6 +168,11 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     _mainController = ref.read(mainControllerProvider);
     _resolvedParentTabIndex =
         widget.parentTabIndex ?? _mainController?.playbackActiveTabIndex;
+    // This player is a pushed route, so it never receives didPushNext when the
+    // user switches tabs. Declaring its tab lets the coordinator drop its
+    // playback claim instead of leaving it playing behind another tab.
+    _playbackCoordinator.bindSessionToTab(
+        _playbackSession, _resolvedParentTabIndex);
     _dubbingService = widget.dubbingService ?? OnDeviceDubbingServiceImpl();
     _activeAdsService = widget.adService ?? ActiveAdsService();
     _quizEngine = widget.quizEngine ?? StandardQuizEngine();
@@ -546,7 +551,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
         final chewie = _createChewieController(newController, effectiveVideo);
         setState(() { _controllers[index] = newController; _chewieControllers[index] = chewie; });
         _playbackCoordinator.attachController(_playbackSession, newController);
-        _controllerPool.addController(videoToPlay.id, newController, index: index);
+        _controllerPool.addController(videoToPlay.id, newController);
         _setupLateInitialization(index, newController);
       } else {
         newController.dispose();
@@ -1118,7 +1123,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       await c.initialize();
       await c.pause();
       _controllers[index] = c;
-      _controllerPool.addController(_videos[index].id, c, index: index);
+      _controllerPool.addController(_videos[index].id, c);
     } catch (_) {
     } finally {
       _preloadingIndices.remove(index);

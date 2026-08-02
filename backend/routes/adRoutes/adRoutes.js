@@ -652,6 +652,8 @@ router.get('/creator/revenue/:userId', verifyToken, async (req, res) => {
       CreatorMonthlyStat.find({ creatorId: user._id }).lean()
     ]);
 
+    console.log(`📊 Monthly stats for ${userId}: found ${allStats.length} month(s) — ${allStats.map(s => s.yearMonth).join(', ') || 'none'}`);
+
     const curMonthRev = currentStats ? currentStats.grossRevenue : 0;
     const curMonthCreatorRev = curMonthRev * 0.80;
 
@@ -810,8 +812,21 @@ router.get('/creator/revenue/:userId', verifyToken, async (req, res) => {
         status: p.status,
         month: p.month,
         paidAt: p.paidAt
-      }))
+      })),
+
+      // **MONTHLY EARNINGS HISTORY**
+      monthlyEarnings: allStats
+        .map(s => ({
+          yearMonth: s.yearMonth,
+          grossRevenue: parseFloat((s.grossRevenue || 0).toFixed(2)),
+          creatorRevenue: parseFloat(((s.grossRevenue || 0) * 0.80).toFixed(2)),
+          bannerImpressions: s.bannerImpressions || 0,
+          carouselImpressions: s.carouselImpressions || 0,
+        }))
+        .sort((a, b) => b.yearMonth.localeCompare(a.yearMonth)),
     };
+
+    console.log(`✅ Monthly earnings sorted (newest first): ${response.monthlyEarnings.map(e => `${e.yearMonth}=₹${e.creatorRevenue}`).join(', ') || 'empty'}`);
 
     /*
     console.log('✅ Creator revenue data sent (Server-Side Calculation):', {

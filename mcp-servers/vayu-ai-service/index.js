@@ -48,7 +48,7 @@ server.resource("ai-providers", "vayu://ai/providers", async (uri) => ({
           },
           openai: {
             model: "gpt-4o-mini",
-            features: ["multimodal", "tts", "whisper", "text-generation"],
+            features: ["multimodal", "whisper", "text-generation"],
           },
           huggingface: {
             models: ["whisper", "mbart-50", "bart-cnn"],
@@ -85,7 +85,7 @@ server.resource("architecture", "vayu://app/architecture", async (uri) => ({
           notifications: "Firebase FCM + Brevo",
           auth: "Google Sign-In + JWT",
           ai: {
-            dubbing: "HuggingFace (Whisper, MBART, BART) / OpenAI",
+            dubbing: "HuggingFace (Whisper, MBART, BART) / Edge TTS (free)",
             analysis: "Gemini + DeepSeek + OpenAI",
             embeddings: "Gemini text-embedding-004 (384-dim)",
             videoGen: "VayugAI (FastAPI on HuggingFace Spaces)",

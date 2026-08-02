@@ -1,3 +1,8 @@
+// ⚠️ VideoSummarizationStep DISABLED — saves CPU (ffmpeg audio extraction) + memory
+// (Groq Whisper transcription, DeepSeek semantic text, Gemini embedding API calls)
+// To re-enable, uncomment the code below.
+
+/*
 import IBaseStep from '../IBaseStep.js';
 import Video from '../../../models/Video.js';
 import AIService from '../../aiService.js';
@@ -12,11 +17,6 @@ import os from 'os';
 
 const execPromise = promisify(exec);
 
-/**
- * Pipeline Step: AI Video Summarization
- * Extracts audio, transcribes via Groq Whisper, generates rich semantic text via DeepSeek,
- * and creates vector embeddings for content-aware search.
- */
 class VideoSummarizationStep extends IBaseStep {
   constructor() {
     super('VideoSummarization');
@@ -40,17 +40,12 @@ class VideoSummarizationStep extends IBaseStep {
       console.log(`📝 VideoSummarizationStep: Extracting audio for video ${videoId}...`);
 
       const ffmpegPath = ffmpegStatic || 'ffmpeg';
-
-      // We MUST AWAIT the extraction here because CleanupStep runs immediately after this step
-      // and will delete the localRawPath.
-      // Extract audio: 16kHz, mono, wav format (optimized for Whisper)
       await execPromise(`"${ffmpegPath}" -y -i "${localRawPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}"`);
 
       if (!fs.existsSync(audioPath)) {
         throw new Error('Audio extraction failed: File not created');
       }
 
-      // Start transcription and summarization in background to avoid blocking the pipeline
       this._runSummarizationInBackground(videoId, audioPath).catch(err => {
         console.error(`❌ VideoSummarizationStep: Background summarization failed for ${videoId}:`, err);
       });
@@ -63,17 +58,10 @@ class VideoSummarizationStep extends IBaseStep {
     }
   }
 
-  /**
-   * Transcribe using Groq Whisper API (fast, free tier: 3600s/day)
-   * Falls back to HuggingFace Whisper if GROQ_API_KEY is not set
-   */
   async _transcribe(audioPath) {
-    // Prefer Groq (fast, reliable)
     if (process.env.GROQ_API_KEY) {
       return this._transcribeWithGroq(audioPath);
     }
-
-    // Fallback to HuggingFace Whisper
     console.log('ℹ️ VideoSummarizationStep: GROQ_API_KEY not found, falling back to HF Whisper');
     return AIService.transcribe(audioPath);
   }
@@ -104,9 +92,6 @@ class VideoSummarizationStep extends IBaseStep {
     return result.text;
   }
 
-  /**
-   * Helper to execute API calls for summarization in background
-   */
   async _runSummarizationInBackground(videoId, audioPath) {
     try {
       console.log(`📝 VideoSummarizationStep: Transcribing audio for video ${videoId}...`);
@@ -117,13 +102,9 @@ class VideoSummarizationStep extends IBaseStep {
         return;
       }
 
-      // Truncate to 1500 chars for Groq (larger context than HF MiniLM)
       const safeTranscript = transcript.substring(0, 1500);
-
-      // Fetch full video details for semantic text generation
       const fullVideo = await Video.findById(videoId);
 
-      // Generate rich semantic text using DeepSeek LLM (much better than simple string concat)
       console.log(`🧠 VideoSummarizationStep: Generating rich semantic text via DeepSeek for video ${videoId}...`);
       const semanticText = await deepseekService.generateSemanticText(safeTranscript, {
         title: fullVideo.videoName,
@@ -135,7 +116,6 @@ class VideoSummarizationStep extends IBaseStep {
         console.warn(`⚠️ VideoSummarizationStep: DeepSeek returned empty semantic text for ${videoId}, using fallback`);
       }
 
-      // Use DeepSeek output if available, otherwise fallback to basic concat
       const embeddingSource = semanticText || `Title: ${fullVideo.videoName || ''}. Category: ${fullVideo.category || ''}. Tags: ${(fullVideo.tags || []).join(', ')}. Transcript: ${safeTranscript}`.trim();
 
       console.log(`🧠 VideoSummarizationStep: Generating vector embedding for semantic search...`);
@@ -146,10 +126,10 @@ class VideoSummarizationStep extends IBaseStep {
         aiContextGenerated: true
       };
 
-        if (vectorEmbedding) {
-          updateData.vectorEmbedding = vectorEmbedding;
-          updateData.embeddingVersion = aiSemanticService.getActiveModelName();
-        }
+      if (vectorEmbedding) {
+        updateData.vectorEmbedding = vectorEmbedding;
+        updateData.embeddingVersion = aiSemanticService.getActiveModelName();
+      }
 
       await Video.findByIdAndUpdate(videoId, updateData);
       console.log(`✅ VideoSummarizationStep: Summarization and embedding completed for ${videoId}`);
@@ -157,7 +137,6 @@ class VideoSummarizationStep extends IBaseStep {
     } catch (error) {
       console.error(`❌ VideoSummarizationStep: Background summarization failed:`, error);
     } finally {
-      // Clean up temp audio file
       if (fs.existsSync(audioPath)) {
         try {
           fs.unlinkSync(audioPath);
@@ -170,3 +149,4 @@ class VideoSummarizationStep extends IBaseStep {
 }
 
 export default VideoSummarizationStep;
+*/

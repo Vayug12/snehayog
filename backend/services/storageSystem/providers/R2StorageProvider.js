@@ -25,12 +25,12 @@ class R2StorageProvider extends IStorageProvider {
 
   async upload(localPath, destinationKey, contentType = 'application/octet-stream') {
     try {
-      const fileContent = fs.readFileSync(localPath);
+      const fileSize = fs.statSync(localPath).size;
       
       const command = new PutObjectCommand({
         Bucket: this.bucketName,
         Key: destinationKey,
-        Body: fileContent,
+        Body: fs.createReadStream(localPath),
         ContentType: contentType,
         CacheControl: 'public, max-age=31536000, immutable',
       });
@@ -40,7 +40,7 @@ class R2StorageProvider extends IStorageProvider {
       return {
         url: this.getPublicUrl(destinationKey),
         key: destinationKey,
-        size: fileContent.length
+        size: fileSize
       };
     } catch (error) {
       console.error(`❌ R2 Upload Error for ${destinationKey}:`, error);

@@ -128,7 +128,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       endAtSeconds: widget.endAtSeconds,
       videoType: videoType,
       isMainYugTab: widget.isMainYugTab,
-      parentTabIndex: widget.parentTabIndex ?? ref.read(mainControllerProvider).currentIndex,
+      // `playbackActiveTabIndex` already reflects a tab switch that is still
+      // settling, so a player opened during that window is not bound to the
+      // tab the user just left.
+      parentTabIndex: widget.parentTabIndex ??
+          ref.read(mainControllerProvider).playbackActiveTabIndex,
     );
   }
 }

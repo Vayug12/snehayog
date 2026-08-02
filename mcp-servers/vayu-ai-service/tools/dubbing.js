@@ -73,13 +73,13 @@ export function registerDubbingTools(server, backendUrl) {
 
   server.tool(
     "synthesize-speech",
-    "Convert text to speech (TTS) using AI. Returns audio URL or base64.",
+    "Convert text to speech (TTS) using Edge TTS (free). Returns audio data.",
     {
       text: z.string().describe("Text to convert to speech"),
       voice: z
         .string()
         .optional()
-        .describe("Voice name (e.g., 'alloy', 'echo', 'fable' for OpenAI; or edge-tts voice names)"),
+        .describe("Edge TTS voice name (e.g., 'hi-IN-SwaraNeural', 'en-US-AriaNeural')"),
       language: z.string().optional().describe("Language code (e.g., 'en', 'hi')"),
     },
     async ({ text, voice, language }) => {

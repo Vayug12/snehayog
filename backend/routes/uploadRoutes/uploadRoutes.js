@@ -11,7 +11,7 @@ let hybridVideoService;
 import { verifyToken } from '../../utils/verifytoken.js';
 import cloudflareR2Service from '../../services/uploadServices/cloudflareR2Service.js';
 import { uploadLimiter } from '../../middleware/rateLimiter.js';
-import AdmZip from 'adm-zip';
+
 import queueService from '../../services/yugFeedServices/queueService.js';
 import redisService from '../../services/caching/redisService.js';
 
@@ -103,7 +103,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 700 * 1024 * 1024, // 700MB limit (Updated to match videoRoutes)
+    fileSize: 100 * 1024 * 1024, // 100MB limit (Server-side fallback; frontend uses presigned URLs)
     files: 1
   },
   fileFilter: (req, file, cb) => {
@@ -702,158 +702,6 @@ router.post('/image', verifyToken, imageUpload.single('image'), async (req, res)
     res.status(500).json({
       error: 'Image upload failed',
       details: error.message,
-    });
-  }
-});
-
-// **NEW: Game Upload Route**
-// Uploads a ZIP file, extracts, validates index.html, and uploads to R2
-router.post('/game', verifyToken, upload.single('game'), async (req, res) => {
-  let extractDir = null;
-  
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No game ZIP file uploaded' });
-    }
-
-    const { title, description, orientation } = req.body;
-    const userId = req.user.id;
-    const zipPath = req.file.path;
-    
-    console.log('🎮 Starting Game Upload...');
-    console.log('📁 ZIP Path:', zipPath);
-    console.log('👤 Developer:', userId);
-
-    // 1. Extract ZIP
-    const zipName = path.basename(zipPath, path.extname(zipPath));
-    extractDir = path.join(path.dirname(zipPath), zipName);
-    
-    try {
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(extractDir, true);
-      console.log('📦 Extracted to:', extractDir);
-    } catch (zipError) {
-      throw new Error(`Failed to extract ZIP: ${zipError.message}`);
-    }
-
-    // 2. Validate Structure (Must have index.html)
-    // Recursive search for index.html
-    async function findIndexHtml(dir) {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isFile() && entry.name === 'index.html') {
-          return fullPath;
-        }
-        if (entry.isDirectory()) {
-          const found = await findIndexHtml(fullPath);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-
-    const indexHtmlPath = await findIndexHtml(extractDir);
-    if (!indexHtmlPath) {
-      throw new Error('Invalid Game: "index.html" not found in ZIP');
-    }
-
-    // Determine root folder (where index.html is)
-    const gameRootDir = path.dirname(indexHtmlPath);
-    console.log('🎯 Game Root found at:', gameRootDir);
-
-    // 3. Upload to R2
-    // We upload everything relative to gameRootDir
-    
-    // Create Game Record first to get ID
-    const game = new Game({
-      title: title || 'Untitled Game',
-      description: description || '',
-      thumbnailUrl: 'pending', // Will update after upload
-      gameUrl: 'pending',
-      developer: userId, // verifyToken populates req.user.id
-      orientation: orientation || 'portrait',
-      status: 'pending'
-    });
-    
-    await game.save();
-    
-    // Recursive upload function
-    let fileCount = 0;
-    async function uploadDirToR2(currentDir, baseRelPath = '') {
-      const entries = await fs.readdir(currentDir, { withFileTypes: true });
-      
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-        const relPath = path.join(baseRelPath, entry.name).replace(/\\/g, '/');
-        const r2Key = `games/${game._id}/${relPath}`;
-        
-        if (entry.isDirectory()) {
-          await uploadDirToR2(fullPath, relPath);
-        } else {
-          // Upload file
-          let contentType = 'application/octet-stream';
-          if (entry.name.endsWith('.html')) contentType = 'text/html';
-          else if (entry.name.endsWith('.js')) contentType = 'application/javascript';
-          else if (entry.name.endsWith('.css')) contentType = 'text/css';
-          else if (entry.name.endsWith('.json')) contentType = 'application/json';
-          else if (entry.name.endsWith('.png')) contentType = 'image/png';
-          else if (entry.name.endsWith('.jpg')) contentType = 'image/jpeg';
-          
-          await cloudflareR2Service.uploadFileToR2(fullPath, r2Key, contentType);
-          fileCount++;
-        }
-      }
-    }
-
-    console.log('☁️ Uploading files to R2...');
-    await uploadDirToR2(gameRootDir);
-    console.log(`✅ Uploaded ${fileCount} files to R2`);
-
-    // 4. Update Game Record
-    const cdnBase = cloudflareR2Service.publicDomain 
-      ? `https://${cloudflareR2Service.publicDomain}` 
-      : `https://${cloudflareR2Service.bucketName}.${cloudflareR2Service.accountId}.r2.cloudflarestorage.com`;
-      
-    game.gameUrl = `${cdnBase}/games/${game._id}/index.html`;
-    game.thumbnailUrl = `${cdnBase}/games/${game._id}/icon.png`; // Assumption: icon.png exists, or we use a default
-    // TODO: Better thumbnail handling (allow separate upload or look for specific file)
-    
-    game.status = 'active'; // Auto-publish for now
-    await game.save();
-
-    // 5. Cleanup
-    try {
-      await fs.unlink(zipPath); // Delete ZIP
-      await fs.rm(extractDir, { recursive: true, force: true }); // Delete extracted folder
-    } catch (cleanupErr) {
-      console.warn('⚠️ Cleanup warning:', cleanupErr.message);
-    }
-
-    res.status(201).json({
-      success: true,
-      message: 'Game uploaded successfully',
-      game: {
-        id: game._id,
-        title: game.title,
-        url: game.gameUrl
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Game Upload Error:', error);
-    
-    // Cleanup on error
-    if (req.file) {
-      try {
-        await fs.unlink(req.file.path);
-        if (extractDir) await fs.rm(extractDir, { recursive: true, force: true });
-      } catch (e) { /* ignore */ }
-    }
-
-    res.status(500).json({
-      error: 'Game upload failed',
-      details: error.message
     });
   }
 });

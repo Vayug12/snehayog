@@ -3,7 +3,7 @@ import RecommendationService from './recommendationService.js';
 
 /**
  * Recommendation Score Recalculation Cron Job
- * Recalculates video recommendation scores every 15 minutes
+ * Recalculates video recommendation scores every 60 minutes
  * 
  * Cron expression runs every 15 minutes
  * Format: minute hour day month dayOfWeek
@@ -23,9 +23,9 @@ class RecommendationScoreCron {
       return;
     }
 
-    // Schedule job to run every 15 minutes
+    // Schedule job to run every 60 minutes
     // Cron format: minute hour day month dayOfWeek
-    this.job = cron.schedule('*/15 * * * *', async () => {
+    this.job = cron.schedule('0 * * * *', async () => {
       await this.recalculateScores();
     }, {
       scheduled: true,
@@ -34,7 +34,7 @@ class RecommendationScoreCron {
 
     this.isRunning = true;
     console.log('✅ Recommendation score cron job started');
-    console.log('📅 Will recalculate scores every 15 minutes');
+    console.log('📅 Will recalculate scores every 60 minutes');
     
     // Also run once immediately on startup to initialize scores
     setTimeout(async () => {
@@ -72,7 +72,7 @@ class RecommendationScoreCron {
       const stats = await RecommendationService.recalculateAllScores({
         batchSize: 100,
         onlyOutdated: true,
-        maxAgeMinutes: 15
+        maxAgeMinutes: 60
       });
 
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);

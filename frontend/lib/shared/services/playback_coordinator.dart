@@ -15,7 +15,16 @@ class PlaybackSession {
 
   final int id;
   final String source;
+
+  /// Bottom-navigation tab this surface lives in, when it lives in one.
+  ///
+  /// A tab switch is not a route push, so `routeActive` alone cannot tell a
+  /// dedicated player that it left the screen. Sessions that never bind a tab
+  /// keep `tabIndex == null` and are treated as always tab-visible.
+  int? tabIndex;
+
   bool routeActive = true;
+  bool tabActive = true;
   bool appForeground = true;
   bool userPaused = false;
   bool released = false;
@@ -35,13 +44,60 @@ class PlaybackCoordinator {
   int _nextSessionId = 0;
   int? _ownerId;
   bool _appForeground = true;
+  int? _activeTabIndex;
 
-  PlaybackSession register({required String source}) {
+  PlaybackSession register({required String source, int? tabIndex}) {
     final session = PlaybackSession._(++_nextSessionId, source)
-      ..appForeground = _appForeground;
+      ..appForeground = _appForeground
+      ..tabIndex = tabIndex
+      ..tabActive = _isTabVisible(tabIndex);
     _sessions[session.id] = session;
-    AppLogger.log('PlaybackCoordinator: registered ${session.id} ($source)');
+    AppLogger.log(
+        'PlaybackCoordinator: registered ${session.id} ($source, tab=$tabIndex)');
     return session;
+  }
+
+  /// Declares which tab a session lives in.
+  ///
+  /// Screens that resolve their tab after `initState` (a pushed player reading
+  /// the tab it was launched from) call this once they know it.
+  void bindSessionToTab(PlaybackSession session, int? tabIndex) {
+    if (!_isLive(session)) return;
+    if (session.tabIndex == tabIndex) return;
+    session.tabIndex = tabIndex;
+    _applyTabVisibility(session);
+  }
+
+  /// Single entry point for "the visible tab changed".
+  ///
+  /// Route ownership cannot observe tab switches, so this is what stops a
+  /// player in a background tab from holding the playback slot and pausing the
+  /// feed the user is actually looking at.
+  void setActiveTab(int index) {
+    if (_activeTabIndex == index) return;
+    _activeTabIndex = index;
+    AppLogger.log('PlaybackCoordinator: active tab -> $index');
+    for (final session in _sessions.values.toList()) {
+      _applyTabVisibility(session);
+    }
+  }
+
+  /// A session with no declared tab is never blocked by tab state, and no tab
+  /// is considered background until the app reports which one is active.
+  bool _isTabVisible(int? tabIndex) =>
+      tabIndex == null || _activeTabIndex == null || tabIndex == _activeTabIndex;
+
+  void _applyTabVisibility(PlaybackSession session) {
+    final visible = _isTabVisible(session.tabIndex);
+    if (session.tabActive == visible) return;
+    session.tabActive = visible;
+    if (visible) return;
+
+    _pauseController(session);
+    if (_ownerId == session.id) _ownerId = null;
+    AppLogger.log(
+        'PlaybackCoordinator: paused ${session.id} (${session.source}) — '
+        'tab ${session.tabIndex} left the screen');
   }
 
   void attachController(PlaybackSession session, VideoPlayerController controller) {
@@ -83,6 +139,7 @@ class PlaybackCoordinator {
   bool canPlay(PlaybackSession session, {String reason = 'unknown'}) {
     final allowed = _isLive(session) &&
         session.routeActive &&
+        session.tabActive &&
         session.appForeground &&
         !session.userPaused &&
         _appForeground;
@@ -90,6 +147,7 @@ class PlaybackCoordinator {
       AppLogger.log(
         'PlaybackCoordinator: blocked $reason '
         '(session=${session.id}, active=${session.routeActive}, '
+        'tabActive=${session.tabActive}, tab=${session.tabIndex}, '
         'foreground=${session.appForeground}, userPaused=${session.userPaused})',
       );
     }

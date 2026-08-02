@@ -49,34 +49,6 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
     _primedStartIndex = start;
   }
 
-  void _pauseAllOtherVideos(String? currentVideoId) {
-    _controllerPool.forEach((videoId, controller) {
-      if (videoId == currentVideoId) return;
-
-      try {
-        if (SharedVideoControllerPool().isControllerDisposed(controller)) {
-          // Internal cleanup handled by pool usually, but we help
-          return;
-        }
-        final value = controller.value;
-        if (value.isInitialized) {
-          controller.pause();
-          _controllerStates[videoId] = false;
-        }
-      } catch (e) {
-        _controllerPool.remove(videoId);
-        _controllerStates.remove(videoId);
-      }
-    });
-
-    _videoControllerManager.pauseAllVideosOnTabChange(
-        exceptVideoId: currentVideoId);
-
-    final sharedPool = SharedVideoControllerPool();
-    sharedPool.pauseAllControllers(exceptVideoId: currentVideoId);
-    _ensureWakelockForVisibility();
-  }
-
   /// Seeks the shared video to the `t` timestamp from a deep link before its
   /// first play. Runs at most once and only for the deep-linked video.
   void _maybeApplyInitialStartSeek(
@@ -177,65 +149,8 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
     });
   }
 
-  void _pauseCurrentVideo() {
-    if (_currentIndex < _videos.length) {
-      final currentVideo = _videos[_currentIndex];
-      final videoId = currentVideo.id;
-      _viewTracker.stopViewTracking(videoId);
-
-      if (_controllerPool.containsKey(videoId)) {
-        final controller = _controllerPool[videoId];
-
-        if (controller != null) {
-          try {
-            if (!SharedVideoControllerPool().isControllerDisposed(controller)) {
-              final value = controller.value;
-              if (value.isInitialized) {
-                controller.pause();
-                _controllerStates[videoId] = false;
-              }
-            } else {
-              _controllerPool.remove(videoId);
-              _controllerStates.remove(videoId);
-            }
-          } catch (e) {
-            _controllerPool.remove(videoId);
-            _controllerStates.remove(videoId);
-          }
-        }
-      }
-    }
-
-    _videoControllerManager.pauseAllVideosOnTabChange();
-  }
-
-  void _pauseAllVideosOnTabSwitch() {
-    _playbackCoordinator.setRouteActive(_playbackSession, false);
-    _playbackCoordinator.pause(_playbackSession);
-    _controllerPool.forEach((videoId, controller) {
-      try {
-        if (!SharedVideoControllerPool().isControllerDisposed(controller)) {
-          final value = controller.value;
-          if (value.isInitialized) {
-            controller.pause();
-            _controllerStates[videoId] = false;
-          }
-        } else {
-          _controllerPool.remove(videoId);
-          _controllerStates.remove(videoId);
-        }
-      } catch (e) {
-        _controllerPool.remove(videoId);
-        _controllerStates.remove(videoId);
-      }
-    });
-
-    _videoControllerManager.pauseAllVideosOnTabChange();
-    SharedVideoControllerPool().pauseAllControllers();
-
-    _isScreenVisible = false;
-    _ensureWakelockForVisibility();
-  }
-
-
+  // _pauseCurrentVideo / _pauseAllOtherVideos / _pauseAllVideosOnTabSwitch used
+  // to be duplicated here. A class member always shadows an extension member,
+  // so these copies never ran — including their coordinator calls. The single
+  // implementations now live in _VideoFeedAdvancedState.
 }

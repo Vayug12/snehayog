@@ -1,6 +1,7 @@
 import IBaseStep from '../IBaseStep.js';
 import storageManager from '../../storageSystem/StorageManager.js';
 import fs from 'fs';
+import path from 'path';
 
 /**
  * Pipeline Step: Final Cleanup
@@ -11,7 +12,7 @@ class CleanupStep extends IBaseStep {
   }
 
   async execute(context) {
-    const { videoId, rawVideoKey, localRawPath, hlsResult } = context;
+    const { videoId, rawVideoKey, hlsResult, tempDir, localRawPath } = context;
 
     // 1. Delete original from R2 if encoded successfully
     if (rawVideoKey && hlsResult) {
@@ -23,8 +24,16 @@ class CleanupStep extends IBaseStep {
       }
     }
 
-    // 2. Delete local temp file
-    if (localRawPath && fs.existsSync(localRawPath)) {
+    // 2. Delete entire per-job temp directory (covers raw file + any partial HLS output)
+    if (tempDir && fs.existsSync(tempDir)) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        console.log(`🧹 CleanupStep: Temp directory deleted: ${tempDir}`);
+      } catch (e) {
+        console.warn('⚠️ CleanupStep: Failed to delete temp directory:', e.message);
+      }
+    } else if (localRawPath && fs.existsSync(localRawPath)) {
+      // Fallback: delete individual file if tempDir not set (backwards compat)
       try {
         fs.unlinkSync(localRawPath);
         console.log(`🧹 CleanupStep: Local file deleted: ${localRawPath}`);

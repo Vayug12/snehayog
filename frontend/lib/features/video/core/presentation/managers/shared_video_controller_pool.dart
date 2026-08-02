@@ -16,11 +16,41 @@ class SharedVideoControllerPool {
   final Map<String, VideoPlayerController> _controllerPool = {};
   bool Function(VideoPlayerController controller)? _playbackGuard;
   final Map<String, bool> _controllerStates = {}; // Track if controller is active
-  final Map<String, VoidCallback> _listeners = {};
+
+  // **LISTENER OWNERSHIP**
+  // A single controller carries several independent listeners (end-of-video,
+  // buffering/stall watchdog, quiz triggers, error handling). All of them tick
+  // on every VideoPlayerValue update, so any listener that outlives its
+  // controller keeps burning UI-isolate time. The pool owns the full set so
+  // eviction can guarantee every one of them is detached.
+  final Map<String, List<VoidCallback>> _listeners = {};
 
   void setPlaybackGuard(bool Function(VideoPlayerController controller)? guard) {
     _playbackGuard = guard;
   }
+
+  // **PIN: the video the user is actually watching**
+  //
+  // LRU alone cannot protect it: preloading a neighbour refreshes that
+  // neighbour's access time and pushes the playing video down the list, so a
+  // full pool would evict the very controller producing frames on screen.
+  // A pinned video is never evicted by LRU, by retainOnly, or by a
+  // memory-pressure sweep — only an explicit dispose can take it.
+  String? _pinnedVideoId;
+
+  String? get pinnedVideoId => _pinnedVideoId;
+
+  /// **Pin the currently watched video. Pass `null` when nothing is playing.**
+  void pinVideo(String? videoId) {
+    if (_pinnedVideoId == videoId) return;
+    _pinnedVideoId = videoId;
+    if (videoId != null) {
+      _lastAccessed[videoId] = DateTime.now();
+    }
+  }
+
+  /// **Does the pool own a controller for this video?** (no validation side effects)
+  bool isPooled(String videoId) => _controllerPool.containsKey(videoId);
 
   // **DISPOSAL STREAM: Notify listeners when a controller is evicted**
   final StreamController<String> _disposalStreamController =
@@ -35,9 +65,6 @@ class SharedVideoControllerPool {
   // **LRU TRACKING**
   final Map<String, DateTime> _lastAccessed =
       {}; // Track when each video was last accessed
-  final Map<String, Set<int>> _videoIndices =
-      {}; // Track all video indices where this video is present
-  
   // **DYNAMIC CONFIG: Hard limit to prevent NO_MEMORY**
   // Android usually supports ~16 hardware decoders, but other apps/services might use them.
   // We stay well below this limit.
@@ -60,15 +87,59 @@ class SharedVideoControllerPool {
     }
   }
 
-  /// **PROACTIVE CLEANUP: Ensure space exits BEFORE creating a new controller**
-  /// Call this before `VideoPlayerController.networkUrl()` to prevent OOM.
-  Future<void> makeRoomForNewController() async {
-    if (_controllerPool.length >= _maxPoolSize) {
-      // **PREEMPTIVE DISPOSAL: Be ruthless during fast scroll**
-      // Don't just evict one, evict until we are at least 1 below the limit
-      // to avoid fighting for decoders on every single swipe.
-      _evictLRUIfNeeded(forceRelease: true);
+  /// **Controllers currently holding a hardware decoder.**
+  ///
+  /// A queued controller has been removed from the active pool but has NOT yet
+  /// released its decoder — it only does so on `dispose()`. Budgeting against
+  /// `_controllerPool.length` alone under-counts by the size of the queue,
+  /// which is exactly what lets fast scrolling blow past the device's decoder
+  /// limit and produce silent init failures.
+  int get _liveDecoderCount => _controllerPool.length + _cleanupQueue.length;
+
+  /// **ADMISSION CONTROL: acquire decoder headroom BEFORE creating a controller.**
+  ///
+  /// Returns `false` when no decoder could be freed. A caller that gets `false`
+  /// must NOT construct a controller — the whole point is that a speculative
+  /// preload gets refused instead of stealing the decoder out from under the
+  /// video the user is actually watching.
+  ///
+  /// [highPriority] is for the video being watched right now: if the normal
+  /// pass cannot free room, every unpinned controller is released.
+  Future<bool> makeRoomForNewController({
+    String? forVideoId,
+    bool highPriority = false,
+  }) async {
+    if (_liveDecoderCount < _maxPoolSize) return true;
+
+    // **PREEMPTIVE DISPOSAL: Be ruthless during fast scroll**
+    // Don't just evict one, evict until we are at least 1 below the limit
+    // to avoid fighting for decoders on every single swipe.
+    _evictLRUIfNeeded(forceRelease: true, excluding: forVideoId);
+
+    // **CRITICAL: eviction only queues the teardown. Without draining, this
+    // method returns while every evicted decoder is still held, and the caller
+    // allocates on top of them.**
+    await _drainCleanupQueue();
+
+    if (_liveDecoderCount < _maxPoolSize) return true;
+
+    if (highPriority) {
+      // The watched video outranks every cached neighbour.
+      final sacrificial = _controllerPool.keys
+          .where((id) => id != _pinnedVideoId && id != forVideoId)
+          .toList();
+      for (final videoId in sacrificial) {
+        disposeController(videoId);
+      }
+      await _drainCleanupQueue();
+
+      if (_liveDecoderCount < _maxPoolSize) return true;
     }
+
+    AppLogger.log(
+        '⛔ SharedPool: Admission denied for ${forVideoId ?? "new controller"} '
+        '($_liveDecoderCount/$_maxPoolSize decoders held)');
+    return false;
   }
 
   // **CACHE STATISTICS**
@@ -166,18 +237,12 @@ class SharedVideoControllerPool {
     String? reason,
     bool disposeInstance = false,
   }) {
-    final listener = _listeners[videoId];
-    if (listener != null) {
-      try {
-        controller.removeListener(listener);
-      } catch (_) {}
-    }
+    _detachListeners(videoId, controller);
 
     _controllerPool.remove(videoId);
     _controllerStates.remove(videoId);
     _listeners.remove(videoId);
     _lastAccessed.remove(videoId);
-    _videoIndices.remove(videoId);
 
     // Notify listeners that this controller is being evicted
     _disposalStreamController.add(videoId);
@@ -270,16 +335,11 @@ class SharedVideoControllerPool {
 
   /// **Add controller to pool with LRU eviction**
   void addController(String videoId, VideoPlayerController controller,
-      {bool skipDisposeOld = false, int? index}) {
+      {bool skipDisposeOld = false}) {
     AppLogger.log('📥 SharedPool: Adding controller for video: $videoId');
 
     // **LRU: Update access time**
     _lastAccessed[videoId] = DateTime.now();
-
-    // **NEW: Track all video indices for smart cleanup (handles duplicates)**
-    if (index != null) {
-      _videoIndices.putIfAbsent(videoId, () => {}).add(index);
-    }
 
     // Dispose old controller if exists (unless we're explicitly replacing with the same controller)
     if (_controllerPool.containsKey(videoId)) {
@@ -310,46 +370,21 @@ class SharedVideoControllerPool {
         '✅ SharedPool: Controller added, total controllers: ${_controllerPool.length}');
   }
 
-  /// **NEW: Smart Cleanup within specific range (optimized for preloading)**
-  void cleanupSmart(int currentIndex, int startRange, int endRange) {
-    final toRemove = <String>[];
-
-    for (final entry in _videoIndices.entries) {
-      final videoId = entry.key;
-      final indexSet = entry.value;
-
-      // Keep only videos where AT LEAST ONE of its indices is within the safe range [startRange, endRange]
-      // Also keep the current video explicitly
-      bool isAnyInSafeRange = indexSet.any((idx) => idx == currentIndex || (idx >= startRange && idx <= endRange));
-      if (!isAnyInSafeRange) {
-        toRemove.add(videoId);
-      }
-    }
-
-    for (final videoId in toRemove) {
-      disposeController(videoId);
-    }
-
-    if (toRemove.isNotEmpty) {
-      AppLogger.log(
-          '🧹 SharedPool: Smart cleaned up ${toRemove.length} controllers outside range [$startRange, $endRange]');
-    }
-  }
-
-  /// **NEW: Cleanup controllers far from current index**
-  void cleanupDistantControllers(int currentIndex, {int keepRange = 3}) {
-    final toRemove = <String>[];
-
-    for (final entry in _videoIndices.entries) {
-      final videoId = entry.key;
-      final indexSet = entry.value;
-
-      // Remove controllers where ALL indices are more than keepRange away
-      bool isAnyNear = indexSet.any((idx) => (idx - currentIndex).abs() <= keepRange);
-      if (!isAnyNear) {
-        toRemove.add(videoId);
-      }
-    }
+  /// **Release every controller except the given videos.**
+  ///
+  /// Identity-based on purpose. The pool used to track which feed *positions* a
+  /// video occupied, but positions are only meaningful inside the list that
+  /// produced them: after pagination, a refresh, or a reorder, those stored
+  /// indices describe a list that no longer exists — so the pool would keep
+  /// controllers it should drop and drop ones still on screen.
+  ///
+  /// The caller owns the list and recomputes [keepVideoIds] fresh each time.
+  /// The pinned video always survives, whether or not it is in the set.
+  void retainOnly(Set<String> keepVideoIds) {
+    final toRemove = _controllerPool.keys
+        .where((videoId) =>
+            !keepVideoIds.contains(videoId) && videoId != _pinnedVideoId)
+        .toList();
 
     for (final videoId in toRemove) {
       disposeController(videoId);
@@ -357,7 +392,8 @@ class SharedVideoControllerPool {
 
     if (toRemove.isNotEmpty) {
       AppLogger.log(
-          '🧹 SharedPool: Cleaned up ${toRemove.length} distant controllers');
+          '🧹 SharedPool: Released ${toRemove.length} controller(s) outside the keep set '
+          '(kept ${_controllerPool.length})');
     }
   }
 
@@ -365,12 +401,11 @@ class SharedVideoControllerPool {
   void removeController(String videoId) {
     if (_controllerPool.containsKey(videoId)) {
       final controller = _controllerPool[videoId]!;
-      controller.removeListener(_listeners[videoId] ?? () {});
+      _detachListeners(videoId, controller);
       _controllerPool.remove(videoId);
       _controllerStates.remove(videoId);
       _listeners.remove(videoId);
       _lastAccessed.remove(videoId); // Remove LRU tracking
-      _videoIndices.remove(videoId); // Remove index tracking
 
       AppLogger.log('🗑️ SharedPool: Removed controller for video: $videoId');
     }
@@ -378,7 +413,7 @@ class SharedVideoControllerPool {
 
   /// **LRU Eviction: Remove least recently used controllers**
   void _evictLRUIfNeeded({String? excluding, bool forceRelease = false}) {
-    if (_controllerPool.length < _maxPoolSize) return;
+    if (_liveDecoderCount < _maxPoolSize) return;
 
     // Sort by last accessed time (oldest first)
     final sortedEntries = _lastAccessed.entries.toList()
@@ -393,6 +428,7 @@ class SharedVideoControllerPool {
     for (final entry in sortedEntries) {
       if (removed >= toRemove) break;
       if (entry.key == excluding) continue; // Don't remove the one we're adding
+      if (entry.key == _pinnedVideoId) continue; // NEVER evict what's playing
 
       if (_controllerPool.containsKey(entry.key)) {
         disposeController(entry.key);
@@ -409,58 +445,78 @@ class SharedVideoControllerPool {
   Future<void> disposeController(String videoId) async {
     if (_controllerPool.containsKey(videoId)) {
       final controller = _controllerPool[videoId]!;
-      final listener = _listeners[videoId];
-      
-      // **1. Remove from active pool IMMEDIATELY**
+
+      // **1. Detach listeners NOW**
+      // The controller is leaving the active pool, so nothing should still be
+      // reacting to its ticks during the grace window.
+      _detachListeners(videoId, controller);
+
+      // **2. Remove from active pool IMMEDIATELY**
       _controllerPool.remove(videoId);
       _controllerStates.remove(videoId);
-      _listeners.remove(videoId);
       _lastAccessed.remove(videoId);
-      _videoIndices.remove(videoId);
 
-      // **2. Signal UI immediately via broadcast stream**
+      // **3. Signal UI immediately via broadcast stream**
       _disposalStreamController.add(videoId);
 
-      // **3. Move to Cleanup Queue**
+      // **4. Move to Cleanup Queue**
+      // NOTE: the controller still holds its hardware decoder until the timer
+      // fires, so it stays counted in `_liveDecoderCount`.
       _cleanupQueue[videoId] = controller;
-      
-      // **4. Schedule actual disposal with 200ms delay**
+
+      // **5. Schedule actual disposal with 200ms delay**
       _cleanupTimers[videoId]?.cancel();
       _cleanupTimers[videoId] = Timer(const Duration(milliseconds: 200), () {
-        _performActualDisposal(videoId, controller, listener);
+        _performActualDisposal(videoId, controller);
       });
-
-      AppLogger.log('⏳ SharedPool: Graceful disposal scheduled for $videoId (200ms buffer)');
     }
   }
 
-  void _performActualDisposal(String videoId, VideoPlayerController controller, VoidCallback? listener) {
+  Future<void> _performActualDisposal(
+    String videoId,
+    VideoPlayerController controller,
+  ) async {
     if (!_cleanupQueue.containsKey(videoId)) return;
-    
-    try {
-      // Final sanity check: ensure it's not back in the active pool
-      if (_controllerPool[videoId] == controller) {
-        _cleanupQueue.remove(videoId);
-        _cleanupTimers.remove(videoId);
-        return;
-      }
 
-      AppLogger.log('🗑️ SharedPool: Performing final disposal for $videoId');
-      
+    // Final sanity check: ensure it's not back in the active pool
+    if (identical(_controllerPool[videoId], controller)) {
+      _cleanupQueue.remove(videoId);
+      _cleanupTimers.remove(videoId);
+      return;
+    }
+
+    // **CLAIM FIRST: remove from the queue before the await so a concurrent
+    // drain or a late timer cannot dispose the same controller twice.**
+    _cleanupQueue.remove(videoId);
+    _cleanupTimers.remove(videoId)?.cancel();
+
+    try {
       if (controller.value.isInitialized) {
         controller.pause();
         controller.setVolume(0.0);
       }
-      if (listener != null) {
-        controller.removeListener(listener);
-      }
-      controller.dispose();
+      await controller.dispose();
     } catch (e) {
       AppLogger.log('⚠️ SharedPool: Error during final disposal of $videoId: $e');
-    } finally {
-      _cleanupQueue.remove(videoId);
-      _cleanupTimers.remove(videoId);
     }
+  }
+
+  /// **Release every queued controller right now, without waiting for timers.**
+  ///
+  /// The 200ms grace window exists to stop the UI from reading a controller
+  /// mid-teardown, but a decoder is only actually freed by `dispose()`. Any
+  /// caller that needs decoder headroom must drain rather than assume the
+  /// timers have fired.
+  Future<void> _drainCleanupQueue() async {
+    if (_cleanupQueue.isEmpty) return;
+
+    final pending = Map<String, VideoPlayerController>.from(_cleanupQueue);
+    AppLogger.log(
+        '🚿 SharedPool: Draining ${pending.length} pending controller(s) to free decoders');
+
+    await Future.wait(
+      pending.entries.map((e) => _performActualDisposal(e.key, e.value)),
+    );
   }
 
   void _cancelCleanup(String videoId) {
@@ -472,25 +528,56 @@ class SharedVideoControllerPool {
     }
   }
 
-  /// **Attach listener to controller**
+  /// **Attach a listener to a pooled controller**
+  ///
+  /// Callers must route every `addListener` through here instead of touching
+  /// the controller directly. A listener the pool does not know about cannot be
+  /// detached on eviction, and will keep firing against a dead controller.
   void attachListener(String videoId, VoidCallback listener) {
-    if (_controllerPool.containsKey(videoId)) {
-      _listeners[videoId] = listener;
-      _controllerPool[videoId]!.addListener(listener);
+    final controller = _controllerPool[videoId];
+    if (controller == null) {
+      AppLogger.log(
+          '⚠️ SharedPool: attachListener ignored — no pooled controller for $videoId');
+      return;
+    }
 
-      AppLogger.log('👂 SharedPool: Attached listener for video: $videoId');
+    final listeners = _listeners.putIfAbsent(videoId, () => <VoidCallback>[]);
+    if (listeners.contains(listener)) return; // Idempotent re-attach
+
+    listeners.add(listener);
+    controller.addListener(listener);
+  }
+
+  /// **Detach a single listener previously registered via [attachListener]**
+  void detachListener(String videoId, VoidCallback listener) {
+    final listeners = _listeners[videoId];
+    if (listeners == null) return;
+
+    if (listeners.remove(listener)) {
+      final controller = _controllerPool[videoId] ?? _cleanupQueue[videoId];
+      try {
+        controller?.removeListener(listener);
+      } catch (_) {}
+    }
+
+    if (listeners.isEmpty) _listeners.remove(videoId);
+  }
+
+  /// **Detach every listener registered for a video**
+  void _detachListeners(String videoId, VideoPlayerController? controller) {
+    final listeners = _listeners.remove(videoId);
+    if (listeners == null || controller == null) return;
+
+    for (final listener in listeners) {
+      try {
+        controller.removeListener(listener);
+      } catch (_) {}
     }
   }
 
-  /// **Remove listener from controller**
+  /// **Remove all listeners from a controller**
   void removeListener(String videoId) {
-    if (_controllerPool.containsKey(videoId) &&
-        _listeners.containsKey(videoId)) {
-      _controllerPool[videoId]!.removeListener(_listeners[videoId]!);
-      _listeners.remove(videoId);
-
-      AppLogger.log('👂 SharedPool: Removed listener for video: $videoId');
-    }
+    _detachListeners(videoId, _controllerPool[videoId] ?? _cleanupQueue[videoId]);
   }
 
   /// **Set controller state (playing/paused)**
@@ -617,10 +704,20 @@ class SharedVideoControllerPool {
   void disposeControllersForMemoryManagement() {
     AppLogger.log('🧹 SharedPool: Disposing controllers for memory management');
 
-    // Keep only the most recent 2 controllers, dispose the rest
+    // Keep the 2 most recently used controllers, plus the pinned one.
+    // NOTE: this used to take `_controllerPool.keys` in insertion order, which
+    // is unrelated to recency — it could drop the video being watched.
     if (_controllerPool.length > 2) {
-      final sortedKeys = _controllerPool.keys.toList();
-      final controllersToDispose = sortedKeys.take(sortedKeys.length - 2);
+      final sortedKeys = _lastAccessed.entries
+          .where((e) => _controllerPool.containsKey(e.key))
+          .toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+
+      final controllersToDispose = sortedKeys
+          .map((e) => e.key)
+          .where((id) => id != _pinnedVideoId)
+          .take((_controllerPool.length - 2).clamp(0, _controllerPool.length))
+          .toList();
 
       for (final videoId in controllersToDispose) {
         disposeController(videoId);
@@ -660,7 +757,7 @@ class SharedVideoControllerPool {
 
     for (final entry in _controllerPool.entries) {
       try {
-        entry.value.removeListener(_listeners[entry.key] ?? () {});
+        _detachListeners(entry.key, entry.value);
         entry.value.dispose();
       } catch (e) {
         AppLogger.log(
@@ -672,7 +769,7 @@ class SharedVideoControllerPool {
     _controllerStates.clear();
     _listeners.clear();
     _lastAccessed.clear(); // Clear LRU tracking
-    _videoIndices.clear(); // Clear index tracking
+    _pinnedVideoId = null; // Nothing is playing anymore
 
     AppLogger.log('✅ SharedPool: All controllers cleared');
   }
@@ -714,12 +811,19 @@ class SharedVideoControllerPool {
   void onAppBackgrounded() {
     AppLogger.log('🧹 SharedPool: App backgrounded - releasing all controllers except the current one');
     
-    // 1. Identify most recently accessed video ID
-    String? currentVideoId;
-    if (_lastAccessed.isNotEmpty) {
-      final sortedEntries = _lastAccessed.entries.toList()
-        ..sort((a, b) => a.value.compareTo(b.value));
-      currentVideoId = sortedEntries.last.key;
+    // 1. Identify the video to keep.
+    // Prefer the explicit pin — "most recently accessed" is unreliable here
+    // because preloading a neighbour bumps that neighbour's access time.
+    String? currentVideoId = _pinnedVideoId;
+    if (currentVideoId == null || !_controllerPool.containsKey(currentVideoId)) {
+      currentVideoId = null;
+      if (_lastAccessed.isNotEmpty) {
+        final sortedEntries = _lastAccessed.entries
+            .where((e) => _controllerPool.containsKey(e.key))
+            .toList()
+          ..sort((a, b) => a.value.compareTo(b.value));
+        if (sortedEntries.isNotEmpty) currentVideoId = sortedEntries.last.key;
+      }
     }
 
     // 2. Clear all except the current one to free up hardware decoders

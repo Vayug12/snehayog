@@ -109,38 +109,10 @@ export class OpenAIAIEngine extends IAIEngine {
   }
 
   /**
-   * Synthesizes speech using OpenAI TTS API
+   * Synthesize NOT supported on OpenAI engine — use HuggingFaceAIEngine (Edge TTS, free).
    */
   async synthesize(text, language = 'hindi', outputPath) {
-    if (!this.apiKey) throw new Error('OPENAI_API_KEY is missing');
-
-    try {
-      console.log(`🔊 [OpenAI AI Engine] Synthesizing speech using OpenAI TTS...`);
-
-      const response = await axios.post(
-        'https://api.openai.com/v1/audio/speech',
-        {
-          model: 'tts-1',
-          input: text,
-          voice: language.toLowerCase() === 'hindi' ? 'alloy' : 'nova',
-          response_format: 'wav'
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          responseType: 'arraybuffer'
-        }
-      );
-
-      fs.writeFileSync(outputPath, response.data);
-      console.log(`✅ [OpenAI AI Engine] Synthesis complete: ${outputPath}`);
-      return outputPath;
-    } catch (error) {
-      console.error('❌ [OpenAI AI Engine] Synthesis error:', error.message);
-      throw error;
-    }
+    throw new Error('OpenAI TTS is disabled. Use HuggingFaceAIEngine (Edge TTS) instead.');
   }
 
   /**

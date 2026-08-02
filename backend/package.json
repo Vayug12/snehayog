@@ -11,14 +11,14 @@
     "dev": "nodemon server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs --forceExit",
     "setup": "npm install && npm run setup:ffmpeg",
-    "setup:ffmpeg": "node scripts/setup-ffmpeg.js"
+    "setup:ffmpeg": "node scripts/setup-ffmpeg.js",
+    "redis:tunnel": "fly proxy 16379:6379 fly-vayug.upstash.io -a vayug"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.972.0",
     "@aws-sdk/s3-request-presigner": "^3.990.0",
     "@google/generative-ai": "^0.24.1",
     "@upstash/redis": "^1.36.2",
-    "adm-zip": "^0.5.16",
     "axios": "^1.12.2",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.66.6",

@@ -66,6 +66,7 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   final Map<String, ValueNotifier<DubbingResult>> _dubbingResultsVN = {};
   final Map<String, StreamSubscription> _dubbingSubscriptions = {};
   final Map<String, String> _selectedAudioLanguage = {};
+  final Map<String, String> _dubbingTargetLanguage = {};
 
   // Cache status tracking
 

@@ -53,7 +53,7 @@ const tempStorage = multer.diskStorage({
 export const upload = multer({
   storage: tempStorage,
   limits: {
-    fileSize: 700 * 1024 * 1024, // 700MB limit (Updated to match server config)
+    fileSize: 100 * 1024 * 1024, // 100MB limit (Server-side fallback; frontend uses presigned URLs)
   },
   fileFilter: (req, file, cb) => {
     // Check file type

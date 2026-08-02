@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:vayug/core/interfaces/i_video_service.dart';
 import 'package:vayug/core/interfaces/i_video_upload_service.dart';
+import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 
 class VideoUploadService implements IVideoUploadService {
@@ -86,6 +87,12 @@ class VideoUploadService implements IVideoUploadService {
         allowedSubscribers: metadata?['allowedSubscribers'] != null
             ? List<String>.from(metadata?['allowedSubscribers'])
             : null,
+        // Series placement and quizzes travel through metadata so the upload
+        // contract stays a single generic map instead of growing a parameter
+        // per feature.
+        seriesId: metadata?['seriesId'] as String?,
+        episodeNumber: metadata?['episodeNumber'] as int?,
+        quizzes: (metadata?['quizzes'] as List?)?.cast<QuizModel>(),
         onProgress: (progress) {
           _progressController.add(progress);
         },

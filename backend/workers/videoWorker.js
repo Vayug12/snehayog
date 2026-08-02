@@ -10,22 +10,24 @@ import redisService from '../services/caching/redisService.js';
 import geminiService from '../services/geminiService.js';
 import { sendNotificationToUser } from '../services/notificationServices/notificationService.js';
 
-// Connect to MongoDB & Redis (If not already connected)
+// Connect to MongoDB & Redis only if not already connected (reuses API server connections when in-process)
 const initializeWorkerConnections = async () => {
   try {
     if (mongoose.connection.readyState !== 1) {
       await mongoose.connect(process.env.MONGO_URI);
       console.log('📦 Worker MongoDB Connected');
+    } else {
+      console.log('📦 Worker: Reusing existing MongoDB connection');
     }
     
-    // Connect to Redis for cache invalidation
     if (!redisService.getConnectionStatus || !redisService.getConnectionStatus()) {
       await redisService.connect();
       console.log('📦 Worker Redis Connected');
+    } else {
+      console.log('📦 Worker: Reusing existing Redis connection');
     }
   } catch (error) {
     console.error('❌ Worker Connection Error:', error);
-    // Don't exit if it's integrated, just log
     if (!process.env.FLY_APP_NAME) process.exit(1);
   }
 };
@@ -212,9 +214,21 @@ async function handleVideoAnalysis(data) {
   }
 }
 
+// In-flight job count, owned by the processor rather than by the 'active' /
+// 'completed' / 'failed' listeners.
+//
+// Those three have to stay perfectly balanced for the count to mean anything,
+// and they did not: it drifted up to 3 and never came back down, so the idle
+// shutdown below — which only exits at 0 — never fired and the worker VM billed
+// around the clock for days. Incrementing on entry and decrementing in a finally
+// cannot drift, however a job ends.
+let activeJobsCount = 0;
+let shutdownTimeout = null;
+
 // **OPTIMIZED: Multi-Job Type Dispatcher**
 const videoWorker = new Worker('video-processing', async (job) => {
-  
+  activeJobsCount++;
+
   try {
     switch (job.name) {
       case 'process-video':
@@ -243,17 +257,15 @@ const videoWorker = new Worker('video-processing', async (job) => {
   } catch (error) {
     console.error(`❌ Worker Job ${job.id} failed:`, error);
     throw error;
+  } finally {
+    activeJobsCount = Math.max(0, activeJobsCount - 1);
   }
 }, {
   connection: redisOptions,
   concurrency: 1 // CRITICAL: Only 1 job at a time on 1GB Fly.io machine
 });
 
-let activeJobsCount = 0;
-let shutdownTimeout = null;
-
 videoWorker.on('active', (job) => {
-  activeJobsCount++;
   if (shutdownTimeout) {
     console.log('🚀 Worker: New job active. Cancelling idle shutdown timer.');
     clearTimeout(shutdownTimeout);
@@ -267,7 +279,6 @@ videoWorker.on('active', (job) => {
 });
 
 videoWorker.on('completed', (job) => {
-  activeJobsCount = Math.max(0, activeJobsCount - 1);
   const finishedOn = job.finishedOn ?? Date.now();
   const processSec = (finishedOn - (job.processedOn ?? job.timestamp)) / 1000;
   const queueSec = ((job.processedOn ?? finishedOn) - job.timestamp) / 1000;
@@ -278,8 +289,14 @@ videoWorker.on('completed', (job) => {
 });
 
 videoWorker.on('failed', async (job, err) => {
+  // BullMQ emits this with no job for failures it cannot attribute to one.
+  // Reading job.id unguarded threw here, which killed the rest of the handler.
+  if (!job) {
+    console.log(`❌ Worker failure with no associated job: ${err?.message}`);
+    return;
+  }
+
   console.log(`❌ Job ${job.id} failed: ${err.message}`);
-  activeJobsCount = Math.max(0, activeJobsCount - 1);
 
   // Clean up R2 on permanent failure
   try {

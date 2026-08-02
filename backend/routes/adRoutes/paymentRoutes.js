@@ -1,10 +1,12 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { asyncHandler } from '../../middleware/errorHandler.js';
 import { validatePaymentData } from '../../middleware/errorHandler.js';
 import adService from '../../services/adServices/adService.js';
 import User from '../../models/User.js';
 import Video from '../../models/Video.js';
 import { verifyToken } from '../../utils/verifytoken.js';
+import { AD_CONFIG } from '../../constants/index.js';
 
 const router = express.Router();
 
@@ -48,6 +50,32 @@ router.get('/creator/revenue/:userId', verifyToken, async (req, res) => {
       return res.status(404).json({ error: summary.error || 'User not found' });
     }
 
+    // Fetch monthly earnings history from CreatorMonthlyStat
+    const CreatorMonthlyStat = (await import('../../models/CreatorMonthlyStat.js')).default;
+    let user = await User.findOne({ googleId: userId });
+    if (!user && mongoose.Types.ObjectId.isValid(userId)) {
+      user = await User.findById(userId);
+    }
+
+    let monthlyEarnings = [];
+    if (user) {
+      const allStats = await CreatorMonthlyStat.find({ creatorId: user._id }).lean();
+      console.log(`📊 Monthly stats for ${userId}: found ${allStats.length} month(s) — ${allStats.map(s => s.yearMonth).join(', ') || 'none'}`);
+
+      const creatorShare = AD_CONFIG?.CREATOR_REVENUE_SHARE ?? 0.8;
+      monthlyEarnings = allStats
+        .map(s => ({
+          yearMonth: s.yearMonth,
+          grossRevenue: parseFloat((s.grossRevenue || 0).toFixed(2)),
+          creatorRevenue: parseFloat(((s.grossRevenue || 0) * creatorShare).toFixed(2)),
+          bannerImpressions: s.bannerImpressions || 0,
+          carouselImpressions: s.carouselImpressions || 0,
+        }))
+        .sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
+
+      console.log(`✅ Monthly earnings sorted (newest first): ${monthlyEarnings.map(e => `${e.yearMonth}=₹${e.creatorRevenue}`).join(', ') || 'empty'}`);
+    }
+
     // Map the unified summary to the response format the App expects
     const response = {
       ...summary,
@@ -65,7 +93,9 @@ router.get('/creator/revenue/:userId', verifyToken, async (req, res) => {
       totalRevenue: summary.netRevenue,
       netRevenue: summary.netRevenue,
       thisMonth: summary.thisMonth,
-      lastMonth: summary.lastMonth
+      lastMonth: summary.lastMonth,
+      // Monthly earnings history for the bottom sheet
+      monthlyEarnings
     };
 
     res.json(response);

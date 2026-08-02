@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:vayug/shared/services/file_picker_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
+import 'package:vayug/core/providers/navigation_providers.dart';
 import 'package:vayug/core/providers/video_upload_providers.dart';
 import 'package:vayug/features/video/upload/presentation/managers/upload_state_manager.dart';
 import 'package:vayug/features/auth/presentation/controllers/google_sign_in_controller.dart';
@@ -19,6 +20,8 @@ import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/video/upload/presentation/screens/upload_advanced_settings_screen.dart';
+import 'package:vayug/features/video/upload/presentation/screens/series_episodes_screen.dart';
+import 'package:vayug/features/video/upload/domain/models/episode_draft.dart';
 // AI Video generation is not completed yet — screen hidden from UI.
 // import 'package:vayug/features/video/upload/presentation/screens/ai_video_generate_screen.dart';
 import 'package:vayug/shared/constants/interests.dart';
@@ -48,6 +51,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   final ValueNotifier<File?> _selectedThumbnail = ValueNotifier<File?>(null);
   final ValueNotifier<List<String>> _selectedPlatforms = ValueNotifier<List<String>>([]);
 
+  /// View mirror of the manager's episode list, so Advanced Settings can show a
+  /// live count without becoming a Consumer. The manager stays authoritative.
+  final ValueNotifier<List<EpisodeDraft>> _seriesEpisodes = ValueNotifier<List<EpisodeDraft>>([]);
+
   late final IAuthService _authService;
   late final FilePickerService _filePickerService;
 
@@ -70,6 +77,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     _quizzes.dispose();
     _selectedThumbnail.dispose();
     _selectedPlatforms.dispose();
+    _seriesEpisodes.dispose();
     super.dispose();
   }
 
@@ -85,6 +93,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     _selectedSubscribers.value = [];
     _quizzes.value = [];
     _selectedPlatforms.value = [];
+    _seriesEpisodes.value = [];
     _videoAspectRatio.value = 9 / 16;
     _videoDuration.value = 0.0;
   }
@@ -99,6 +108,15 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   }
 
   Future<void> _pickVideo() async {
+    // Picking a new video replaces the manager's draft, which would cancel an
+    // upload that is still running in the background. Refuse instead of
+    // silently killing work the user thinks is safe.
+    if (ref.read(uploadStateManagerProvider).isUploadInFlight) {
+      VayuSnackBar.showInfo(context,
+          'An upload is still running. You can start the next one as soon as it finishes.');
+      return;
+    }
+
     final userData = await _authService.getUserData();
     if (userData == null) {
       _showLoginPrompt();
@@ -163,17 +181,102 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       tags: manager.tags,
       platforms: _selectedPlatforms.value,
       allowedSubscribers: _selectedSubscribers.value,
+      quizzes: _quizzes.value,
     );
 
-    if (manager.status == UploadStatus.success) {
-      if (mounted) {
-        VayuSnackBar.showSuccess(context, AppText.get('upload_success_message'));
-      }
-      if (widget.onVideoUploaded != null) {
-        widget.onVideoUploaded!();
-      }
-      _resetScreenState();
+    _handleUploadOutcome(manager);
+  }
+
+  Future<void> _retryFailedEpisodes() async {
+    final manager = ref.read(uploadStateManagerProvider);
+    await manager.retryFailedEpisodes();
+    _handleUploadOutcome(manager);
+  }
+
+  void _handleUploadOutcome(UploadStateManager manager) {
+    if (manager.status != UploadStatus.success) return;
+
+    // A backgrounded upload keeps its result on screen as a banner instead of
+    // resetting under the user, who is not looking at this screen.
+    if (manager.isBackgrounded) {
+      widget.onVideoUploaded?.call();
+      return;
     }
+
+    if (mounted) {
+      VayuSnackBar.showSuccess(
+        context,
+        manager.isSeries
+            ? '${manager.totalEpisodes} episodes are live.'
+            : AppText.get('upload_success_message'),
+      );
+    }
+    widget.onVideoUploaded?.call();
+    _resetScreenState();
+  }
+
+  /// Opens the series editor. It only ever edits the draft — nothing uploads
+  /// there — so whatever the user configured on this screen survives the trip.
+  Future<void> _openSeriesEditor() async {
+    final manager = ref.read(uploadStateManagerProvider);
+    final primaryVideo = manager.selectedVideo;
+    if (primaryVideo == null) return;
+
+    final result = await Navigator.push<List<EpisodeDraft>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SeriesEpisodesScreen(
+          primaryVideo: primaryVideo,
+          primaryTitle: _titleController.text,
+          initialEpisodes: manager.extraEpisodes,
+        ),
+      ),
+    );
+
+    if (result == null) return; // Dismissed without saving.
+    manager.setExtraEpisodes(result);
+    _seriesEpisodes.value = result;
+  }
+
+  Future<void> _confirmCancelUpload() async {
+    final manager = ref.read(uploadStateManagerProvider);
+    final uploaded = manager.episodesUploaded;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.backgroundSecondary,
+        title: const Text('Cancel this upload?'),
+        content: Text(
+          manager.isSeries && uploaded > 0
+              ? '$uploaded of ${manager.totalEpisodes} episodes have already uploaded and will stay published. The rest will not be sent.'
+              : 'The video will not be uploaded and you will have to start over.',
+          style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
+        ),
+        actions: [
+          AppButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            label: 'Keep uploading',
+            variant: AppButtonVariant.text,
+          ),
+          AppButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            label: 'Cancel upload',
+            variant: AppButtonVariant.danger,
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) _cancelUpload();
+  }
+
+  /// Hands the upload off to the background. Nothing about the upload changes —
+  /// it is already running in an app-scoped manager — only the UI stops
+  /// standing guard over it.
+  void _runInBackground() {
+    ref.read(uploadStateManagerProvider).runInBackground();
+    VayuSnackBar.showInfo(context,
+        'Upload continues in the background. We\'ll notify you when it\'s done.');
+    ref.read(mainControllerProvider).changeIndex(0);
   }
 
   void _showLoginPrompt() {
@@ -294,6 +397,17 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   Widget _buildBody(BuildContext context, UploadStateManager state, bool isSignedIn, GoogleSignInController authController) {
     if (!isSignedIn) return _buildLoginView(authController);
 
+    // The user chose not to watch this upload. Show the normal screen with a
+    // compact status strip on top rather than holding them on a progress dial.
+    if (state.isBackgrounded) {
+      return Column(
+        children: [
+          _buildBackgroundStrip(state),
+          Expanded(child: _buildInitialChoiceView(context)),
+        ],
+      );
+    }
+
     if (state.status == UploadStatus.idle && state.selectedVideo == null) {
       return _buildInitialChoiceView(context);
     }
@@ -305,6 +419,151 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           _buildUploadProgressDashboard(context, state),
           AppSpacing.vSpace32,
           _buildActionButtons(state),
+        ],
+      ),
+    );
+  }
+
+  /// The one place upload status is turned into words, so the compact strip and
+  /// the full dashboard can never disagree about what is happening.
+  ///
+  /// Headline says *what*, detail says *how far* and *how long*. Both stay
+  /// short enough to read at a glance; neither repeats the other.
+  ({String headline, String? detail, Color accent, bool isRunning})
+      _statusSummary(UploadStateManager state) {
+    final percent = '${(state.progress * 100).toInt()}%';
+    final eta = state.estimatedTimeRemaining;
+    final detail = eta == null ? percent : '$percent · ${_formatEta(eta)}';
+
+    switch (state.status) {
+      case UploadStatus.error:
+        return (
+          headline: 'Upload failed',
+          detail: state.errorMessage,
+          accent: AppColors.error,
+          isRunning: false,
+        );
+      case UploadStatus.success:
+        return (
+          headline: state.isSeries
+              ? '${state.totalEpisodes} episodes ready'
+              : 'Video ready',
+          detail: null,
+          accent: AppColors.success,
+          isRunning: false,
+        );
+      case UploadStatus.uploading:
+        return (
+          headline: state.isSeries
+              ? 'Uploading ${state.currentEpisodeNumber}/${state.totalEpisodes}'
+              : 'Uploading',
+          detail: detail,
+          accent: AppColors.primary,
+          isRunning: true,
+        );
+      case UploadStatus.processing:
+      case UploadStatus.finalizing:
+        return (
+          headline: state.isSeries
+              ? 'Processing ${state.episodesReady}/${state.totalEpisodes}'
+              : 'Processing',
+          detail: detail,
+          accent: AppColors.primary,
+          isRunning: true,
+        );
+      case UploadStatus.preparing:
+      case UploadStatus.validation:
+      case UploadStatus.idle:
+        return (
+          headline: 'Preparing',
+          detail: null,
+          accent: AppColors.primary,
+          isRunning: state.isUploadInFlight,
+        );
+    }
+  }
+
+  /// Rounded hard, because a precise-looking ETA that keeps changing reads as
+  /// broken. Seconds snap to 5s steps; anything over a minute rounds up.
+  String _formatEta(Duration eta) {
+    if (eta.inSeconds < 60) {
+      final seconds = ((eta.inSeconds / 5).ceil() * 5).clamp(5, 60);
+      return '~${seconds}s left';
+    }
+    if (eta.inMinutes < 60) {
+      return '~${(eta.inSeconds / 60).ceil()} min left';
+    }
+    return '~${(eta.inMinutes / 60).ceil()} hr left';
+  }
+
+  /// Persistent status strip for a backgrounded upload — running, done, or
+  /// failed. Without it a background upload is indistinguishable from one that
+  /// never happened.
+  Widget _buildBackgroundStrip(UploadStateManager state) {
+    final summary = _statusSummary(state);
+    final isRunning = summary.isRunning;
+    final isError = state.status == UploadStatus.error;
+    final accent = summary.accent;
+
+    return Container(
+      margin: EdgeInsets.fromLTRB(
+          AppSpacing.space16, AppSpacing.space12, AppSpacing.space16, 0),
+      padding: AppSpacing.edgeInsetsAll12,
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          if (isRunning)
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                value: state.progress > 0 ? state.progress : null,
+                valueColor: AlwaysStoppedAnimation<Color>(accent),
+              ),
+            )
+          else
+            Icon(isError ? Icons.error_outline : Icons.check_circle_outline,
+                size: 20, color: accent),
+          AppSpacing.hSpace12,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  summary.headline,
+                  style: AppTypography.bodySmall
+                      .copyWith(color: accent, fontWeight: FontWeight.bold),
+                ),
+                if (summary.detail != null)
+                  Text(
+                    summary.detail!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.labelSmall
+                        .copyWith(color: AppColors.textSecondary),
+                  ),
+              ],
+            ),
+          ),
+          AppButton(
+            onPressed: () {
+              final manager = ref.read(uploadStateManagerProvider);
+              if (manager.isUploadInFlight || manager.canRetrySeries) {
+                manager.bringToForeground();
+              } else {
+                _resetScreenState();
+              }
+            },
+            label: isRunning || state.canRetrySeries ? 'View' : 'Dismiss',
+            variant: AppButtonVariant.text,
+            size: AppButtonSize.small,
+          ),
         ],
       ),
     );
@@ -347,6 +606,12 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
             title: AppText.get('upload_video'),
             color: AppColors.primary,
             onTap: _pickVideo,
+            // Dimmed rather than hidden while an upload runs: the user needs to
+            // see why they cannot start another one.
+            enabled: !ref.watch(uploadStateManagerProvider).isUploadInFlight,
+            subtitle: ref.watch(uploadStateManagerProvider).isUploadInFlight
+                ? 'Available when the current upload finishes'
+                : null,
           ),
           AppSpacing.vSpace24,
           _buildChoiceCard(
@@ -377,24 +642,48 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     );
   }
 
-  Widget _buildChoiceCard({required IconData icon, required String title, required Color color, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: EdgeInsets.all(AppSpacing.spacing5),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.1)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 32, color: color),
-            AppSpacing.hSpace16,
-            Expanded(child: Text(title, style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.bold))),
-            Icon(Icons.chevron_right, color: color),
-          ],
+  Widget _buildChoiceCard({
+    required IconData icon,
+    required String title,
+    required Color color,
+    required VoidCallback onTap,
+    bool enabled = true,
+    String? subtitle,
+  }) {
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.5,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: EdgeInsets.all(AppSpacing.spacing5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withValues(alpha: 0.1)),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 32, color: color),
+              AppSpacing.hSpace16,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(title, style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.bold)),
+                    if (subtitle != null) ...[
+                      AppSpacing.vSpace4,
+                      Text(subtitle,
+                          style: AppTypography.bodySmall
+                              .copyWith(color: AppColors.textTertiary)),
+                    ],
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: color),
+            ],
+          ),
         ),
       ),
     );
@@ -427,7 +716,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 children: [
                   Text('${(progress * 100).toInt()}%',
                       style: AppTypography.headlineMedium.copyWith(fontWeight: FontWeight.bold, color: AppColors.primary)),
-                  Text(_getStatusText(status), style: AppTypography.labelSmall.copyWith(color: AppColors.textSecondary)),
+                  Text(_statusSummary(state).headline,
+                      style: AppTypography.labelSmall.copyWith(color: AppColors.textSecondary)),
                 ],
               ),
             ],
@@ -451,6 +741,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           controller: _titleController,
           decoration: InputDecoration(
             labelText: 'Title',
+            helperText: state.isSeries
+                ? 'Title of Episode 1. Later episodes have their own titles.'
+                : null,
+            helperMaxLines: 2,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         ),
@@ -474,9 +768,18 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   }
 
   Widget _buildProcessingDetails(UploadStateManager state) {
+    final summary = _statusSummary(state);
     return Column(
       children: [
-        Text('Phase: ${state.currentPhase.toUpperCase()}', style: AppTypography.titleSmall),
+        // The dial already shows the percentage and the phase — this line only
+        // adds what neither can say: how long is left.
+        if (summary.detail != null)
+          Text(
+            state.estimatedTimeRemaining == null
+                ? 'Estimating time…'
+                : _formatEta(state.estimatedTimeRemaining!),
+            style: AppTypography.titleSmall.copyWith(color: AppColors.textSecondary),
+          ),
         AppSpacing.vSpace16,
         if (state.crossPostStatus.isNotEmpty)
           ...state.crossPostStatus.entries.map((e) => ListTile(
@@ -489,22 +792,58 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   }
 
   Widget _buildActionButtons(UploadStateManager state) {
-    final isUploading = state.status != UploadStatus.idle && state.status != UploadStatus.error && state.status != UploadStatus.success;
-
     if (state.status == UploadStatus.success) {
       return AppButton(onPressed: _resetScreenState, label: 'Upload Another', isFullWidth: true);
     }
 
-    if (isUploading) {
-      return AppButton(
-        onPressed: _cancelUpload,
-        label: 'Cancel Upload',
-        variant: AppButtonVariant.outline,
-        isFullWidth: true,
+    if (state.isUploadInFlight) {
+      return Column(
+        children: [
+          // Leaving is the recommended path — waiting on this screen buys the
+          // user nothing, so it gets the primary treatment.
+          AppButton(
+            onPressed: _runInBackground,
+            label: 'Run in Background',
+            variant: AppButtonVariant.primary,
+            isFullWidth: true,
+          ),
+          AppSpacing.vSpace12,
+          AppButton(
+            onPressed: _confirmCancelUpload,
+            label: 'Cancel Upload',
+            variant: AppButtonVariant.outline,
+            isFullWidth: true,
+          ),
+        ],
       );
     }
 
-    return AppButton(onPressed: _uploadVideo, label: 'Start Upload', isFullWidth: true);
+    // A series that died part-way resumes instead of restarting, so the
+    // episodes already on the server are neither duplicated nor orphaned.
+    if (state.canRetrySeries) {
+      return Column(
+        children: [
+          AppButton(
+            onPressed: _retryFailedEpisodes,
+            label: 'Retry from Episode ${state.episodesUploaded + 1}',
+            isFullWidth: true,
+          ),
+          AppSpacing.vSpace12,
+          AppButton(
+            onPressed: _resetScreenState,
+            label: 'Discard remaining episodes',
+            variant: AppButtonVariant.text,
+            isFullWidth: true,
+          ),
+        ],
+      );
+    }
+
+    return AppButton(
+      onPressed: _uploadVideo,
+      label: state.isSeries ? 'Upload ${state.totalEpisodes} Episodes' : 'Start Upload',
+      isFullWidth: true,
+    );
   }
 
   Widget _getPlatformIcon(String platform, Color color) {
@@ -552,7 +891,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 final manager = ref.read(uploadStateManagerProvider);
                 manager.setTags(manager.tags.where((t) => t != tag).toList());
               },
-              onMakeEpisode: () {},
+              seriesEpisodes: _seriesEpisodes,
+              onEditSeries: _openSeriesEditor,
               quizzes: _quizzes,
               selectedPlatforms: _selectedPlatforms,
               selectedSubscribers: _selectedSubscribers,
@@ -570,16 +910,4 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     );
   }
 
-  String _getStatusText(UploadStatus status) {
-    switch (status) {
-      case UploadStatus.idle: return 'Idle';
-      case UploadStatus.preparing: return 'Preparing';
-      case UploadStatus.validation: return 'Validating';
-      case UploadStatus.uploading: return 'Uploading';
-      case UploadStatus.processing: return 'Processing';
-      case UploadStatus.finalizing: return 'Finalizing';
-      case UploadStatus.success: return 'Success';
-      case UploadStatus.error: return 'Error';
-    }
-  }
 }

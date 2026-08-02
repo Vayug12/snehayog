@@ -63,6 +63,68 @@ const initializeFirebase = async () => {
 };
 
 /**
+ * Send a batch of FCM tokens and clean up invalid ones
+ */
+const sendBatch = async (tokens, message) => {
+  const response = await admin.messaging().sendEachForMulticast({
+    tokens,
+    ...message,
+  });
+
+  if (response.failureCount > 0) {
+    const invalidTokens = [];
+    response.responses.forEach((resp, idx) => {
+      if (!resp.success) {
+        invalidTokens.push(tokens[idx]);
+      }
+    });
+
+    if (invalidTokens.length > 0) {
+      await User.updateMany(
+        { fcmToken: { $in: invalidTokens } },
+        {
+          $set: {
+            fcmToken: null,
+            isAppUninstalled: true,
+            lastInstallCheck: new Date()
+          }
+        }
+      );
+      console.log(`🗑️ Removed ${invalidTokens.length} invalid FCM tokens and marked as uninstalled`);
+    }
+  }
+
+  return { successCount: response.successCount, failureCount: response.failureCount };
+};
+
+/**
+ * Build standard FCM message payload
+ */
+const buildMessage = (notification) => ({
+  notification: {
+    title: notification.title,
+    body: notification.body,
+  },
+  data: notification.data || {},
+  android: {
+    priority: 'high',
+    notification: {
+      sound: 'default',
+      channelId: 'default',
+    },
+  },
+  apns: {
+    payload: {
+      aps: {
+        sound: 'default',
+      },
+    },
+  },
+});
+
+const BATCH_SIZE = 500;
+
+/**
  * Send notification to a single user by their Google ID
  */
 export const sendNotificationToUser = async (googleId, notification) => {
@@ -143,79 +205,40 @@ export const sendNotificationToUsers = async (googleIds, notification) => {
   }
 
   try {
-    const users = await User.find({ 
+    const message = buildMessage(notification);
+
+    const cursor = User.find({
       googleId: { $in: googleIds },
       fcmToken: { $ne: null }
-    });
+    }).select('fcmToken').batchSize(BATCH_SIZE).cursor();
 
-    if (users.length === 0) {
-      return { success: false, error: 'No users with FCM tokens found' };
-    }
+    let tokens = [];
+    let totalSuccess = 0;
+    let totalFailure = 0;
 
-    const tokens = users.map(user => user.fcmToken).filter(Boolean);
-    
-    if (tokens.length === 0) {
-      return { success: false, error: 'No valid FCM tokens found' };
-    }
+    for await (const user of cursor) {
+      if (user.fcmToken) tokens.push(user.fcmToken);
 
-    const message = {
-      notification: {
-        title: notification.title,
-        body: notification.body,
-      },
-      data: notification.data || {},
-      android: {
-        priority: 'high',
-        notification: {
-          sound: 'default',
-          channelId: 'default',
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: 'default',
-          },
-        },
-      },
-    };
-
-    // Send to multiple tokens
-    const response = await admin.messaging().sendEachForMulticast({
-      tokens,
-      ...message,
-    });
-
-    console.log(`✅ Sent ${response.successCount} notifications, ${response.failureCount} failed`);
-
-    // Remove invalid tokens
-    if (response.failureCount > 0) {
-      const invalidTokens = [];
-      response.responses.forEach((resp, idx) => {
-        if (!resp.success) {
-          invalidTokens.push(tokens[idx]);
-        }
-      });
-
-      if (invalidTokens.length > 0) {
-        await User.updateMany(
-          { fcmToken: { $in: invalidTokens } },
-          { 
-            $set: { 
-              fcmToken: null,
-              isAppUninstalled: true,
-              lastInstallCheck: new Date()
-            } 
-          }
-        );
-        console.log(`🗑️ Removed ${invalidTokens.length} invalid FCM tokens and marked as uninstalled`);
+      if (tokens.length >= BATCH_SIZE) {
+        const result = await sendBatch(tokens, message);
+        totalSuccess += result.successCount;
+        totalFailure += result.failureCount;
+        tokens = [];
       }
     }
 
-    return { 
-      success: true, 
-      successCount: response.successCount,
-      failureCount: response.failureCount 
+    if (tokens.length > 0) {
+      const result = await sendBatch(tokens, message);
+      totalSuccess += result.successCount;
+      totalFailure += result.failureCount;
+    }
+
+    console.log(`✅ Sent ${totalSuccess} notifications, ${totalFailure} failed`);
+
+    return {
+      success: true,
+      successCount: totalSuccess,
+      failureCount: totalFailure
     };
   } catch (error) {
     console.error('❌ Error sending notifications:', error);
@@ -234,89 +257,46 @@ export const sendNotificationToAll = async (notification) => {
   }
 
   try {
-    const users = await User.find({ 
-      fcmToken: { $ne: null } 
-    }).select('fcmToken');
+    const message = buildMessage(notification);
 
-    if (users.length === 0) {
-      return { success: false, error: 'No users with FCM tokens found' };
-    }
+    const cursor = User.find({
+      fcmToken: { $ne: null }
+    }).select('fcmToken').batchSize(BATCH_SIZE).cursor();
 
-    const tokens = users.map(user => user.fcmToken).filter(Boolean);
+    let tokens = [];
+    let totalSuccess = 0;
+    let totalFailure = 0;
 
-    const message = {
-      notification: {
-        title: notification.title,
-        body: notification.body,
-      },
-      data: notification.data || {},
-      android: {
-        priority: 'high',
-        notification: {
-          sound: 'default',
-          channelId: 'default',
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: 'default',
-          },
-        },
-      },
-    };
+    for await (const user of cursor) {
+      if (user.fcmToken) tokens.push(user.fcmToken);
 
-    // Firebase allows up to 500 tokens per batch
-    const batchSize = 500;
-    let successCount = 0;
-    let failureCount = 0;
-
-    for (let i = 0; i < tokens.length; i += batchSize) {
-      const batch = tokens.slice(i, i + batchSize);
-      const response = await admin.messaging().sendEachForMulticast({
-        tokens: batch,
-        ...message,
-      });
-
-      successCount += response.successCount;
-      failureCount += response.failureCount;
-
-      // Remove invalid tokens
-      if (response.failureCount > 0) {
-        const invalidTokens = [];
-        response.responses.forEach((resp, idx) => {
-          if (!resp.success) {
-            invalidTokens.push(batch[idx]);
-          }
-        });
-
-        if (invalidTokens.length > 0) {
-          await User.updateMany(
-            { fcmToken: { $in: invalidTokens } },
-            { 
-              $set: { 
-                fcmToken: null,
-                isAppUninstalled: true,
-                lastInstallCheck: new Date()
-              } 
-            }
-          );
-        }
+      if (tokens.length >= BATCH_SIZE) {
+        const result = await sendBatch(tokens, message);
+        totalSuccess += result.successCount;
+        totalFailure += result.failureCount;
+        tokens = [];
       }
     }
 
-    console.log(`✅ Broadcast sent: ${successCount} success, ${failureCount} failed`);
-    
-    return { 
-      success: true, 
-      successCount,
-      failureCount 
+    if (tokens.length > 0) {
+      const result = await sendBatch(tokens, message);
+      totalSuccess += result.successCount;
+      totalFailure += result.failureCount;
+    }
+
+    console.log(`✅ Broadcast sent: ${totalSuccess} success, ${totalFailure} failed`);
+
+    return {
+      success: true,
+      successCount: totalSuccess,
+      failureCount: totalFailure
     };
   } catch (error) {
     console.error('❌ Error broadcasting notifications:', error);
     return { success: false, error: error.message };
   }
 };
+
 /**
  * Verify if a user's app is still installed by checking their FCM token
  * Uses dry-run mode to validate the token without sending a real notification

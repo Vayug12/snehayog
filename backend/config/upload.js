@@ -65,7 +65,7 @@ export const videoUpload = multer({
     },
   }),
   limits: {
-    fileSize: 700 * 1024 * 1024, // 700MB limit for videos
+    fileSize: 100 * 1024 * 1024, // 100MB limit (Server-side fallback; frontend uses presigned URLs)
   },
   fileFilter: (req, file, cb) => {
     const allowedMimeTypes = [

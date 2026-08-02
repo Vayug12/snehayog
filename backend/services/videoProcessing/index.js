@@ -2,17 +2,15 @@ import VideoPipeline from './VideoPipeline.js';
 import DownloadStep from './steps/DownloadStep.js';
 import HlsTranscodeStep from './steps/HlsTranscodeStep.js';
 import CleanupStep from './steps/CleanupStep.js';
-import GeminiSummarizationStep from './steps/GeminiSummarizationStep.js';
+// import GeminiSummarizationStep from './steps/GeminiSummarizationStep.js';
 
 /**
- * Standard Video Processing Pipeline (Zero-Cost Gemini)
+ * Standard Video Processing Pipeline
  * 
- * Download → HLS Transcode → Gemini AI Summarization → Cleanup
+ * Download → HLS Transcode → Cleanup
  * 
- * GeminiSummarizationStep handles:
- * - Groq Whisper transcription (free: 7K/day)
- * - Gemini Flash semantic text (free: 1K/day, rate-limited)
- * - Gemini embedding-004 384-dim (free: 1K/day, rate-limited)
+ * ⚠️ GeminiSummarizationStep DISABLED — saves CPU (ffmpeg audio extraction) + memory
+ * (Groq Whisper, Gemini Flash, Gemini embedding API calls)
  */
 const defaultPipeline = new VideoPipeline();
 
@@ -21,6 +19,9 @@ defaultPipeline
   .addStep(new HlsTranscodeStep())
   .addStep(new CleanupStep());
 
+// ⚠️ AI Analysis Pipeline DISABLED — was using GeminiSummarizationStep
+// Uncomment below to re-enable Gemini summarization + embedding
+/*
 const aiAnalysisPipeline = new VideoPipeline();
 
 aiAnalysisPipeline
@@ -29,5 +30,6 @@ aiAnalysisPipeline
   .addStep(new CleanupStep());
 
 export { aiAnalysisPipeline };
+*/
 export default defaultPipeline;
 

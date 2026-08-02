@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
+import 'package:vayug/features/video/upload/domain/models/episode_draft.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/features/video/quiz/presentation/screens/create_quiz_screen.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
@@ -14,7 +15,11 @@ class UploadAdvancedSettingsScreen extends StatefulWidget {
   final ValueNotifier<List<String>> tags;
   final void Function(String) onAddTag;
   final void Function(String) onRemoveTag;
-  final VoidCallback onMakeEpisode;
+
+  /// Episodes 2..N of the series draft. Episode 1 is the video already picked
+  /// in the main flow, so this being empty means "not a series".
+  final ValueNotifier<List<EpisodeDraft>> seriesEpisodes;
+  final VoidCallback onEditSeries;
   final ValueNotifier<List<QuizModel>> quizzes;
   final ValueNotifier<List<String>> selectedPlatforms;
   final ValueNotifier<List<String>> selectedSubscribers;
@@ -29,7 +34,8 @@ class UploadAdvancedSettingsScreen extends StatefulWidget {
     required this.tags,
     required this.onAddTag,
     required this.onRemoveTag,
-    required this.onMakeEpisode,
+    required this.seriesEpisodes,
+    required this.onEditSeries,
     required this.quizzes,
     required this.selectedPlatforms,
     required this.selectedSubscribers,
@@ -135,16 +141,9 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
                       onTap: () => _showLinkEditor(context),
                     ),
 
-                    _buildSettingRow(
-                      icon: Icons.video_collection_outlined,
-                      title: 'Make an Episode',
-                      subtitle: 'Add to a series or playlist',
-                      onTap: widget.onMakeEpisode,
-                    ),
+                    _buildSeriesRow(),
 
                     _buildSubscriberOnlyTile(),
-
-                    _buildCrossPostingTile(),
                     
                     const SizedBox(height: 24),
                   ],
@@ -182,23 +181,29 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 24, bottom: 8, left: 4),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          color: AppColors.textTertiary.withValues(alpha: 0.7),
-          letterSpacing: 1.2,
-        ),
-      ),
+  /// Behaves like every other row here: it edits the draft and comes back.
+  /// The upload itself only ever starts from the main upload screen.
+  Widget _buildSeriesRow() {
+    return ValueListenableBuilder<List<EpisodeDraft>>(
+      valueListenable: widget.seriesEpisodes,
+      builder: (context, episodes, _) {
+        final isSeries = episodes.isNotEmpty;
+        return _buildSettingRow(
+          icon: Icons.video_collection_outlined,
+          title: 'Series',
+          subtitle: 'Upload this as a numbered multi-episode series',
+          trailing: Text(
+            isSeries ? '${episodes.length + 1} episodes' : 'Off',
+            style: TextStyle(
+              color: isSeries ? AppColors.primary : AppColors.textTertiary,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          onTap: widget.onEditSeries,
+        );
+      },
     );
-  }
-
-  Widget _buildDivider() {
-    return Divider(height: 1, thickness: 1, color: AppColors.borderPrimary.withValues(alpha: 0.4));
   }
 
   Widget _buildSettingRow({
@@ -284,31 +289,6 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildCrossPostingTile() {
-    return ValueListenableBuilder<List<String>>(
-      valueListenable: widget.selectedPlatforms,
-      builder: (context, selected, _) {
-        final isActive = selected.contains('youtube');
-        return _buildSettingRow(
-          icon: Icons.share_rounded,
-          title: 'Post to YouTube',
-          subtitle: 'Sync upload with YouTube Shorts',
-          trailing: Switch(
-            value: isActive,
-            onChanged: (val) {
-              final current = List<String>.from(widget.selectedPlatforms.value);
-              if (val) { if (!current.contains('youtube')) current.add('youtube'); }
-              else { current.remove('youtube'); }
-              widget.selectedPlatforms.value = current;
-            },
-            activeTrackColor: AppColors.primary,
-          ),
-          onTap: () {},
-        );
-      },
     );
   }
 
@@ -412,26 +392,6 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
           ),
         );
       },
-    );
-  }
-
-  Widget _buildMakeEpisodeOption(BuildContext context) {
-    return InkWell(
-      onTap: widget.onMakeEpisode,
-      child: const Padding(
-        padding: EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Make an Episode',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textTertiary),
-          ],
-        ),
-      ),
     );
   }
 

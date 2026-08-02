@@ -116,14 +116,14 @@ class CloudflareR2Service {
   
   async uploadVideoToR2(filePath, fileName, userId) {
     try {
-      const fileContent = fs.readFileSync(filePath);
       const sanitizedName = this.sanitizeKey(fileName);
       const key = `videos/${userId}/${sanitizedName}_480p_${Date.now()}.mp4`;
+      const fileSize = fs.statSync(filePath).size;
       
       const command = new PutObjectCommand({
         Bucket: this.bucketName,
         Key: key,
-        Body: fileContent,
+        Body: fs.createReadStream(filePath),
         ContentType: 'video/mp4',
         CacheControl: 'public, max-age=31536000, immutable, stale-while-revalidate=604800',
         Metadata: {
@@ -136,13 +136,12 @@ class CloudflareR2Service {
   
       await this.s3Client.send(command);
       
-      // **USE CUSTOM DOMAIN** (cdn.snehayog.com) for public URL
       const publicUrl = this.getPublicUrl(key);
       
       return {
         url: publicUrl,
         key: key,
-        size: fileContent.length,
+        size: fileSize,
         format: 'mp4',
         quality: '480p'
       };
@@ -259,7 +258,7 @@ class CloudflareR2Service {
   async uploadFileToR2(filePath, key, contentType = 'application/octet-stream') {
     try {
       const sanitizedKey = this.sanitizeKey(key);
-      const fileContent = fs.readFileSync(filePath);
+      const fileSize = fs.statSync(filePath).size;
 
       // Determine cache directives based on file type
       let cacheControl = 'public, max-age=86400, stale-while-revalidate=86400';
@@ -274,7 +273,7 @@ class CloudflareR2Service {
       const command = new PutObjectCommand({
         Bucket: this.bucketName,
         Key: sanitizedKey,
-        Body: fileContent,
+        Body: fs.createReadStream(filePath),
         ContentType: contentType,
         CacheControl: cacheControl,
       });
@@ -287,7 +286,7 @@ class CloudflareR2Service {
       return {
         url: publicUrl,
         key: sanitizedKey,
-        size: fileContent.length,
+        size: fileSize,
       };
       
     } catch (error) {
@@ -304,29 +303,31 @@ class CloudflareR2Service {
     try {
       
       const files = fs.readdirSync(hlsDir);
-      const uploadPromises = [];
-      let playlistKey = null;
       const sanitizedVideoName = this.sanitizeKey(videoName);
+      let playlistKey = null;
       
+      // Build upload tasks
+      const tasks = [];
       for (const file of files) {
         const filePath = path.join(hlsDir, file);
         const key = `hls/${userId}/${sanitizedVideoName}/${file}`;
         
         if (file.endsWith('.m3u8')) {
-          // Upload playlist file
-          uploadPromises.push(
-            this.uploadFileToR2(filePath, key, 'application/x-mpegURL')
-          );
+          tasks.push({ filePath, key, contentType: 'application/x-mpegURL' });
           playlistKey = key;
         } else if (file.endsWith('.ts')) {
-          // Upload segment file
-          uploadPromises.push(
-            this.uploadFileToR2(filePath, key, 'video/mp2t')
-          );
+          tasks.push({ filePath, key, contentType: 'video/mp2t' });
         }
       }
       
-      await Promise.all(uploadPromises);
+      // Upload in batches of 5 to avoid memory spike
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+        const batch = tasks.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(t => this.uploadFileToR2(t.filePath, t.key, t.contentType))
+        );
+      }
       
       if (!playlistKey) {
         throw new Error('No playlist file found in HLS directory');

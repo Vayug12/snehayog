@@ -197,9 +197,7 @@ class FeedQueueService {
                 attempts: 3,
                 backoff: { type: 'exponential', delay: 5000 },
                 removeOnComplete: true,
-                removeOnFail: false,
                 priority: 1, // High Priority
-                jobTimeout: 15 * 60 * 1000, // 15 minutes timeout for FFmpeg processing
                 removeOnFail: {
                     age: 24 * 60 * 60 * 1000, // Keep failed jobs for 24 hours
                     count: 10

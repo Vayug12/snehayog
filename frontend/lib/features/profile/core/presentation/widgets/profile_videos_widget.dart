@@ -55,9 +55,9 @@ class ProfileVideosWidget extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.info_outline, size: 18, color: AppColors.textSecondary),
+            const Icon(Icons.info_outline, size: 18, color: AppColors.textSecondary),
             const SizedBox(width: 8),
-            Expanded(
+            const Expanded(
               child: Text(
                 'Couldn\'t refresh. Showing saved videos.',
                 style: TextStyle(
@@ -141,13 +141,13 @@ class ProfileVideosWidget extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
+            const Icon(
               Icons.cloud_off_outlined,
               size: 42,
               color: AppColors.textTertiary,
             ),
             const SizedBox(height: 14),
-            Text(
+            const Text(
               'Couldn\'t load videos',
               style: TextStyle(
                 color: AppColors.textPrimary,
@@ -157,7 +157,7 @@ class ProfileVideosWidget extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
-            Text(
+            const Text(
               'Check your connection and try again.',
               style: TextStyle(
                 color: AppColors.textSecondary,
@@ -192,13 +192,13 @@ class ProfileVideosWidget extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(24, 34, 24, 34),
         child: Column(
           children: [
-            Icon(
+            const Icon(
               Icons.video_library_outlined,
               size: 40,
               color: AppColors.textTertiary,
             ),
             const SizedBox(height: 12),
-            Text(
+            const Text(
               'You haven\'t uploaded any videos yet.',
               style: TextStyle(
                 color: AppColors.textPrimary,
@@ -209,7 +209,7 @@ class ProfileVideosWidget extends StatelessWidget {
             ),
             if (canRefer) ...[
               const SizedBox(height: 6),
-              Text(
+              const Text(
                 'Share Vayug with friends to unlock creator billing.',
                 style: TextStyle(
                   color: AppColors.textSecondary,
@@ -244,12 +244,12 @@ class ProfileVideosWidget extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(24, 42, 24, 42),
         child: Column(
           children: [
-            Icon(Icons.video_library_outlined,
+            const Icon(Icons.video_library_outlined,
                 size: 38, color: AppColors.textTertiary),
             const SizedBox(height: 12),
             Text(
               'No $label videos yet.',
-              style: TextStyle(
+              style: const TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -438,10 +438,13 @@ class ProfileVideosWidget extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
+                    // No parentTabIndex: this profile can be a pushed route
+                    // inside ANY tab. Hardcoding 4 bound the player to the
+                    // Profile tab, so the coordinator saw it as living in a
+                    // background tab and blocked every play.
                     builder: (context) => VayuLongFormPlayerScreen(
                       video: video,
                       relatedVideos: displayVideos,
-                      parentTabIndex: 4, // Profile tab index (4)
                     ),
                   ),
                 );
@@ -449,10 +452,11 @@ class ProfileVideosWidget extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
+                    // See above: the tab is resolved from the live navigation
+                    // state instead of being assumed to be the Profile tab.
                     builder: (context) => VideoScreen(
                       initialVideos: displayVideos,
                       initialVideoId: video.id,
-                      parentTabIndex: 4, // Profile tab index (4)
                     ),
                   ),
                 );

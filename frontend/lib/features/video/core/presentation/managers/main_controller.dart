@@ -7,6 +7,7 @@ import 'package:vayug/core/providers/video_providers.dart';
 import 'dart:async';
 import 'package:vayug/features/video/core/presentation/managers/shared_video_controller_pool.dart';
 import 'package:vayug/features/video/core/presentation/managers/video_controller_manager.dart';
+import 'package:vayug/shared/services/playback_coordinator.dart';
 
 class MainController extends ChangeNotifier {
   int _currentIndex = 0;
@@ -93,6 +94,13 @@ class MainController extends ChangeNotifier {
     if (_pendingTabIndex == index) return;
 
     _pendingTabIndex = index;
+
+    // Hand ownership to the new tab BEFORE any pause observer or preload runs.
+    // A player in the tab being left keeps `routeActive == true` (a tab switch
+    // is not a route pop), so without this it would re-claim the playback slot
+    // and pause the feed the user just switched to.
+    PlaybackCoordinator().setActiveTab(index);
+
     _handleIndexChangeFallback(index);
 
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -145,6 +153,7 @@ class MainController extends ChangeNotifier {
 
   void navigateToProfile() {
     _currentIndex = 4; // Profile index
+    PlaybackCoordinator().setActiveTab(_currentIndex);
     notifyListeners();
   }
 
@@ -311,6 +320,7 @@ class MainController extends ChangeNotifier {
       // **FIXED: Reset main controller state**
       if (resetIndex) {
         _currentIndex = 0;
+        PlaybackCoordinator().setActiveTab(_currentIndex);
       }
       _isAppInForeground = true;
       _pauseVideosCallback = null;
@@ -325,6 +335,9 @@ class MainController extends ChangeNotifier {
   /// **RESTORED: Always return home tab (0) on app start**
   Future<int> restoreLastTabIndex() async {
     _currentIndex = 0;
+    // Also seeds the coordinator's active tab on cold start, so tab ownership
+    // is accurate before the user's first tab switch.
+    PlaybackCoordinator().setActiveTab(_currentIndex);
     return 0;
   }
 

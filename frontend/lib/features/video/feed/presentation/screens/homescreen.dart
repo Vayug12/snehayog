@@ -23,6 +23,7 @@ import 'package:in_app_update/in_app_update.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vayug/shared/services/http_client_service.dart';
+import 'package:vayug/shared/navigation/app_route_observer.dart';
 import 'package:vayug/shared/services/deep_link_service.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/profile/core/presentation/screens/edit_profile_screen.dart';
@@ -54,6 +55,15 @@ class _MainScreenState extends ConsumerState<MainScreen>
     GlobalKey<NavigatorState>(), // Index 3: Subscriptions
     GlobalKey<NavigatorState>(), // Index 4: Profile
   ];
+
+  // Route events inside a tab (creator profile, dedicated player) happen on the
+  // nested navigator, which the root observer never sees. Each tab forwards its
+  // own events so players can tell when a route covers them.
+  final List<AppRouteObserverForwarder> _tabRouteObservers =
+      List<AppRouteObserverForwarder>.generate(
+    5,
+    (_) => AppRouteObserverForwarder(),
+  );
 
   // **NEW: Track refresh state for visual feedback**
   bool _isRefreshing = false;
@@ -749,7 +759,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   Widget _buildTabNavigator(int index, Widget child) {
     return Navigator(
       key: _navigatorKeys[index],
-      observers: [TabNavigatorObserver(index, ref)],
+      observers: [TabNavigatorObserver(index, ref), _tabRouteObservers[index]],
       onGenerateRoute: (routeSettings) {
         return MaterialPageRoute(
           builder: (context) => child,

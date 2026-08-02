@@ -139,6 +139,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   void initState() {
     super.initState();
     _playbackCoordinator.setRouteActive(_playbackSession, true);
+    _playbackCoordinator.bindSessionToTab(_playbackSession, _feedTabIndex);
     // Removed redundant PageController and _loadVideos initialization.
     // These are now handled exclusively in _initializeServices() to prevent race conditions.
 
@@ -223,40 +224,66 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   void _pauseCurrentVideo() {
     if (_currentIndex < _videos.length) {
       final video = _videos[_currentIndex];
+      _viewTracker.stopViewTracking(video.id);
       final controller = _controllerPool[video.id];
-      if (controller != null && controller.value.isInitialized) {
+      if (controller != null) {
         try {
-          // Always call pause to override/cancel any pending or buffering play states
-          controller.pause();
-          _controllerStates[video.id] = false;
-          _ensureWakelockForVisibility();
-          AppLogger.log('⏸️ VideoFeedAdvanced: Paused current video at index $_currentIndex');
+          if (SharedVideoControllerPool().isControllerDisposed(controller)) {
+            _controllerPool.remove(video.id);
+            _controllerStates.remove(video.id);
+          } else if (controller.value.isInitialized) {
+            // Always call pause to override/cancel any pending or buffering play states
+            controller.pause();
+            _controllerStates[video.id] = false;
+            _ensureWakelockForVisibility();
+            AppLogger.log('⏸️ VideoFeedAdvanced: Paused current video at index $_currentIndex');
+          }
         } catch (e) {
+          _controllerPool.remove(video.id);
+          _controllerStates.remove(video.id);
           AppLogger.log('⚠️ VideoFeedAdvanced: Error pausing current video: $e');
         }
       }
     }
+
+    // Hand the global playback slot back. The next play re-claims it, and
+    // without this the coordinator keeps pointing at a controller that is no
+    // longer playing.
+    _playbackCoordinator.pause(_playbackSession);
+  }
+
+  /// Silences every controller this feed can reach, without claiming anything
+  /// about visibility or route state.
+  void _pauseAllPooledVideos() {
+    _pauseCurrentVideo();
+
+    for (final entry in _controllerPool.entries.toList()) {
+      try {
+        if (SharedVideoControllerPool().isControllerDisposed(entry.value)) {
+          continue;
+        }
+        if (entry.value.value.isInitialized && entry.value.value.isPlaying) {
+          entry.value.pause();
+          _controllerStates[entry.key] = false;
+        }
+      } catch (_) {}
+    }
+
+    // Other surfaces share the same audio output, so their pools have to be
+    // silenced too — a controller this feed never created can still be loud.
+    _videoControllerManager.pauseAllVideosOnTabChange();
+    SharedVideoControllerPool().pauseAllControllers();
   }
 
   void _pauseAllVideosOnTabSwitch() {
     AppLogger.log('🔇 VideoFeedAdvanced: Pausing all videos for tab switch');
-    _pauseCurrentVideo();
-    
-    // Also pause all controllers in the pool just in case
-    for (final controller in _controllerPool.values) {
-      try {
-        if (controller.value.isInitialized && controller.value.isPlaying) {
-          controller.pause();
-        }
-      } catch (_) {}
-    }
-    
+    _pauseAllPooledVideos();
     _isScreenVisible = false;
     _ensureWakelockForVisibility();
   }
 
   void _pauseAllOtherVideos(String activeId) {
-    for (final entry in _controllerPool.entries) {
+    for (final entry in _controllerPool.entries.toList()) {
       if (entry.key != activeId) {
         try {
           if (entry.value.value.isPlaying) {
@@ -266,6 +293,10 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         } catch (_) {}
       }
     }
+
+    _videoControllerManager.pauseAllVideosOnTabChange(exceptVideoId: activeId);
+    SharedVideoControllerPool().pauseAllControllers(exceptVideoId: activeId);
+    _ensureWakelockForVisibility();
   }
   /// **Helper to allow extensions to call setState safely**
   void safeSetState(VoidCallback fn) {
@@ -497,13 +528,12 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   void _handleVisibilityChange(bool isVisible) {
     if (_isScreenVisible != isVisible) {
       _isScreenVisible = isVisible;
-      final dedicatedRoute = _openedFromProfile || _openedFromDeepLink;
-      _playbackCoordinator.setRouteActive(
-        _playbackSession,
-        dedicatedRoute
-            ? (ModalRoute.of(context)?.isCurrent ?? true)
-            : isVisible,
-      );
+      // Route ownership is not derived from tab visibility any more: every tab
+      // navigator now reports to appRouteObserver, so didPushNext/didPopNext
+      // are the single source for `routeActive`. Deriving it here used to
+      // strand the session with routeActive == false, which blocked autoplay
+      // AND manual taps until the screen was rebuilt from scratch.
+      // Tab visibility itself is owned by PlaybackCoordinator.setActiveTab().
 
       if (isVisible) {
         // Returning to Yug tab - ensure current video autoplays (no audio overlap)
@@ -529,10 +559,9 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           }
         }
 
-        // 2) Pause all other videos to avoid audio overlap
-        _pauseAllVideosOnTabSwitch();
-        _isScreenVisible =
-            true; // set visible again after pause helper sets false
+        // 2) Pause everything else to avoid audio overlap. This must not touch
+        // visibility state — we are becoming visible, not leaving.
+        _pauseAllPooledVideos();
         _ensureWakelockForVisibility();
 
         // 3) Autoplay the current video
@@ -698,8 +727,20 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     return SharedVideoControllerPool().hasActivePlayback();
   }
 
+  /// The tab this feed lives in, or `null` when it is not tied to one.
+  int? get _feedTabIndex =>
+      widget.parentTabIndex ?? (widget.isMainYugTab ? 0 : null);
+
+  /// True only for a player pushed as its own route (profile grid, search).
+  ///
+  /// The main Yug tab also receives `initialVideos` for a warm start, so
+  /// inferring "dedicated player" from that list alone made the background feed
+  /// claim playback from whatever the user was actually watching — and it did
+  /// so only when the startup prefetch happened to win the race.
   bool get _openedFromProfile =>
-      widget.initialVideos != null && widget.initialVideos!.isNotEmpty;
+      !widget.isMainYugTab &&
+      widget.initialVideos != null &&
+      widget.initialVideos!.isNotEmpty;
 
   bool get _openedFromDeepLink =>
       widget.initialVideoId != null && widget.initialVideos == null;
@@ -829,12 +870,11 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       AppLogger.log(
           '⏸️ VideoFeedAdvanced: Pausing current video before navigation');
 
-      // **CRITICAL FIX: Explicitly mark as user paused to prevent race condition autoplay**
-      // If video is still loading, this flag ensures it won't autoplay when ready.
-      // **OPTIMIZED: Use ValueNotifier for granular updates - NO setState**
+      // Navigating away is not a user pause. Marking it as one used to survive
+      // the trip and suppress autoplay after the pop, leaving the feed frozen.
+      // A late autoplay from a still-loading video is now blocked by the
+      // coordinator instead: the pushed route flips routeActive to false.
       final video = _videos[_currentIndex];
-      _userPaused[video.id] = true;
-      _userPausedVN[video.id]?.value = true;
       _controllerStates[video.id] = false;
 
       _pauseCurrentVideo();
@@ -909,6 +949,11 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // 1. Pause current video before moving to next
     _pauseCurrentVideo();
 
+    // The coordinator's pause intent is per session, not per video, so a tap
+    // pause on the previous video would otherwise keep blocking every autoplay
+    // that follows an auto-scroll. Per-video intent lives in _userPaused.
+    _playbackCoordinator.setUserPaused(_playbackSession, false);
+
     // 2. Persist current video index for state restoration - **FIX: Always check bounds**
     if (index >= 0 && index < _videos.length) {
       ref.read(mainControllerProvider).updateCurrentVideoIndex(index, tabIndex: 0);
@@ -919,6 +964,13 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       _currentIndex = index;
       _activeQuizVN.value = null;
     });
+
+    // 3b. PIN the new current video immediately, before any preload runs.
+    // Preloading a neighbour refreshes that neighbour's LRU timestamp, so
+    // without this the video on screen can become the eviction candidate.
+    if (index >= 0 && index < _videos.length) {
+      SharedVideoControllerPool().pinVideo(_videos[index].id);
+    }
 
     // 4. Handle preloading and resource protection (debounced)
     // We wait 300ms for the page to "snap" before triggering heavy autoplay logic
@@ -941,6 +993,20 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     // 6. RESOURCE PROTECTION: Cancel irrelevant loads
     _cancelIrrelevantPreloads(index);
+  }
+
+  /// **Video ids occupying positions [start, end] in the CURRENT list.**
+  ///
+  /// Recomputed on every call on purpose: the pool must never cache positions,
+  /// because pagination and refresh invalidate them.
+  Set<String> _keepAliveVideoIds(int start, int end) {
+    final ids = <String>{};
+    for (int i = start; i <= end; i++) {
+      if (i >= 0 && i < _videos.length) {
+        ids.add(_videos[i].id);
+      }
+    }
+    return ids;
   }
 
   /// **CANCELLATION HELPER: Discard work for videos the user skipped**
@@ -974,9 +1040,10 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     });
 
     // 3. Ruthless Disposal: Kill controllers that are definitely not needed
-    // This frees hardware decoders instantly during fast scroll
-    final sharedPool = SharedVideoControllerPool();
-    sharedPool.cleanupDistantControllers(currentIndex, keepRange: 1);
+    // This frees hardware decoders instantly during fast scroll.
+    // The pinned (playing) video survives this regardless of the keep set.
+    SharedVideoControllerPool()
+        .retainOnly(_keepAliveVideoIds(currentIndex - 1, currentIndex + 1));
   }
 
   /// **PAGE CHANGE HANDLER**
@@ -1218,7 +1285,10 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     int index,
   ) {
     final videoId = _videos[index].id;
-    controller.removeListener(_bufferingListeners[videoId] ?? () {});
+    final existing = _bufferingListeners[videoId];
+    if (existing != null) {
+      SharedVideoControllerPool().detachListener(videoId, existing);
+    }
     void listener() {
       if (!mounted) return;
       final bool next =
@@ -1232,7 +1302,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       }
     }
 
-    controller.addListener(listener);
+    SharedVideoControllerPool().attachListener(videoId, listener);
     _bufferingListeners[videoId] = listener;
 
     // (Removed first-frame tracking listener per revert)
@@ -1703,9 +1773,14 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     }
 
     final mainController = ref.watch(mainControllerProvider);
-    final isVideoTabActive = mainController.currentIndex == 0;
+    // Visibility means "is MY tab on screen", not "is tab 0 on screen". A
+    // player pushed from the Profile tab used to be told it was hidden the
+    // moment it started, which paused it a few frames after the first play.
+    final feedTabIndex = _feedTabIndex;
+    final isOwnTabActive =
+        feedTabIndex == null || mainController.currentIndex == feedTabIndex;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _handleVisibilityChange(isVideoTabActive);
+      _handleVisibilityChange(isOwnTabActive);
     });
 
     // #region agent log
@@ -1895,36 +1970,40 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     final bool openedFromProfile = _openedFromProfile;
     int savedControllers = 0;
 
+    // This screen is going away, so nothing here is "the video being watched".
+    // Leaving a stale pin would make that controller un-evictable forever.
+    sharedPool.pinVideo(null);
+
     // Create a copy of the pool to avoid modification during iteration
     final controllersToDispose =
         Map<String, VideoPlayerController>.from(_controllerPool);
 
     controllersToDispose.forEach((videoId, controller) {
       try {
-        // Remove listeners to avoid memory leaks
-        controller.removeListener(_bufferingListeners[videoId] ?? () {});
-        controller.removeListener(_videoEndListeners[videoId] ?? () {});
+        // Remove listeners to avoid memory leaks. Routing through the pool
+        // detaches ALL registered listeners, not just these two — the error
+        // and quiz listeners used to survive here and keep ticking.
+        sharedPool.removeListener(videoId);
 
         if (openedFromProfile) {
-          // PROFILE FLOW: Fully dispose controllers to free decoder resources
-          try {
-            if (controller.value.isInitialized) {
-              if (controller.value.isPlaying) {
-                controller.pause();
+          // PROFILE FLOW: Fully dispose controllers to free decoder resources.
+          // **SINGLE OWNER: hand it to the pool rather than removing the pool's
+          // record and disposing behind its back.**
+          if (sharedPool.isPooled(videoId)) {
+            sharedPool.disposeController(videoId);
+          } else {
+            try {
+              if (controller.value.isInitialized) {
+                if (controller.value.isPlaying) {
+                  controller.pause();
+                }
+                controller.setVolume(0.0);
               }
-              controller.setVolume(0.0);
+              controller.dispose();
+            } catch (e) {
+              AppLogger.log(
+                  '⚠️ VideoFeedAdvanced: Error disposing unpooled controller: $e');
             }
-          } catch (e) {
-            AppLogger.log(
-              '⚠️ VideoFeedAdvanced: Error pausing controller before disposal: $e',
-            );
-          }
-
-          try {
-            sharedPool.removeController(videoId);
-            controller.dispose();
-          } catch (e) {
-            AppLogger.log('⚠️ VideoFeedAdvanced: Error disposing controller: $e');
           }
         } else {
           // TAB FLOW: Preserve controller in shared pool for quick resume
@@ -1956,6 +2035,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     _isBuffering.clear();
     _bufferingListeners.clear();
     _videoEndListeners.clear();
+    _errorListeners.clear();
+    _quizListeners.clear();
     _wasPlayingBeforeNavigation.clear();
     _loadingVideos.clear();
     _initializingVideos.clear();
@@ -2109,29 +2190,67 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       const DubbingResult(status: DubbingStatus.idle),
     );
 
-    // 1. Check if already dubbed
     final currentResult = resultVN.value;
-    if (currentResult.status == DubbingStatus.completed && currentResult.dubbedUrl != null) {
-      _showAudioLanguageSelector(context, video);
-      return;
-    }
-
-    // 2. Check if already processing
     if (!currentResult.isDone && currentResult.status != DubbingStatus.idle) {
-      final bool? cancel = await showDialog<bool>(
+      final bool? cancel = await VayuBottomSheet.show<bool>(
         context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: Theme.of(context).cardColor,
-          title: Text('Cancel Dubbing?', style: TextStyle(color: Theme.of(context).textTheme.bodyLarge?.color)),
-          content: Text('Are you sure you want to cancel the Dubbing process taking place for this video?', style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('No', style: TextStyle(color: Theme.of(context).disabledColor)),
+        title: 'Dubbing in progress',
+        icon: Icons.multitrack_audio_rounded,
+        iconColor: AppColors.primary,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${_audioLanguageTitle(_dubbingTargetLanguage[videoId] ?? currentResult.language ?? 'hindi')} audio is being prepared.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: AppTypography.fontSizeSM,
+                height: 1.35,
+              ),
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Yes, Cancel', style: TextStyle(color: Colors.red)),
+            AppSpacing.vSpace16,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              child: LinearProgressIndicator(
+                value: currentResult.progress > 0
+                    ? (currentResult.progress / 100).clamp(0.0, 1.0)
+                    : null,
+                minHeight: 4,
+                backgroundColor: AppColors.backgroundSecondary,
+                color: AppColors.primary,
+              ),
+            ),
+            AppSpacing.vSpace12,
+            Text(
+              currentResult.statusLabel,
+              style: TextStyle(
+                color: AppColors.white,
+                fontSize: AppTypography.fontSizeSM,
+                fontWeight: AppTypography.weightSemiBold,
+              ),
+            ),
+            AppSpacing.vSpace24,
+            Row(
+              children: [
+                Expanded(
+                  child: AppButton(
+                    label: 'Keep Dubbing',
+                    onPressed: () => Navigator.pop(context, false),
+                    variant: AppButtonVariant.secondary,
+                    size: AppButtonSize.small,
+                  ),
+                ),
+                AppSpacing.hSpace12,
+                Expanded(
+                  child: AppButton(
+                    label: 'Cancel',
+                    onPressed: () => Navigator.pop(context, true),
+                    variant: AppButtonVariant.secondary,
+                    size: AppButtonSize.small,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -2140,29 +2259,44 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       if (cancel == true) {
         _dubbingService.cancelDubbing(video.id, video.videoUrl);
         _dubbingSubscriptions[videoId]?.cancel();
+        _dubbingSubscriptions.remove(videoId);
+        _dubbingTargetLanguage.remove(videoId);
         resultVN.value = const DubbingResult(status: DubbingStatus.idle);
         if (mounted) VayuSnackBar.showInfo(context, 'Dubbing cancelled.');
       }
       return;
     }
 
-    VayuSnackBar.showInfo(context, 'Dubbing started, it takes time...');
+    _showAudioLanguageSelector(context, video);
+  }
 
-    final sub = _dubbingService.dubVideo(video.id, video.videoUrl).listen((result) {
+  void _startAudioDub(VideoModel video, String targetLang) {
+    final videoId = video.id;
+    final resultVN = _getOrCreateNotifier<DubbingResult>(
+      _dubbingResultsVN,
+      videoId,
+      const DubbingResult(status: DubbingStatus.idle),
+    );
+
+    _dubbingTargetLanguage[videoId] = targetLang;
+    VayuSnackBar.showInfo(
+      context,
+      'Preparing ${_audioLanguageTitle(targetLang)} audio...',
+    );
+
+    final sub = _dubbingService
+        .dubVideo(video.id, video.videoUrl, targetLang: targetLang)
+        .listen((result) {
       if (!mounted) return;
       resultVN.value = result;
 
       if (result.status == DubbingStatus.completed) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('AI Dubbing completed successfully!')),
-          );
-        }
+        _dubbingTargetLanguage.remove(videoId);
         if (result.dubbedUrl != null) {
           final vIndex = _videos.indexWhere((v) => v.id == videoId);
           if (vIndex != -1) {
              final currentDubbedUrls = Map<String, String>.from(_videos[vIndex].dubbedUrls ?? {});
-             final String lang = result.language ?? 'hindi'; // Fallback to hindi if not specified
+             final String lang = result.language ?? targetLang;
              currentDubbedUrls[lang] = result.dubbedUrl!;
              setState(() {
                _videos[vIndex] = _videos[vIndex].copyWith(dubbedUrls: currentDubbedUrls);
@@ -2196,20 +2330,23 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
                }
              });
           }
-        }
-      } else if (result.status == DubbingStatus.notSuitable) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Content not suitable for dubbing: ${result.reason ?? "No vocal detected"}'),
-              backgroundColor: Colors.orange,
-            ),
+          VayuSnackBar.showSuccess(
+            context,
+            '${_audioLanguageTitle(targetLang)} audio is ready.',
           );
         }
+      } else if (result.status == DubbingStatus.notSuitable) {
+        _dubbingTargetLanguage.remove(videoId);
+        VayuSnackBar.showInfo(
+          context,
+          'Audio cannot be dubbed: ${result.reason ?? "No vocal detected"}',
+        );
       } else if (result.status == DubbingStatus.failed) {
+        _dubbingTargetLanguage.remove(videoId);
         if (mounted && result.error?.contains('Cancelled') != true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('AI Dubbing failed: ${result.error ?? "Unknown error"}')),
+          VayuSnackBar.showError(
+            context,
+            'Dubbing failed: ${result.error ?? "Unknown error"}',
           );
         }
       }
@@ -2225,29 +2362,46 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     VayuBottomSheet.show<void>(
       context: context,
-      title: 'Audio Language',
+      title: 'Listen in',
+      icon: Icons.volume_up_rounded,
+      iconColor: AppColors.primary,
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            'Choose the audio language for this video.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: AppTypography.fontSizeSM,
+              height: 1.35,
+            ),
+          ),
+          AppSpacing.vSpace16,
           _buildAudioLanguageOption(
             context, video, 
             '$detectedSource (Original)', 
             'default',
             badge: 'Original',
+            icon: Icons.graphic_eq_rounded,
           ),
+          AppSpacing.vSpace8,
           _buildAudioLanguageOption(
             context, video, 
             'English',
             'english',
             badge: hasEnglishDub ? 'Dubbed' : null,
             available: hasEnglishDub,
+            icon: Icons.translate_rounded,
           ),
+          AppSpacing.vSpace8,
           _buildAudioLanguageOption(
             context, video, 
             'Hindi',
             'hindi',
             badge: hasHindiDub ? 'Dubbed' : null,
             available: hasHindiDub,
+            icon: Icons.translate_rounded,
           ),
         ],
       ),
@@ -2261,44 +2415,139 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     String langCode, {
     String? badge,
     bool available = true,
+    IconData icon = Icons.volume_up_rounded,
   }) {
     final String currentSelected = _selectedAudioLanguage[video.id] ?? 'default';
     final bool isSelected = currentSelected == langCode;
+    final bool canStartDub = langCode != 'default' && !available;
+    final String actionLabel = isSelected
+        ? 'Playing now'
+        : available
+            ? 'Switch audio'
+            : 'Dub audio';
 
-    return ListTile(
-      dense: true,
-      enabled: available,
-      title: Row(
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              color: isSelected ? AppColors.primary : (available ? AppColors.white : AppColors.textTertiary),
-              fontWeight: isSelected ? AppTypography.weightBold : AppTypography.weightMedium,
-            ),
-          ),
-          if (badge != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                badge,
-                style: const TextStyle(color: AppColors.primary, fontSize: 10),
-              ),
-            ),
-          ],
-        ],
-      ),
-      trailing: isSelected ? const Icon(Icons.check, color: AppColors.primary, size: 18) : null,
+    return InkWell(
       onTap: () {
         Navigator.pop(context);
-        _handleAudioLanguageSelection(video, langCode);
+        if (canStartDub) {
+          _startAudioDub(video, langCode);
+        } else {
+          _handleAudioLanguageSelection(video, langCode);
+        }
       },
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary.withValues(alpha: 0.12)
+              : AppColors.backgroundSecondary.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary.withValues(alpha: 0.35)
+                : AppColors.white.withValues(alpha: 0.08),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.backgroundPrimary.withValues(alpha: 0.45),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: isSelected ? AppColors.primary : AppColors.white,
+                size: 18,
+              ),
+            ),
+            AppSpacing.hSpace12,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: AppTypography.fontSizeBase,
+                            fontWeight: isSelected
+                                ? AppTypography.weightSemiBold
+                                : AppTypography.weightMedium,
+                          ),
+                        ),
+                      ),
+                      if (badge != null) ...[
+                        AppSpacing.hSpace8,
+                        _buildAudioBadge(badge),
+                      ],
+                    ],
+                  ),
+                  AppSpacing.vSpace4,
+                  Text(
+                    actionLabel,
+                    style: TextStyle(
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      fontSize: AppTypography.fontSizeXS,
+                      fontWeight: AppTypography.weightMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              isSelected
+                  ? Icons.check_circle_rounded
+                  : canStartDub
+                      ? Icons.auto_awesome_rounded
+                      : Icons.chevron_right_rounded,
+              color: isSelected ? AppColors.primary : AppColors.textSecondary,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  Widget _buildAudioBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: AppColors.primary,
+          fontSize: AppTypography.fontSizeXS,
+          fontWeight: AppTypography.weightSemiBold,
+        ),
+      ),
+    );
+  }
+
+  String _audioLanguageTitle(String langCode) {
+    switch (langCode) {
+      case 'english':
+        return 'English';
+      case 'hindi':
+        return 'Hindi';
+      default:
+        return 'Original';
+    }
   }
 
   void _handleAudioLanguageSelection(VideoModel video, String langCode) {

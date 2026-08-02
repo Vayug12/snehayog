@@ -619,8 +619,8 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
         (_revenueData?['totalRevenue'] as num?)?.toDouble() ??
         (_revenueData?['netRevenue'] as num?)?.toDouble() ??
         0.0;
-    final availableForPayout =
-        (_revenueData?['availableForPayout'] as num?)?.toDouble() ?? 0.0;
+    final totalImpressions =
+        ((_revenueData?['revenueBreakdown']?['total']?['impressions']) as num?)?.toInt() ?? 0;
 
     return Container(
       padding: EdgeInsets.all(AppSpacing.spacing5),
@@ -632,6 +632,7 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               const Icon(Icons.workspace_premium_rounded, color: AppColors.primary),
@@ -639,7 +640,8 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
               Text("Lifetime Creator Reward", style: AppTypography.titleMedium),
             ],
           ),
-          AppSpacing.vSpace8,
+          AppSpacing.vSpace12,
+          // Main lifetime value
           Text(
             lifetimeCreatorReward.toStringAsFixed(2),
             style: AppTypography.displaySmall.copyWith(color: AppColors.success, fontWeight: FontWeight.bold),
@@ -649,30 +651,144 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
             style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
           ),
           AppSpacing.vSpace24,
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.all(AppSpacing.spacing3),
-            decoration: BoxDecoration(
-              color: AppColors.backgroundPrimary.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: _buildRevenueStat(
-              "Available to Redeem",
-              availableForPayout.toStringAsFixed(2),
-              Icons.account_balance_wallet_outlined,
-            ),
-          ),
-          AppSpacing.vSpace24,
+          // This Month + Last Period + Total Impressions
           Row(
             children: [
               Expanded(
                 child: _buildRevenueStat("This Month", thisMonth.toStringAsFixed(2), Icons.calendar_month),
               ),
+              Container(width: 1, height: 40, color: AppColors.borderPrimary),
               Expanded(
                 child: _buildRevenueStat("Last Period", lastMonth.toStringAsFixed(2), Icons.history),
               ),
+              Container(width: 1, height: 40, color: AppColors.borderPrimary),
+              Expanded(
+                child: _buildRevenueStat("Total Impressions", _formatCount(totalImpressions), Icons.remove_red_eye),
+              ),
             ],
           ),
+          AppSpacing.vSpace24,
+          // Monthly Earnings button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _showMonthlyEarningsSheet,
+              icon: const Icon(Icons.bar_chart_rounded, size: 18),
+              label: const Text("View Monthly Earnings"),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: BorderSide(color: AppColors.primary.withValues(alpha: 0.4)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatCount(int count) {
+    if (count >= 1000000) return '${(count / 1000000).toStringAsFixed(1)}M';
+    if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}K';
+    return count.toString();
+  }
+
+  void _showMonthlyEarningsSheet() {
+    final monthlyEarnings = (_revenueData?['monthlyEarnings'] as List<dynamic>?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ??
+        [];
+
+    if (monthlyEarnings.isEmpty) {
+      VayuSnackBar.showInfo(context, 'No monthly earnings data available yet.');
+      return;
+    }
+
+    // Use the same totalRevenue as displayed on the screen for consistency
+    final lifetimeTotal =
+        (_revenueData?['totalRevenue'] as num?)?.toDouble() ??
+        (_revenueData?['netRevenue'] as num?)?.toDouble() ??
+        0.0;
+
+    VayuBottomSheet.show(
+      context: context,
+      title: "Monthly Earnings",
+      icon: Icons.bar_chart_rounded,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Lifetime total summary at top (consistent with screen)
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(AppSpacing.spacing3),
+            decoration: BoxDecoration(
+              color: AppColors.success.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("Lifetime Total", style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  lifetimeTotal.toStringAsFixed(2),
+                  style: AppTypography.titleMedium.copyWith(color: AppColors.success, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+          AppSpacing.vSpace16,
+          // Monthly list
+          ...monthlyEarnings.map((earning) {
+            final yearMonth = earning['yearMonth'] ?? '';
+            final creatorRevenue = (earning['creatorRevenue'] as num?)?.toDouble() ?? 0.0;
+
+            // Parse year-month to display format
+            final parts = yearMonth.split('-');
+            final monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            String displayMonth = yearMonth;
+            if (parts.length == 2) {
+              final monthIndex = int.tryParse(parts[1]) ?? 1;
+              displayMonth = '${monthNames[monthIndex - 1]} ${parts[0]}';
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: EdgeInsets.all(AppSpacing.spacing3),
+              decoration: BoxDecoration(
+                color: AppColors.backgroundPrimary.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(displayMonth, style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    creatorRevenue.toStringAsFixed(2),
+                    style: AppTypography.titleSmall.copyWith(color: AppColors.success, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            );
+          }),
+          AppSpacing.vSpace16,
+          SizedBox(
+            width: double.infinity,
+            child: AppButton(
+              onPressed: () => Navigator.pop(context),
+              label: "Close",
+            ),
+          ),
+          AppSpacing.vSpace8,
         ],
       ),
     );

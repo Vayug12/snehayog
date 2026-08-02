@@ -30,7 +30,12 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
 
   void _preloadNearbyVideos() {
     if (_videos.isEmpty) return;
-    
+
+    // **PIN: covers first load and every page settle, not just swipes.**
+    if (_currentIndex >= 0 && _currentIndex < _videos.length) {
+      SharedVideoControllerPool().pinVideo(_videos[_currentIndex].id);
+    }
+
     // **CRITICAL BANDWIDTH FIX: Kill all previous background downloads except active window**
     final List<String> urlsToKeep = [];
     if (_currentIndex < _videos.length) {
@@ -151,7 +156,8 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     _cleanupOldControllers(keepStart: keepStart, keepEnd: keepEnd);
 
     // **SHARED POOL CLEANUP**
-    SharedVideoControllerPool().cleanupSmart(_currentIndex, keepStart, keepEnd);
+    SharedVideoControllerPool()
+        .retainOnly(_keepAliveVideoIds(keepStart, keepEnd));
 
     // **MANIFEST PREFETCH (Lightweight)**
     // Still useful to fetch manifests for HLS further down (no memory cost, just disk cache)
@@ -445,8 +451,22 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       }
 
       if (controller == null) {
-        // **PROACTIVE CLEANUP: Make room before allocating new decoder**
-        await sharedPool.makeRoomForNewController();
+        // **ADMISSION CONTROL: acquire decoder headroom before allocating.**
+        // A speculative neighbour preload that cannot get room is abandoned
+        // rather than allowed to evict the video currently on screen.
+        final bool isCurrent = index == _currentIndex;
+        final bool hasRoom = await sharedPool.makeRoomForNewController(
+          forVideoId: videoId,
+          highPriority: isCurrent,
+        );
+
+        if (!hasRoom) {
+          AppLogger.log(
+              '⛔ VideoPreloader: No decoder headroom for $videoId (index $index) — skipping preload');
+          _loadingVideos.remove(videoId);
+          _e2eeDecryptingVideos.remove(videoId);
+          return;
+        }
 
         if (video.videoType == 'local_gallery') {
           // **NEW: Use File controller for local gallery videos**
@@ -579,7 +599,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
           _e2eeDecryptingVideos.remove(videoId);
         });
 
-        sharedPool.addController(video.id, controller, index: index);
+        sharedPool.addController(video.id, controller);
         
         if (mounted) {
 
@@ -742,7 +762,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     final int end = keepEnd ?? (_currentIndex + 1);
 
     // Update Shared Pool too (redundancy check)
-    sharedPool.cleanupSmart(_currentIndex, start, end); // Use Smart Cleanup logic in Shared Pool
+    sharedPool.retainOnly(_keepAliveVideoIds(start, end));
 
     final controllersToRemove = <String>[];
 
@@ -815,56 +835,39 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     }
 
     for (final videoId in controllersToRemove) {
-      final ctrl = _controllerPool[videoId];
+      // **Never tear down the video being watched.** `retainOnly` protects the
+      // pin, but this local list is built from list positions — and a refresh
+      // that shrinks/reorders `_videos` can put the playing video outside the
+      // computed range.
+      if (videoId == sharedPool.pinnedVideoId) continue;
 
-      if (ctrl != null) {
-        try {
-          if (ctrl.value.isInitialized) {
-            try {
+      // The pool owns every listener registered for this video, so one call
+      // detaches all four (buffering / end / error / quiz).
+      sharedPool.removeListener(videoId);
+      _bufferingListeners.remove(videoId);
+      _videoEndListeners.remove(videoId);
+      _errorListeners.remove(videoId);
+      _quizListeners.remove(videoId);
+
+      // **SINGLE OWNER: the pool disposes pooled controllers, never the feed.**
+      // Disposing here directly used to leave the pool holding a dangling
+      // reference to a dead controller. The local map is just a view.
+      if (sharedPool.isPooled(videoId)) {
+        sharedPool.disposeController(videoId);
+      } else {
+        // Never handed to the pool (e.g. addController never ran) — the feed
+        // is the only owner, so it must release it here.
+        final ctrl = _controllerPool[videoId];
+        if (ctrl != null) {
+          try {
+            if (ctrl.value.isInitialized) {
               ctrl.pause();
               ctrl.setVolume(0.0);
-            } catch (_) {}
-          }
-          
-          final bufferingListener = _bufferingListeners[videoId];
-          if (bufferingListener != null) {
-            try {
-              ctrl.removeListener(bufferingListener);
-            } catch (_) {}
-            _bufferingListeners.remove(videoId);
-          }
-
-          final endListener = _videoEndListeners[videoId];
-          if (endListener != null) {
-            try {
-              ctrl.removeListener(endListener);
-            } catch (_) {}
-            _videoEndListeners.remove(videoId);
-          }
-          
-          final errorListener = _errorListeners[videoId];
-          if (errorListener != null) {
-            try {
-              ctrl.removeListener(errorListener);
-            } catch (_) {}
-            _errorListeners.remove(videoId);
-          }
-
-          final quizListener = _quizListeners[videoId];
-          if (quizListener != null) {
-            try {
-              ctrl.removeListener(quizListener);
-            } catch (_) {}
-            _quizListeners.remove(videoId);
-          }
-
-          try {
+            }
             ctrl.dispose();
           } catch (e) {
-            AppLogger.log('⚠️ Error during ctrl.dispose() for $videoId: $e');
+            AppLogger.log('⚠️ Error disposing unpooled controller $videoId: $e');
           }
-        } catch (e) {
-          AppLogger.log('⚠️ Error during full disposal sequence for video $videoId: $e');
         }
       }
 
@@ -906,7 +909,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     final videoId = _videos[index].id;
     final existingListener = _videoEndListeners[videoId];
     if (existingListener != null) {
-      controller.removeListener(existingListener);
+      SharedVideoControllerPool().detachListener(videoId, existingListener);
     }
 
     void handleVideoEnd() {
@@ -952,7 +955,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     }
  
     _videoEndListeners[videoId] = handleVideoEnd;
-    controller.addListener(handleVideoEnd);
+    SharedVideoControllerPool().attachListener(videoId, handleVideoEnd);
   }
 
   void _attachBufferingListenerIfNeeded(
@@ -964,7 +967,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
 
     final existingListener = _bufferingListeners[videoId];
     if (existingListener != null) {
-      controller.removeListener(existingListener);
+      SharedVideoControllerPool().detachListener(videoId, existingListener);
     }
 
     // **STALL DETECTOR STATE**
@@ -1100,7 +1103,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     }
 
     _bufferingListeners[videoId] = handlePlaybackStatus;
-    controller.addListener(handlePlaybackStatus);
+    SharedVideoControllerPool().attachListener(videoId, handlePlaybackStatus);
     handlePlaybackStatus();
   }
 
@@ -1113,8 +1116,9 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     if (index >= _videos.length) return;
     final videoId = _videos[index].id;
 
-    if (_errorListeners.containsKey(videoId)) {
-       controller.removeListener(_errorListeners[videoId]!);
+    final existingErrorListener = _errorListeners[videoId];
+    if (existingErrorListener != null) {
+      SharedVideoControllerPool().detachListener(videoId, existingErrorListener);
     }
     void handleError() {
       if (!mounted) return;
@@ -1245,7 +1249,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       }
     }
 
-    controller.addListener(handleError);
+    SharedVideoControllerPool().attachListener(videoId, handleError);
     _errorListeners[videoId] = handleError;
   }
 
@@ -1477,7 +1481,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
 
     final existingListener = _quizListeners[videoId];
     if (existingListener != null) {
-      controller.removeListener(existingListener);
+      SharedVideoControllerPool().detachListener(videoId, existingListener);
     }
 
     void handleQuizCheck() {
@@ -1509,7 +1513,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     }
 
     _quizListeners[videoId] = handleQuizCheck;
-    controller.addListener(handleQuizCheck);
+    SharedVideoControllerPool().attachListener(videoId, handleQuizCheck);
   }
 
   bool _shouldPauseVideo(int index, String videoId) {
