@@ -227,10 +227,11 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
+          // No parentTabIndex: the player reads its tab from the enclosing
+          // TabScope, so this stays correct if the screen ever moves tabs.
           builder: (context) => VayuLongFormPlayerScreen(
             video: _videos[index],
             relatedVideos: _videos,
-            parentTabIndex: 1,
           ),
         ),
       );

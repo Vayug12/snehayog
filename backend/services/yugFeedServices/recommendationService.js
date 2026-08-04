@@ -5,6 +5,7 @@ import WatchHistory from '../../models/WatchHistory.js';
 import redisService from '../caching/redisService.js';
 import { AD_CONFIG } from '../../constants/index.js';
 import recEngine from './recommendationEngine/index.js';
+import { billableMatch } from '../adServices/impressionCounting.js';
 
 /**
  * Balanced Recommendation System Service
@@ -232,7 +233,7 @@ class RecommendationService {
       const startOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
       
       const stats = await AdImpression.aggregate([
-        { $match: { isViewed: true, timestamp: { $gte: startOfMonth } } },
+        { $match: { ...billableMatch(), timestamp: { $gte: startOfMonth } } },
         {
           $group: {
             _id: { creator: '$creatorId', adType: '$adType' },

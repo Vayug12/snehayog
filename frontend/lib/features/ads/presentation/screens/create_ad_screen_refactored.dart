@@ -12,13 +12,13 @@ import 'package:vayug/features/ads/presentation/widgets/create_ad/media_uploader
 import 'package:vayug/features/ads/presentation/widgets/create_ad/ad_details_form_widget.dart';
 import 'package:vayug/features/ads/presentation/widgets/create_ad/targeting_section_widget.dart';
 import 'package:vayug/features/ads/presentation/widgets/create_ad/campaign_preview_widget.dart';
-import 'package:vayug/features/ads/presentation/widgets/create_ad/payment_handler_widget.dart';
+import 'package:vayug/features/ads/presentation/widgets/create_ad/advertising_benefits_widget.dart';
 import 'package:vayug/features/ads/data/services/ad_service.dart';
+import 'package:vayug/shared/config/app_config.dart';
 import 'package:vayug/features/auth/data/services/logout_service.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_static_views.dart';
 import 'package:vayug/shared/services/cloudflare_r2_service.dart';
 import 'package:vayug/features/ads/data/services/ad_refresh_notifier.dart';
-import 'package:vayug/features/ads/data/ad_model.dart';
 import 'dart:io';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/app_text.dart';
@@ -26,6 +26,17 @@ import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/shared/managers/activity_recovery_manager.dart';
 import 'package:vayug/shared/models/app_activity.dart';
+import 'package:vayug/features/ads/presentation/widgets/create_ad/wallet_balance_chip.dart';
+import 'package:vayug/features/ads/data/services/wallet_service.dart';
+import 'package:vayug/features/ads/data/wallet_model.dart';
+import 'package:vayug/features/ads/presentation/widgets/wallet/top_up_sheet.dart';
+
+/// Mirrors `AD_CONFIG.MIN_TOTAL_BUDGET` on the server.
+///
+/// The whole budget is debited from the credit wallet at creation, so the
+/// client enforces the same floor the server does — otherwise the user only
+/// discovers the minimum after the media upload has already completed.
+const int _kMinTotalBudget = 1000;
 
 class CreateAdScreenRefactored extends ConsumerStatefulWidget {
   const CreateAdScreenRefactored({super.key});
@@ -133,12 +144,6 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _restoreFormState();
     });
-
-    try {
-      PaymentHandlerWidget.initialize();
-    } catch (e) {
-      // Continue without payment handler - user can still create ads
-    }
   }
 
   @override
@@ -499,6 +504,11 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
               if (_successMessage != null) _buildSuccessMessage(),
               if (_errorMessage != null) _buildErrorMessage(),
 
+              // Ad credits fund the campaign budget, so the balance belongs
+              // above the form — not next to the submit button, where the
+              // user would only learn about it after filling everything in.
+              const WalletBalanceChip(),
+
               // 1. Ad Type Selection
               _buildSettingRow(
                 icon: Icons.ads_click_rounded,
@@ -531,7 +541,7 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
               _buildSettingRow(
                 icon: Icons.payments_rounded,
                 title: 'Budget & Duration',
-                subtitle: '₹${_budgetController.text}/day for ${_endDate?.difference(_startDate ?? DateTime.now()).inDays ?? 0} days',
+                subtitle: '₹${_budgetController.text} total over ${_endDate?.difference(_startDate ?? DateTime.now()).inDays ?? 0} days',
                 onTap: () => _showBudgetDurationEditor(),
               ),
 
@@ -677,7 +687,7 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
             Navigator.pop(context);
             _handleAdTypeChanged(type);
           },
-          onShowBenefits: () => PaymentHandlerWidget.showAdvertisingBenefits(context),
+          onShowBenefits: () => AdvertisingBenefitsWidget.show(context),
         ),
       ),
     );
@@ -771,7 +781,9 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
               const SizedBox(height: 16),
               TextFormField(
                 controller: _budgetController,
-                decoration: InputDecoration(labelText: 'Daily Budget', prefixText: '₹', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                // Total, not daily: this exact amount is debited from the
+                // credit wallet when the campaign is created.
+                decoration: InputDecoration(labelText: 'Total Budget', helperText: 'Charged to your ad credits now · min ₹1000', prefixText: '₹', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
                 keyboardType: TextInputType.number,
                 onChanged: (v) { _validateField('budget'); setState((){}); setModalState((){}); },
               ),
@@ -1215,9 +1227,10 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     // Budget, dates, and media are required for all ad types
     validationItems.addAll([
       {
-        'label': AppText.get('ad_budget_min'),
+        'label': 'Total budget of ₹$_kMinTotalBudget or more',
         'isValid': _budgetController.text.trim().isNotEmpty &&
-            (double.tryParse(_budgetController.text.trim()) ?? 0) >= 100,
+            (double.tryParse(_budgetController.text.trim()) ?? 0) >=
+                _kMinTotalBudget,
         'icon': Icons.attach_money,
       },
       {
@@ -1315,6 +1328,16 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
   }
 
   Future<void> _submitAd() async {
+    if (!AppConfig.adCreationEnabled) {
+      setState(() {
+        _isLoading = false;
+        _successMessage = null;
+        _errorMessage =
+            'Ad creation is paused while we move to prepaid ad credits. It will be back shortly.';
+      });
+      return;
+    }
+
     if (!_validateForm()) return;
 
     setState(() {
@@ -1341,7 +1364,7 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
         _errorMessage = AppText.get('ad_error_creating');
       });
 
-      final result = await ref.read(adServiceProvider).createAdWithPayment(
+      final result = await ref.read(adServiceProvider).createAdWithCredits(
         // For banner ads, title and description are optional (use defaults)
         title: _selectedAdType == 'banner'
             ? (_titleController.text.trim().isEmpty
@@ -1397,21 +1420,12 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
           _errorMessage = null;
         });
 
+        // The budget was just debited, so the balance on screen is stale.
+        ref.invalidate(adWalletProvider);
+
         // Immediately reset the form for a fresh experience
         _showFreshAdScreen();
         _notifyVideoFeedRefresh();
-
-        // Then show payment options (doesn't depend on current form fields)
-        if (mounted) {
-          PaymentHandlerWidget.showPaymentOptions(
-            context,
-            AdModel.fromJson(result['ad']),
-            result['invoice'],
-            () {
-              // Payment completed – nothing extra to reset here
-            },
-          );
-        }
       } else {
         throw Exception(
           AppText.get('ad_error_failed',
@@ -1421,6 +1435,30 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                   result['message'] ??
                       'Unknown error occurred. Please try again.'),
         );
+      }
+    } on InsufficientCreditsException catch (e) {
+      // The media is already uploaded and the form still holds everything, so
+      // the user can retry the moment they top up — nothing is reset here.
+      ref.invalidate(adWalletProvider);
+      setState(() {
+        _errorMessage = AppConfig.adCreditPurchasesEnabled
+            ? 'Not enough ad credits. This campaign needs ₹${e.required} and '
+                'your balance is ₹${e.available} — ₹${e.shortfall} short.'
+            : 'Not enough ad credits. This campaign needs ₹${e.required} and '
+                'your balance is ₹${e.available} — ₹${e.shortfall} short.\n'
+                'Lower the budget to ₹${e.available} or less, or contact '
+                'support to have credits added.';
+      });
+
+      if (AppConfig.adCreditPurchasesEnabled && mounted) {
+        // Offer the fix directly rather than making the user hunt for the
+        // wallet — they were mid-flow and everything they typed is still here.
+        final credited = await TopUpSheet.show(context, shortfall: e.shortfall);
+        if (credited && mounted) {
+          setState(() {
+            _errorMessage = 'Credits added. Tap Create Ad to try again.';
+          });
+        }
       }
     } catch (e) {
       String errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -1539,10 +1577,12 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     if (_budgetController.text.trim().isEmpty) {
       isValid = false;
     } else {
-      // Validate budget format
+      // Validate budget format. The server debits this exact amount in whole
+      // credits, so a fractional or under-minimum budget is rejected here
+      // rather than after the media upload has already run.
       try {
         final budget = double.parse(_budgetController.text.trim());
-        if (budget < 100) {
+        if (budget < _kMinTotalBudget || budget != budget.roundToDouble()) {
           isValid = false;
         }
       } catch (e) {

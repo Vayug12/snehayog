@@ -54,5 +54,23 @@ export const requireAdminDashboardKey = (req, res, next) => {
     .json({ error: 'Unauthorized: invalid admin dashboard key' });
 };
 
+/**
+ * Same check, but refuses to fall open.
+ *
+ * `requireAdminDashboardKey` allows everything when ADMIN_DASHBOARD_KEY is
+ * unset and NODE_ENV is not 'production' — convenient for read-only dashboard
+ * routes, unacceptable for routes that move money (credit grants, refunds).
+ * A staging deploy with the key missing would otherwise let anyone mint or
+ * return credits. Use this variant wherever the route touches a wallet.
+ */
+export const requireConfiguredAdminDashboardKey = (req, res, next) => {
+  if (!process.env.ADMIN_DASHBOARD_KEY) {
+    return res
+      .status(503)
+      .json({ error: 'Admin dashboard access not configured' });
+  }
+  return requireAdminDashboardKey(req, res, next);
+};
+
 export default requireAdminDashboardKey;
 

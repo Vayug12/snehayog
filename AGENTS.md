@@ -1,4 +1,4 @@
-# Vayug (Snehayog) - Video Sharing Platform
+# Vayug - Video Sharing Platform
 
 ## Project Overview
 
@@ -9,7 +9,7 @@ Vayug is a creator-first, open-source short-form video sharing platform built wi
 - **Backend**: Node.js, Express, MongoDB, Redis (Upstash)
 - **Video Storage**: Cloudflare R2 + HLS streaming
 - **Edge**: Cloudflare Workers (API caching, R2 uploads, KV)
-- **Payments**: Razorpay
+- **Payments**: Revenue Cat
 - **AI**: DeepSeek, Google Gemini, HuggingFace, OpenAI
 - **Notifications**: Firebase Cloud Messaging + Brevo (email)
 - **Deployment**: Fly.io (backend + worker), Cloudflare Workers (edge)
@@ -89,8 +89,8 @@ snehayog/
 │           ├── utils/       # 13 utility files
 │           └── widgets/     # 18 reusable widgets
 │
-├── packages/                # Local packages
-│   └── snehayog_monetization/  # Monetization package
+├
+│  
 │
 ├── workers/                 # Cloudflare Workers (edge)
 │   ├── index.js             # Consolidated worker (upload + API cache + R2 events)
@@ -141,11 +141,6 @@ snehayog/
 - Upstash Redis with cache-aside pattern
 - Connection pooling and graceful shutdown handling
 
-**Video Processing Pipeline** (`services/videoProcessing/`)
-- `VideoPipeline.js` - Step-based orchestrator
-- Steps: `DownloadStep` -> `AiAnalysisStep` -> `HlsTranscodeStep` -> `GeminiSummarizationStep` -> `VideoSummarizationStep` -> `CleanupStep`
-- Base step interface (`IBaseStep.js`)
-
 **Upload Services** (`services/uploadServices/`)
 - `videoProcessingService.js` - Upload orchestrator
 - `hlsEncodingService.js` - FFmpeg HLS encoding
@@ -186,7 +181,6 @@ snehayog/
 - `geminiService.js` - Google Gemini integration
 
 **Other Services:**
-- `services/videoGen/aiAgentService.js` - AI video generation agent
 - `services/payoutServices/` - Automated payout processing
 - `services/rateLimiting/apiRateLimiter.js` - API rate limiting
 - `services/auth/phoneVerificationService.js` - Phone OTP verification
@@ -460,8 +454,6 @@ GOOGLE_CLIENT_ID=...
 CLOUD_NAME=...
 CLOUD_KEY=...
 CLOUD_SECRET=...
-RAZORPAY_KEY_ID=...
-RAZORPAY_KEY_SECRET=...
 DISABLE_INTEGRATED_WORKER=true  # Run worker as separate Fly machine
 ```
 

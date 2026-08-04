@@ -8,7 +8,7 @@ Vayug is a short-form video sharing platform built with Flutter (frontend) and N
 - **Frontend**: Flutter 3.5+, Riverpod, Provider
 - **Backend**: Node.js, Express, MongoDB, Redis
 - **Video Storage**: Cloudinary (HLS streaming)
-- **Payments**: Razorpay
+- **Payments**: Revenue Cat
 - **Notifications**: Firebase Cloud Messaging
 - **Deployment**: Fly.io (backend), Cloudflare Workers (edge caching)
 

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:vayug/core/providers/navigation_providers.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/feed/presentation/screens/video_feed_advanced.dart';
 import 'package:vayug/features/video/core/presentation/managers/video_controller_manager.dart';
@@ -53,21 +52,15 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     super.initState();
     AppLogger.log('🎬 VideoScreen: Initializing VideoScreen');
 
-    // **FIX: Pause all background videos when entering a new VideoScreen**
-    // This ensures Yug tab videos pause if this screen is pushed as a full-screen player
+    // Background videos are silenced by the coordinator's handover, not from
+    // here: this screen used to call forcePauseVideos() after its own feed had
+    // already been activated, muting the video it was about to play.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        final mainController = ref.read(mainControllerProvider);
-        mainController.forcePauseVideos();
-
-        final state = _videoFeedKey.currentState;
-        if (state != null) {
-          try {
-            (state as dynamic).forcePlayCurrent();
-          } catch (_) {}
-        }
-      } catch (e) {
-        AppLogger.log('⚠️ VideoScreen: Error pausing background videos: $e');
+      final state = _videoFeedKey.currentState;
+      if (state != null) {
+        try {
+          (state as dynamic).forcePlayCurrent();
+        } catch (_) {}
       }
     });
 
@@ -86,15 +79,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   void dispose() {
     AppLogger.log('🗑️ VideoScreen: Disposing VideoScreen');
 
-    // **FIX: Pause all videos when leaving VideoScreen**
+    // Only this screen's own controllers are silenced here. A blanket pause
+    // would also hit the surface underneath, which the coordinator is about to
+    // reactivate as this route goes away.
     try {
-      final mainController = ref.read(mainControllerProvider);
-      mainController.forcePauseVideos();
-
-      final videoControllerManager = VideoControllerManager();
-      videoControllerManager.forcePauseAllVideosSync(); // Use sync version
-
-      AppLogger.log('🔇 VideoScreen: All videos paused on dispose');
+      VideoControllerManager().forcePauseAllVideosSync();
+      AppLogger.log('🔇 VideoScreen: Paused own controllers on dispose');
     } catch (e) {
       AppLogger.log('⚠️ VideoScreen: Error pausing videos on dispose: $e');
     }
@@ -128,11 +118,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       endAtSeconds: widget.endAtSeconds,
       videoType: videoType,
       isMainYugTab: widget.isMainYugTab,
-      // `playbackActiveTabIndex` already reflects a tab switch that is still
-      // settling, so a player opened during that window is not bound to the
-      // tab the user just left.
-      parentTabIndex: widget.parentTabIndex ??
-          ref.read(mainControllerProvider).playbackActiveTabIndex,
+      // Left null on purpose when the caller did not specify one: the feed
+      // reads its tab from the enclosing `TabScope`, which is accurate at any
+      // nesting depth. Guessing it from the live tab index used to bind a
+      // player to whichever tab happened to be settling when it opened.
+      parentTabIndex: widget.parentTabIndex,
     );
   }
 }

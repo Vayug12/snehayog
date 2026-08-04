@@ -1,11 +1,54 @@
 import express from 'express';
 import { asyncHandler } from '../../middleware/errorHandler.js';
 import { validateCampaignData, validatePagination } from '../../middleware/validation.js';
+import { verifyToken } from '../../utils/verifytoken.js';
 import AdCampaign from '../../models/AdCampaign.js';
 import AdCreative from '../../models/AdCreative.js';
 import Invoice from '../../models/Invoice.js';
 
 const router = express.Router();
+
+// Every campaign route is advertiser-scoped: a campaign is money, so it is
+// only ever readable or mutable by the advertiser who owns it.
+router.use(verifyToken);
+
+// /api/ads/* is mounted behind a `public, max-age=180` cache header. That is
+// fine for ad serving but not for per-advertiser data — a shared cache could
+// hand one advertiser's campaigns to another. Mounted after the router's own
+// middleware so it overrides the header set upstream.
+router.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
+/**
+ * Resolve the caller's User._id.
+ *
+ * verifyToken memoises this alongside the token, so it costs nothing here.
+ * It is absent only when the token is valid but the user row is gone.
+ */
+const advertiserId = (req) => req.user?._id;
+
+/**
+ * Load `:id` and confirm the caller owns it, attaching it as `req.campaign`.
+ *
+ * Returns 404 rather than 403 for someone else's campaign — a 403 would
+ * confirm the id exists to anyone probing.
+ */
+const loadOwnedCampaign = asyncHandler(async (req, res, next) => {
+  const ownerId = advertiserId(req);
+  if (!ownerId) {
+    return res.status(401).json({ error: 'User not found for this token' });
+  }
+
+  const campaign = await AdCampaign.findById(req.params.id);
+  if (!campaign || campaign.advertiserUserId.toString() !== ownerId.toString()) {
+    return res.status(404).json({ error: 'Campaign not found' });
+  }
+
+  req.campaign = campaign;
+  next();
+});
 
 // POST /ads/campaigns - Create draft campaign
 router.post('/', validateCampaignData, asyncHandler(async (req, res) => {
@@ -27,9 +70,15 @@ router.post('/', validateCampaignData, asyncHandler(async (req, res) => {
   // Banner ads will use ₹10 CPM when created through ad creation
   const defaultCpm = 30; // ₹30 per 1000 impressions for carousel and video feed ads
 
+  const ownerId = advertiserId(req);
+  if (!ownerId) {
+    return res.status(401).json({ error: 'User not found for this token' });
+  }
+
   const campaign = new AdCampaign({
     name,
-    advertiserUserId: req.user.id,
+    // Ownership comes from the token, never from the request body.
+    advertiserUserId: ownerId,
     objective,
     startDate: new Date(startDate),
     endDate: new Date(endDate),
@@ -52,22 +101,24 @@ router.post('/', validateCampaignData, asyncHandler(async (req, res) => {
 
 // GET /ads/campaigns - List campaigns with pagination
 router.get('/', validatePagination, asyncHandler(async (req, res) => {
-  const { me, status } = req.query;
+  const { status } = req.query;
   const { page, limit } = req.pagination;
   const skip = (page - 1) * limit;
 
-  let query = {};
-  
-  if (me === 'true') {
-    query.advertiserUserId = req.user.id;
+  const ownerId = advertiserId(req);
+  if (!ownerId) {
+    return res.status(401).json({ error: 'User not found for this token' });
   }
+
+  // Always scoped to the caller. This previously listed every advertiser's
+  // campaigns — including their name and email — whenever `me=true` was omitted.
+  const query = { advertiserUserId: ownerId };
 
   if (status) {
     query.status = status;
   }
 
   const campaigns = await AdCampaign.find(query)
-    .populate('advertiserUserId', 'name email')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit);
@@ -86,33 +137,19 @@ router.get('/', validatePagination, asyncHandler(async (req, res) => {
 }));
 
 // GET /ads/campaigns/:id - Get campaign details
-router.get('/:id', asyncHandler(async (req, res) => {
-  const campaignId = req.params.id;
-
-  const campaign = await AdCampaign.findById(campaignId)
-    .populate('advertiserUserId', 'name email');
-
-  if (!campaign) {
-    return res.status(404).json({ error: 'Campaign not found' });
-  }
-
-  // Get creative
-  const creative = await AdCreative.findOne({ campaignId });
+router.get('/:id', loadOwnedCampaign, asyncHandler(async (req, res) => {
+  const creative = await AdCreative.findOne({ campaignId: req.campaign._id });
 
   res.json({
-    campaign,
+    campaign: req.campaign,
     creative
   });
 }));
 
 // POST /ads/campaigns/:id/submit - Submit for review
-router.post('/:id/submit', asyncHandler(async (req, res) => {
-  const campaignId = req.params.id;
-
-  const campaign = await AdCampaign.findById(campaignId);
-  if (!campaign) {
-    return res.status(404).json({ error: 'Campaign not found' });
-  }
+router.post('/:id/submit', loadOwnedCampaign, asyncHandler(async (req, res) => {
+  const campaign = req.campaign;
+  const campaignId = campaign._id;
 
   // Check if campaign has creative
   const creative = await AdCreative.findOne({ campaignId });
@@ -131,13 +168,9 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
 }));
 
 // POST /ads/campaigns/:id/activate - Activate campaign
-router.post('/:id/activate', asyncHandler(async (req, res) => {
-  const campaignId = req.params.id;
-
-  const campaign = await AdCampaign.findById(campaignId);
-  if (!campaign) {
-    return res.status(404).json({ error: 'Campaign not found' });
-  }
+router.post('/:id/activate', loadOwnedCampaign, asyncHandler(async (req, res) => {
+  const campaign = req.campaign;
+  const campaignId = campaign._id;
 
   // Check if campaign is approved
   if (campaign.status !== 'pending_review') {

@@ -62,6 +62,7 @@ import 'package:vayug/features/video/core/data/services/video_cache_proxy_servic
 import 'package:vayug/shared/services/local_gallery_service.dart';
 import 'package:vayug/shared/services/deep_link_playback_gate.dart';
 import 'package:vayug/shared/services/playback_coordinator.dart';
+import 'package:vayug/shared/widgets/tab_scope.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
 import 'package:vayug/features/video/edit/presentation/screens/edit_video_details.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
@@ -139,7 +140,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   void initState() {
     super.initState();
     _playbackCoordinator.setRouteActive(_playbackSession, true);
-    _playbackCoordinator.bindSessionToTab(_playbackSession, _feedTabIndex);
+    // The tab is bound in didChangeDependencies: TabScope is an inherited
+    // widget and cannot be read here.
     // Removed redundant PageController and _loadVideos initialization.
     // These are now handled exclusively in _initializeServices() to prevent race conditions.
 
@@ -205,20 +207,28 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // **PERFORMANCE: Cache MainController to avoid repeated ref.read() calls**
     _mainController = ref.watch(mainControllerProvider);
 
-    // **NEW: Register observers with MainController**
-    _mainController?.registerVideoObserver(
-      onPause: _pauseCurrentVideo,
-      onResume: _resumeCurrentVideo,
-    );
-    AppLogger.log('🎬 VideoFeedAdvanced: Registered playback observer with MainController');
+    // Declare where this feed lives. Doing it here rather than in initState
+    // means a feed pushed from any screen, at any nesting depth, reports its
+    // real tab instead of guessing — and the coordinator can therefore tell it
+    // apart from the feed the user is actually looking at.
+    _tabScopeIndex = TabScope.maybeOf(context);
+    _playbackCoordinator.bindSessionToTab(_playbackSession, _feedTabIndex);
   }
 
+  @override
+  void onPlaybackActivated() => _resumeCurrentVideo();
+
+  @override
+  void onPlaybackDeactivated() => _pauseCurrentVideo();
+
   void _resumeCurrentVideo() {
-    if (mounted && _shouldAutoplayForContext('MainController_Resume')) {
-      // **RECOVERY: Re-initialize if evicted/disposed while in the background**
-      _validateAndRestoreControllers();
-      _tryAutoplayCurrent();
-    }
+    if (!mounted) return;
+    // **RECOVERY: Re-initialize if evicted/disposed while in the background.**
+    // Gated on being the active surface so a background feed cannot spend
+    // decoders restoring controllers it is not allowed to play.
+    if (!_playbackCoordinator.isActiveSurface(_playbackSession)) return;
+    _validateAndRestoreControllers();
+    _tryAutoplayCurrent();
   }
 
   void _pauseCurrentVideo() {
@@ -269,10 +279,6 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       } catch (_) {}
     }
 
-    // Other surfaces share the same audio output, so their pools have to be
-    // silenced too — a controller this feed never created can still be loud.
-    _videoControllerManager.pauseAllVideosOnTabChange();
-    SharedVideoControllerPool().pauseAllControllers();
   }
 
   void _pauseAllVideosOnTabSwitch() {
@@ -282,7 +288,13 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     _ensureWakelockForVisibility();
   }
 
-  void _pauseAllOtherVideos(String activeId) {
+  /// Silences this feed's *own* neighbours before it starts [activeId].
+  ///
+  /// Deliberately local. Silencing other surfaces is the coordinator's job and
+  /// happens inside `claimForPlay`, which only a surface that is allowed to
+  /// play ever reaches — a background feed doing it directly is exactly how a
+  /// hidden player used to mute the visible one.
+  void _pauseOtherLocalVideos(String activeId) {
     for (final entry in _controllerPool.entries.toList()) {
       if (entry.key != activeId) {
         try {
@@ -294,8 +306,6 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       }
     }
 
-    _videoControllerManager.pauseAllVideosOnTabChange(exceptVideoId: activeId);
-    SharedVideoControllerPool().pauseAllControllers(exceptVideoId: activeId);
     _ensureWakelockForVisibility();
   }
   /// **Helper to allow extensions to call setState safely**
@@ -367,17 +377,16 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
               return;
             }
 
-            final openedFromProfile = widget.initialVideos != null &&
-                widget.initialVideos!.isNotEmpty;
-            if (openedFromProfile) {
-              _tryAutoplayCurrent();
+            // Whether this feed is the one on screen is the coordinator's
+            // answer, checked inside _tryAutoplayCurrent. Only the picker
+            // cooldown is local knowledge worth keeping here.
+            final mainController = _mainController;
+            if (mainController != null &&
+                (mainController.isMediaPickerActive ||
+                    mainController.recentlyReturnedFromPicker)) {
               return;
             }
-            if (_mainController?.currentIndex == 0 &&
-                !_mainController!.isMediaPickerActive &&
-                !_mainController!.recentlyReturnedFromPicker) {
-              _tryAutoplayCurrent();
-            }
+            _tryAutoplayCurrent();
           });
         });
         break;
@@ -444,7 +453,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
             controller.setVolume(1.0);
           } catch (_) {}
           if (!_shouldAutoplayForContext('autoplay current immediate')) return;
-          _pauseAllOtherVideos(_videos[_currentIndex].id);
+          _pauseOtherLocalVideos(_videos[_currentIndex].id);
           _maybeApplyInitialStartSeek(video.id, controller);
           _playWithPolicy(controller, 'feed autoplay immediate');
           _ensureWakelockForVisibility();
@@ -497,7 +506,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           try {
             pController.setVolume(1.0);
           } catch (_) {}
-          _pauseAllOtherVideos(_videos[indexToPlay].id);
+          _pauseOtherLocalVideos(_videos[indexToPlay].id);
           _playWithPolicy(pController, 'feed autoplay after preload');
           _ensureWakelockForVisibility();
           _controllerStates[videoToPlay.id] = true;
@@ -728,8 +737,11 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   }
 
   /// The tab this feed lives in, or `null` when it is not tied to one.
-  int? get _feedTabIndex =>
-      widget.parentTabIndex ?? (widget.isMainYugTab ? 0 : null);
+  ///
+  /// An explicit `parentTabIndex` wins so a caller can override; otherwise the
+  /// enclosing [TabScope] answers it, which is correct however deeply this feed
+  /// was pushed.
+  int? get _feedTabIndex => widget.parentTabIndex ?? _tabScopeIndex;
 
   /// True only for a player pushed as its own route (profile grid, search).
   ///
@@ -745,66 +757,40 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   bool get _openedFromDeepLink =>
       widget.initialVideoId != null && widget.initialVideos == null;
 
+  /// Whether this feed may start a video right now.
+  ///
+  /// Placement — tab, route, app lifecycle — is answered exclusively by the
+  /// coordinator. This used to re-derive it here, with an escape hatch for
+  /// feeds opened from a profile or a deep link that skipped the tab check
+  /// entirely; a feed sitting in a background tab therefore believed it should
+  /// play, silenced every other surface on its way to being refused, and left
+  /// the visible feed paused. What remains here is only what the coordinator
+  /// cannot see: this widget's own readiness.
   bool _shouldAutoplayForContext(String reason) {
     if (widget.isMainYugTab && DeepLinkPlaybackGate.isActive) {
       AppLogger.log('AUTOPLAY[$reason]: Shared video link is resolving');
       return false;
     }
 
-    // 1. Tab-Active Guard: If tab is hidden, NEVER play audio/video
-    if (widget.parentTabIndex != null &&
-        !_openedFromProfile &&
-        !_openedFromDeepLink) {
-      final currentTabIndex = _mainController?.currentIndex ?? 0;
-      if (currentTabIndex != widget.parentTabIndex) {
-        AppLogger.log('🚫 AUTOPLAY[$reason]: Parent tab hidden (feedTab=${widget.parentTabIndex}, currentTab=$currentTabIndex)');
-        return false;
-      }
-    } else if (widget.isMainYugTab && (_mainController?.currentIndex != 0)) {
-      AppLogger.log('🚫 AUTOPLAY[$reason]: Main Yug tab hidden (currentIndex=${_mainController?.currentIndex})');
+    if (!_playbackCoordinator.canPlay(_playbackSession, reason: reason)) {
       return false;
     }
 
-    // Additional safeguard for main feed tabs
-    if ((_mainController?.currentIndex != 0) && widget.parentTabIndex == null) {
-      AppLogger.log('🚫 AUTOPLAY[$reason]: Yug feed not active');
-      return false;
-    }
-
-    // **LAYER 2: Priority/Bypass Logic**
-    // If opened from profile or deep link, we should always allow autoplay (bypassing visibility/route gates)
-    if (_openedFromProfile || _openedFromDeepLink) {
-      // Still respect lifecycle guard to avoid background audio when app is minimized
-      if (!_allowAutoplay(reason)) {
-        AppLogger.log('🚫 AUTOPLAY[$reason]: blocked by app lifecycle (profile/deeplink)');
-        return false;
-      }
-      return true; 
-    }
-
-    // **LAYER 3: Visibility Gate (Logic)**
-    
-    // 1. Lifecycle Guard: Foreground only
+    // Lifecycle Guard: covers the window before the coordinator is told the app
+    // left the foreground.
     if (!_allowAutoplay(reason)) {
       AppLogger.log('🚫 AUTOPLAY[$reason]: blocked by app lifecycle');
       return false;
     }
 
-    // 2. Navigation Route Guard: Top-most screen only
-    final bool isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
-    if (!isCurrentRoute) {
-      AppLogger.log('🚫 AUTOPLAY[$reason]: route obscured (isCurrent=false)');
-      return false;
-    }
-    
-    // 3. Auth Loading Guard
-    final authController = ref.read(googleSignInProvider);
-    if (authController.isLoading) {
+    // Auth Loading Guard
+    if (ref.read(googleSignInProvider).isLoading) {
       AppLogger.log('🚫 AUTOPLAY[$reason]: Auth is loading');
       return false;
     }
 
-    // 4. Component Visibility Guard
+    // Component Visibility Guard: this widget can be scrolled off inside an
+    // otherwise-active route, which no route or tab state reflects.
     if (!_isScreenVisible) {
       AppLogger.log('🚫 AUTOPLAY[$reason]: component hidden (_isScreenVisible=false)');
       return false;
@@ -969,7 +955,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // Preloading a neighbour refreshes that neighbour's LRU timestamp, so
     // without this the video on screen can become the eviction candidate.
     if (index >= 0 && index < _videos.length) {
-      SharedVideoControllerPool().pinVideo(_videos[index].id);
+      SharedVideoControllerPool()
+          .pinVideo(_videos[index].id, sessionId: _playbackSession.id);
     }
 
     // 4. Handle preloading and resource protection (debounced)
@@ -1145,7 +1132,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         final c = _controllerPool[videoId];
         if (c != null && c.value.isInitialized) {
           try {
-            _pauseAllOtherVideos(videoId);
+            _pauseOtherLocalVideos(videoId);
             _autoAdvancedForIndex.remove(index);
             _playWithPolicy(c, 'feed tap after preload');
             // **OPTIMIZED: Use ValueNotifier - NO setState**
@@ -1231,7 +1218,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     } else {
       // **FIX: Video is paused, so play it - update state immediately before play**
       try {
-        _pauseAllOtherVideos(videoId);
+        _pauseOtherLocalVideos(videoId);
 
         // **CRITICAL: Update state FIRST, then play - this ensures UI responds immediately**
         // **OPTIMIZED: Use ValueNotifier for granular updates - NO setState**
@@ -1560,6 +1547,16 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   void didPopNext() {
     _playbackCoordinator.setRouteActive(_playbackSession, true);
     _tryAutoplayCurrent();
+  }
+
+  /// This route was popped. Its widget is not disposed until the transition
+  /// finishes, so without giving the slot up here it stays the top-most
+  /// eligible surface for the length of the animation and keeps the screen
+  /// underneath silent.
+  @override
+  void didPop() {
+    _playbackCoordinator.setRouteActive(_playbackSession, false);
+    _pauseCurrentVideo();
   }
 
   /// **HANDLE SHARE: Same timestamp sheet as the Vayu long-form player**
@@ -1914,21 +1911,9 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   @override
   void dispose() {
     appRouteObserver.unsubscribe(this);
+    // Releasing the session drops this feed's pins and hands the screen back to
+    // the surface underneath, which the coordinator then reactivates.
     _playbackCoordinator.release(_playbackSession);
-    // **1. UNREGISTER FROM EXTERNAL CALLBACKS & OBSERVERS**
-    _mainController?.unregisterVideoObserver(
-      onPause: _pauseCurrentVideo,
-      onResume: _resumeCurrentVideo,
-    );
-
-    try {
-      _mainController?.unregisterCallbacks();
-      AppLogger.log(
-        '📱 VideoFeedAdvanced: Unregistered legacy callbacks from MainController',
-      );
-    } catch (e) {
-      AppLogger.log('⚠️ VideoFeedAdvanced: Error unregistering legacy callbacks: $e');
-    }
 
     if (!_openedFromProfile) {
       _videoControllerManager.unregisterOnRoutePopped();
@@ -1972,7 +1957,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     // This screen is going away, so nothing here is "the video being watched".
     // Leaving a stale pin would make that controller un-evictable forever.
-    sharedPool.pinVideo(null);
+    // Only this session's pin is dropped — another surface's stays protected.
+    sharedPool.pinVideo(null, sessionId: _playbackSession.id);
 
     // Create a copy of the pool to avoid modification during iteration
     final controllersToDispose =

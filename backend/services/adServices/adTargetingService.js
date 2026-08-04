@@ -1,5 +1,6 @@
 import AdCreative from '../../models/AdCreative.js';
 import aiSemanticService from '../yugFeedServices/aiSemanticService.js';
+import { servableCampaignMatch, servableCampaignStage } from './campaignServability.js';
 
 /**
  * **AD TARGETING SERVICE**
@@ -66,13 +67,19 @@ class AdTargetingService {
       
       // **NEW: Try AI semantic matching first**
       try {
-        // Get all available ads for AI to choose from
-        const allAds = await AdCreative.find({
+        // Get all available ads for AI to choose from. The campaign must still
+        // be servable — this path previously ignored campaign state entirely,
+        // so exhausted and expired campaigns could be surfaced by AI matching.
+        const allAds = (await AdCreative.find({
           adType: adType,
           isActive: true,
           reviewStatus: 'approved'
-        }).limit(20).lean();
-        
+        })
+          .populate({ path: 'campaignId', match: servableCampaignMatch() })
+          .limit(20)
+          .lean())
+          .filter(ad => ad.campaignId !== null);
+
         if (allAds.length > 0) {
           console.log('🤖 Attempting AI semantic matching...');
           const aiMatchedAds = await aiSemanticService.matchSemantically(
@@ -156,13 +163,7 @@ class AdTargetingService {
         {
           $unwind: '$campaign'
         },
-        {
-          $match: {
-            'campaign.status': 'active',
-            'campaign.startDate': { $lte: new Date() },
-            'campaign.endDate': { $gte: new Date() }
-          }
-        },
+        servableCampaignStage(),
         {
           $addFields: {
             targetingScore: {
@@ -236,13 +237,7 @@ class AdTargetingService {
         {
           $unwind: '$campaign'
         },
-        {
-          $match: {
-            'campaign.status': 'active',
-            'campaign.startDate': { $lte: new Date() },
-            'campaign.endDate': { $gte: new Date() }
-          }
-        },
+        servableCampaignStage(),
         {
           $addFields: {
             targetingScore: {
@@ -300,13 +295,7 @@ class AdTargetingService {
         {
           $unwind: '$campaign'
         },
-        {
-          $match: {
-            'campaign.status': 'active',
-            'campaign.startDate': { $lte: new Date() },
-            'campaign.endDate': { $gte: new Date() }
-          }
-        },
+        servableCampaignStage(),
         {
           $addFields: {
             targetingScore: {
@@ -378,13 +367,7 @@ class AdTargetingService {
         {
           $unwind: '$campaign'
         },
-        {
-          $match: {
-            'campaign.status': 'active',
-            'campaign.startDate': { $lte: new Date() },
-            'campaign.endDate': { $gte: new Date() }
-          }
-        },
+        servableCampaignStage(),
         {
           $sort: { impressions: -1, createdAt: -1 }
         },

@@ -93,17 +93,3 @@ export const validateAdData = (req, res, next) => {
   
   next();
 };
-
-// Validation middleware for payment data
-export const validatePaymentData = (req, res, next) => {
-  const { paymentId, orderId, signature, adId } = req.body;
-  
-  if (!paymentId || !orderId || !signature || !adId) {
-    return res.status(400).json({
-      error: 'Missing payment information',
-      details: 'Payment ID, order ID, signature, and ad ID are required'
-    });
-  }
-  
-  next();
-};

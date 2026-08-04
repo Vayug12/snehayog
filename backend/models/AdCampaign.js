@@ -39,6 +39,23 @@ const AdCampaignSchema = new mongoose.Schema({
     type: Number,
     min: 1000 // Minimum ₹1000 total
   },
+  // Running total of what this campaign has been charged for delivered views.
+  // Accrued in batches by adStatsBuffer at the same CPM used to credit
+  // creators, so advertiser spend and creator revenue never drift apart.
+  // A campaign stops being served once spentINR reaches totalBudget.
+  spentINR: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  // Set when the campaign's unspent budget has been returned to the
+  // advertiser's credit wallet. Doubles as the claim flag for settlement:
+  // the transition to a settled state filters on this being null, so a
+  // re-run of the expiry sweep cannot refund the same campaign twice.
+  budgetRefundedAt: {
+    type: Date,
+    default: null
+  },
   bidType: {
     type: String,
     default: 'CPM',
@@ -162,6 +179,11 @@ const AdCampaignSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Serves the expiry sweep, which runs on every cold start. Without this it
+// would collection-scan on each boot; with it, the normal "nothing to settle"
+// case is an index lookup that matches no documents.
+AdCampaignSchema.index({ status: 1, endDate: 1, budgetRefundedAt: 1 });
 
 // Calculate CTR
 AdCampaignSchema.virtual('calculatedCtr').get(function() {

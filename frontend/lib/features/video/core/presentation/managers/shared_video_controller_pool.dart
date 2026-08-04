@@ -29,24 +29,53 @@ class SharedVideoControllerPool {
     _playbackGuard = guard;
   }
 
-  // **PIN: the video the user is actually watching**
+  // **PIN: the video each surface is actually watching**
   //
   // LRU alone cannot protect it: preloading a neighbour refreshes that
   // neighbour's access time and pushes the playing video down the list, so a
   // full pool would evict the very controller producing frames on screen.
   // A pinned video is never evicted by LRU, by retainOnly, or by a
   // memory-pressure sweep — only an explicit dispose can take it.
-  String? _pinnedVideoId;
+  //
+  // Pins are keyed by playback session because the pool is shared by every
+  // screen. A single global pin meant a player opened from Profile silently
+  // un-pinned the main feed's controllers, leaving the feed's preloaded next
+  // video free to be evicted while the user was away.
+  final Map<int, String> _pinsBySession = <int, String>{};
 
-  String? get pinnedVideoId => _pinnedVideoId;
+  /// Session whose pin outranks all others: the one that owns playback.
+  int? _activePinSession;
 
-  /// **Pin the currently watched video. Pass `null` when nothing is playing.**
-  void pinVideo(String? videoId) {
-    if (_pinnedVideoId == videoId) return;
-    _pinnedVideoId = videoId;
-    if (videoId != null) {
-      _lastAccessed[videoId] = DateTime.now();
+  /// The video on screen right now, if any.
+  String? get pinnedVideoId =>
+      _activePinSession == null ? null : _pinsBySession[_activePinSession];
+
+  /// Every pinned video, across all live surfaces. Protected from LRU and
+  /// `retainOnly`; a background surface's pin still yields to the active one
+  /// under real decoder pressure (see [makeRoomForNewController]).
+  Set<String> get _protectedVideoIds => _pinsBySession.values.toSet();
+
+  /// **Pin the video [sessionId] is watching. Pass `null` to drop its pin.**
+  void pinVideo(String? videoId, {required int sessionId}) {
+    if (videoId == null) {
+      _pinsBySession.remove(sessionId);
+      return;
     }
+    if (_pinsBySession[sessionId] == videoId) return;
+    _pinsBySession[sessionId] = videoId;
+    _lastAccessed[videoId] = DateTime.now();
+  }
+
+  /// **Declare which session currently owns playback.** Called by the playback
+  /// coordinator on every ownership handover.
+  void setActivePinSession(int? sessionId) {
+    _activePinSession = sessionId;
+  }
+
+  /// **Drop every pin held by a disposed surface.**
+  void releasePins(int sessionId) {
+    _pinsBySession.remove(sessionId);
+    if (_activePinSession == sessionId) _activePinSession = null;
   }
 
   /// **Does the pool own a controller for this video?** (no validation side effects)
@@ -124,9 +153,11 @@ class SharedVideoControllerPool {
     if (_liveDecoderCount < _maxPoolSize) return true;
 
     if (highPriority) {
-      // The watched video outranks every cached neighbour.
+      // The watched video outranks every cached neighbour — and, at this point,
+      // every background surface's pin too. Only the pin of the surface that
+      // owns playback survives.
       final sacrificial = _controllerPool.keys
-          .where((id) => id != _pinnedVideoId && id != forVideoId)
+          .where((id) => id != pinnedVideoId && id != forVideoId)
           .toList();
       for (final videoId in sacrificial) {
         disposeController(videoId);
@@ -381,9 +412,10 @@ class SharedVideoControllerPool {
   /// The caller owns the list and recomputes [keepVideoIds] fresh each time.
   /// The pinned video always survives, whether or not it is in the set.
   void retainOnly(Set<String> keepVideoIds) {
+    final protected = _protectedVideoIds;
     final toRemove = _controllerPool.keys
         .where((videoId) =>
-            !keepVideoIds.contains(videoId) && videoId != _pinnedVideoId)
+            !keepVideoIds.contains(videoId) && !protected.contains(videoId))
         .toList();
 
     for (final videoId in toRemove) {
@@ -424,11 +456,14 @@ class SharedVideoControllerPool {
     final int targetCapacity = forceRelease ? _maxPoolSize - 2 : _maxPoolSize - 1;
     final toRemove = (_controllerPool.length - targetCapacity).clamp(1, _controllerPool.length);
 
+    final protected = _protectedVideoIds;
     int removed = 0;
     for (final entry in sortedEntries) {
       if (removed >= toRemove) break;
       if (entry.key == excluding) continue; // Don't remove the one we're adding
-      if (entry.key == _pinnedVideoId) continue; // NEVER evict what's playing
+      // NEVER evict what any live surface is watching. Protecting only the
+      // active one would let a tab switch strand the other surface's video.
+      if (protected.contains(entry.key)) continue;
 
       if (_controllerPool.containsKey(entry.key)) {
         disposeController(entry.key);
@@ -713,9 +748,10 @@ class SharedVideoControllerPool {
           .toList()
         ..sort((a, b) => a.value.compareTo(b.value));
 
+      final protected = _protectedVideoIds;
       final controllersToDispose = sortedKeys
           .map((e) => e.key)
-          .where((id) => id != _pinnedVideoId)
+          .where((id) => !protected.contains(id))
           .take((_controllerPool.length - 2).clamp(0, _controllerPool.length))
           .toList();
 
@@ -769,7 +805,8 @@ class SharedVideoControllerPool {
     _controllerStates.clear();
     _listeners.clear();
     _lastAccessed.clear(); // Clear LRU tracking
-    _pinnedVideoId = null; // Nothing is playing anymore
+    _pinsBySession.clear(); // Nothing is playing anymore
+    _activePinSession = null;
 
     AppLogger.log('✅ SharedPool: All controllers cleared');
   }
@@ -814,7 +851,7 @@ class SharedVideoControllerPool {
     // 1. Identify the video to keep.
     // Prefer the explicit pin — "most recently accessed" is unreliable here
     // because preloading a neighbour bumps that neighbour's access time.
-    String? currentVideoId = _pinnedVideoId;
+    String? currentVideoId = pinnedVideoId;
     if (currentVideoId == null || !_controllerPool.containsKey(currentVideoId)) {
       currentVideoId = null;
       if (_lastAccessed.isNotEmpty) {

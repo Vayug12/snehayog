@@ -1,233 +1,11 @@
 import mongoose from 'mongoose';
 import AdCreative from '../../models/AdCreative.js';
 import AdCampaign from '../../models/AdCampaign.js';
-import Invoice from '../../models/Invoice.js';
-import { 
-  calculateEstimatedImpressions, 
-  calculateRevenueSplit, 
-  generateOrderId 
-} from '../../utils/common.js';
-import { AD_CONFIG, PAYMENT_CONFIG } from '../../constants/index.js';
 import { calculateCategoryRelevance } from '../../config/categoryMap.js';
 import adEngine from './adEngine/index.js';
+import { renderedSum, billableSum } from './impressionCounting.js';
 
 class AdService {
-  async createAdWithPayment(adData) {
-    console.log('🔍 AdService: Received ad data:', JSON.stringify(adData, null, 2));
-    console.log('🔍 AdService: deviceType from request:', adData.deviceType);
-    console.log('🔍 AdService: deviceType type:', typeof adData.deviceType);
-    
-    const {
-      title,
-      description,
-      imageUrl,
-      videoUrl,
-      link,
-      adType,
-      budget,
-      uploaderId,
-      startDate,
-      endDate,
-      minAge,
-      maxAge,
-      gender,
-      locations,
-      interests,
-      platforms,
-      deviceType,
-      optimizationGoal,
-      frequencyCap,
-      timeZone,
-      dayParting,
-      imageUrls // **NEW: Support multiple image URLs for carousel ads**
-    } = adData;
-
-    // **NEW: Validate required fields**
-    if (!title || !description || !adType || !budget || !uploaderId) {
-      throw new Error('Missing required fields: title, description, adType, budget, and uploaderId are required');
-    }
-
-    // **NEW: Find User by googleId to get ObjectId**
-    const User = mongoose.model('User');
-    const user = await User.findOne({ googleId: uploaderId });
-    if (!user) {
-      throw new Error(`User not found with googleId: ${uploaderId}`);
-    }
-    
-    const campaign = new AdCampaign({
-      name: title,
-      advertiserUserId: user._id, 
-      objective: 'awareness',
-      status: 'active', // **FIX: Set campaign as active immediately after payment**
-      startDate: startDate ? new Date(startDate) : new Date(),
-      endDate: endDate ? new Date(endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      dailyBudget: Math.max(budget, 100),
-      totalBudget: Math.max(budget * 30, 1000), 
-      bidType: 'CPM',
-      cpmINR: adType === 'banner' ? 20 : 30,
-      target: {
-        age: { 
-          min: minAge || 18, 
-          max: maxAge || 65 
-        },
-        gender: gender || 'all',
-        locations: locations || [],
-        interests: interests || [],
-        platforms: platforms && platforms.length > 0 ? platforms : ['android', 'ios', 'web'],
-        deviceType: deviceType || 'all'
-      },
-      optimizationGoal: optimizationGoal || 'impressions',
-      timeZone: timeZone || 'Asia/Kolkata',
-      dayParting: dayParting || {},
-      pacing: 'smooth',
-      frequencyCap: frequencyCap || 3
-    });
-
-    try {
-      await campaign.save();
-      console.log('✅ AdService: Created campaign:', campaign._id);
-    } catch (campaignError) {
-      console.error('❌ AdService: Campaign creation failed:', campaignError);
-      throw new Error(`Campaign creation failed: ${campaignError.message}`);
-    }
-
-    // **NEW: Determine media type and aspect ratio**
-    const mediaType = videoUrl ? 'video' : 'image';
-    const cloudinaryUrl = videoUrl || imageUrl;
-    
-    const aspectRatio = '9:16'; // This should be calculated from actual image/video dimensions
-    
-    // **NEW: Determine call to action label and URL**
-    let callToActionLabel = 'Learn More';
-    let callToActionUrl = ''; // **FIX: Don't set default URL - let it be empty if no link provided**
-    
-    // Only use link if it's a valid URL
-    if (link && link.trim().startsWith('http')) {
-      callToActionUrl = link.trim();
-      // Determine label based on URL content
-      if (link.includes('shop') || link.includes('buy') || link.includes('purchase')) {
-        callToActionLabel = 'Shop Now';
-      } else if (link.includes('download')) {
-        callToActionLabel = 'Download';
-      } else if (link.includes('signup') || link.includes('register')) {
-        callToActionLabel = 'Sign Up';
-      }
-    } else {
-      // If link is not a valid URL, keep it empty
-      console.log('⚠️ AdService: Link is not a valid URL, keeping empty:', link);
-      callToActionUrl = '';
-    }
-
-    // **NEW: Create AdCreative with correct field mapping**
-    const creativeData = {
-      campaignId: campaign._id,
-      adType: adType === 'banner' ? 'banner' : adType === 'carousel' ? 'carousel' : 'video feed ad',
-      type: mediaType,
-      title: title, // **FIX: Add title field for banner ads**
-      callToAction: {
-        label: callToActionLabel,
-        url: callToActionUrl
-      },
-      reviewStatus: 'approved', // **FIX: Auto-approve ads with payment**
-      isActive: true // **FIX: Activate ads immediately after payment**
-    };
-
-    // **NEW: Handle carousel ads with multiple images**
-    if (adType === 'carousel' && imageUrls && imageUrls.length > 0) {
-      console.log(`🔍 AdService: Creating carousel ad with ${imageUrls.length} images`);
-      creativeData.slides = imageUrls.map(url => ({
-        mediaUrl: url,
-        thumbnail: url,
-        mediaType: 'image',
-        aspectRatio: '9:16',
-        title: title,
-        description: description
-      }));
-    } else {
-      // **Traditional single media creative**
-      creativeData.cloudinaryUrl = cloudinaryUrl;
-      creativeData.thumbnail = imageUrl; // Use image as thumbnail for videos
-      creativeData.aspectRatio = aspectRatio;
-      creativeData.durationSec = mediaType === 'video' ? 15 : undefined; // Default 15 seconds for videos
-    }
-
-    const adCreative = new AdCreative(creativeData);
-
-    try {
-      await adCreative.save();
-      console.log('✅ AdService: Created ad creative:', adCreative._id);
-    } catch (creativeError) {
-      console.error('❌ AdService: AdCreative creation failed:', creativeError);
-      throw new Error(`AdCreative creation failed: ${creativeError.message}`);
-    }
-
-    // Create invoice for payment
-    const invoice = new Invoice({
-      campaignId: campaign._id,
-      orderId: generateOrderId(),
-      amountINR: budget,
-      status: 'created',
-      description: `Payment for ad: ${title}`,
-      dueDate: new Date(Date.now() + PAYMENT_CONFIG.INVOICE_DUE_HOURS * 60 * 60 * 1000),
-      totalAmount: budget,
-      // **FIXED: Add required invoiceNumber field**
-      invoiceNumber: `INV-${Date.now()}-${Math.floor(Math.random() * 1000)}`
-    });
-
-    try {
-      await invoice.save();
-      console.log('✅ AdService: Created invoice:', invoice._id);
-    } catch (invoiceError) {
-      console.error('❌ AdService: Invoice creation failed:', invoiceError);
-      throw new Error(`Invoice creation failed: ${invoiceError.message}`);
-    }
-
-    return {
-      ad: adCreative,
-      campaign: campaign,
-      invoice: {
-        id: invoice._id,
-        orderId: invoice.orderId,
-        amount: invoice.amountINR,
-        status: invoice.status
-      }
-    };
-  }
-
-  async processPayment(paymentData) {
-    const { orderId, paymentId, signature, adId } = paymentData;
-
-    // Update invoice status
-    const invoice = await Invoice.findOne({ orderId });
-    if (!invoice) {
-      throw new Error('Invoice not found');
-    }
-
-    invoice.status = 'paid';
-    invoice.razorpayPaymentId = paymentId;
-    invoice.razorpaySignature = signature;
-    invoice.paymentDate = new Date();
-    await invoice.save();
-
-    // Activate the ad
-    const adCreative = await AdCreative.findById(adId);
-    if (!adCreative) {
-      throw new Error('Ad not found');
-    }
-
-    // Ensure all activation fields are consistent
-    adCreative.status = 'active';
-    adCreative.isActive = true;
-    adCreative.reviewStatus = 'approved';
-    adCreative.activatedAt = new Date();
-    await adCreative.save();
-
-    return {
-      ad: adCreative,
-      invoice: invoice
-    };
-  }
-
   /**
    * Get active ads for serving with proper targeting
    * Delegated entirely to VayuAdEngine plugins
@@ -449,15 +227,16 @@ class AdService {
       // Aggregate impressions and views grouped by videoId
       const breakdownData = await AdImpression.aggregate([
         { $match: { adId: adObjectId } },
-        { 
-          $group: { 
+        {
+          $group: {
             _id: '$videoId',
-            impressions: { $sum: 1 },
-            views: { 
-              $sum: { $cond: [{ $eq: ['$isViewed', true] }, 1, 0] } 
-            },
+            // Rendered and billable are separate rows, so `$sum: 1` here was
+            // reach + views — an impression count the advertiser's own CTR
+            // could never be reconciled against.
+            impressions: renderedSum(),
+            views: billableSum(),
             totalDuration: { $sum: '$viewDuration' }
-          } 
+          }
         },
         { $sort: { impressions: -1 } }
       ]);

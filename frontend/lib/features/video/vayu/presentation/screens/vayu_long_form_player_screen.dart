@@ -47,6 +47,7 @@ import 'package:vayug/features/video/vayu/presentation/screens/vayu_player_gestu
 import 'package:vayug/shared/widgets/share_options_sheet.dart';
 import 'package:vayug/features/profile/core/presentation/screens/profile_screen.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
+import 'package:vayug/shared/widgets/tab_scope.dart';
 import 'package:vayug/shared/services/playback_coordinator.dart';
 
 class VayuLongFormPlayerScreen extends ConsumerStatefulWidget {
@@ -109,11 +110,13 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   final VideoControllerManager _videoControllerManager = VideoControllerManager();
   final SharedVideoControllerPool _controllerPool = SharedVideoControllerPool();
   final PlaybackCoordinator _playbackCoordinator = PlaybackCoordinator();
-  late final PlaybackSession _playbackSession =
-      _playbackCoordinator.register(source: 'vayu-long-form');
+  late final PlaybackSession _playbackSession = _playbackCoordinator.register(
+    source: 'vayu-long-form',
+    onActivate: _resumeCurrentVideo,
+    onDeactivate: _pauseAllPlayback,
+  );
   MainController? _mainController;
   bool _lifecyclePaused = false;
-  int? _resolvedParentTabIndex;
   ModalRoute<dynamic>? _observedRoute;
 
   // Banner Ad State
@@ -166,13 +169,10 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   void initState() {
     super.initState();
     _mainController = ref.read(mainControllerProvider);
-    _resolvedParentTabIndex =
-        widget.parentTabIndex ?? _mainController?.playbackActiveTabIndex;
-    // This player is a pushed route, so it never receives didPushNext when the
-    // user switches tabs. Declaring its tab lets the coordinator drop its
-    // playback claim instead of leaving it playing behind another tab.
-    _playbackCoordinator.bindSessionToTab(
-        _playbackSession, _resolvedParentTabIndex);
+    // The tab is resolved from TabScope in didChangeDependencies: this player
+    // is a pushed route and never receives didPushNext when the user switches
+    // tabs, so declaring its tab is what lets the coordinator drop its playback
+    // claim instead of leaving it playing behind another tab.
     _dubbingService = widget.dubbingService ?? OnDeviceDubbingServiceImpl();
     _activeAdsService = widget.adService ?? ActiveAdsService();
     _quizEngine = widget.quizEngine ?? StandardQuizEngine();
@@ -240,11 +240,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _mainController = ref.read(mainControllerProvider);
-        _mainController?.registerVideoObserver(
-          onPause: _pauseCurrentVideo,
-          onResume: _resumeCurrentVideo,
-        );
-        _mainController?.forcePauseVideos();
+        // Competing surfaces are silenced by the coordinator's handover when
+        // this route becomes the active one. Pausing globally from here also
+        // hit this player's own controller, moments before it tried to start.
         // Apply chrome for the entry orientation once, instead of on every
         // build. Rotations are handled by _toggleFullScreen/didChangeMetrics.
         final orientation = MediaQuery.orientationOf(context);
@@ -291,6 +289,12 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       _observedRoute = route;
       if (route != null) appRouteObserver.subscribe(this, route);
     }
+    // An explicit parentTabIndex wins; otherwise the enclosing TabScope answers
+    // it correctly however deeply this player was pushed.
+    _playbackCoordinator.bindSessionToTab(
+      _playbackSession,
+      widget.parentTabIndex ?? TabScope.maybeOf(context),
+    );
     _mainController = ref.watch(mainControllerProvider);
     final authController = ref.watch(googleSignInProvider);
     if (authController.isSignedIn && authController.userData != null) {
@@ -357,39 +361,32 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     _resumeCurrentVideo();
   }
 
-  void _pauseCurrentVideo() {
-    if (_currentIndex < _videos.length) {
-      final controller = _controllers[_currentIndex];
-      if (controller != null) {
-        try { if (controller.value.isPlaying) controller.pause(); } catch (_) {}
-      }
-    }
-  }
-
+  /// Silences this player's own controllers. Deliberately local: pausing the
+  /// shared pool from here also stopped whatever surface was taking over.
   void _pauseAllPlayback() {
     _playbackCoordinator.pause(_playbackSession);
-    _pauseCurrentVideo();
-    _videoControllerManager.pauseAllVideos();
-    _controllerPool.pauseAllControllers();
+    for (final controller in _controllers.values) {
+      try {
+        if (controller.value.isInitialized && controller.value.isPlaying) {
+          controller.pause();
+        }
+      } catch (_) {}
+    }
     _disableWakelock();
   }
 
-  bool _isPlayerRouteActive() => ModalRoute.of(context)?.isCurrent ?? false;
-
-  bool _isParentTabActive() {
-    // A pushed player is owned by its route. The originating bottom-tab index
-    // is metadata only and must not block profile/search/deep-link playback.
-    return _isPlayerRouteActive();
-  }
-
-  /// This is the sole permission check for starting Vayu playback.
+  /// Whether this player may start [controller] for [index].
+  ///
+  /// Placement — route, tab, app lifecycle — comes from the coordinator, which
+  /// is the only thing that knows about the other surfaces. `_isParentTabActive`
+  /// used to answer "is my tab visible?" with "am I the current route?", which
+  /// is always true for a pushed player and let it play from a hidden tab.
   bool _canPlayCurrentVideo(int index, VideoPlayerController controller) {
     return mounted &&
         !_lifecyclePaused &&
-        _isPlayerRouteActive() &&
-        _isParentTabActive() &&
         index == _currentIndex &&
-        identical(_controllers[index], controller);
+        identical(_controllers[index], controller) &&
+        _playbackCoordinator.canPlay(_playbackSession, reason: 'vayu $index');
   }
 
   Future<bool> _playIfAllowed(
@@ -440,6 +437,15 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   void didPopNext() {
     _playbackCoordinator.setRouteActive(_playbackSession, true);
     _resumeCurrentVideo();
+  }
+
+  /// This route was popped. Its widget lives until the transition finishes, so
+  /// without giving the slot up here it stays the top-most eligible surface for
+  /// the length of the animation and keeps the screen underneath silent.
+  @override
+  void didPop() {
+    _playbackCoordinator.setRouteActive(_playbackSession, false);
+    _pauseAllPlayback();
   }
 
   void _resumeCurrentVideo() {
@@ -724,14 +730,13 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     _suppressTransientPauseOverlayVN.dispose();
     _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    _mainController?.unregisterVideoObserver(onPause: _pauseCurrentVideo, onResume: _resumeCurrentVideo);
-    try { _mainController?.unregisterCallbacks(); } catch (_) {}
     _savePlaybackPosition(_currentIndex);
-    
-    // **CRITICAL FIX**: Explicitly tell the shared pool to pause all videos before we lose references.
-    _controllerPool.pauseAllControllers();
+
+    // Only this player's own controllers are silenced. A blanket pause would
+    // also hit the surface underneath, which the coordinator reactivates as
+    // this route goes away.
     _videoControllerManager.pauseAllVideos();
-    
+
     _controllers.forEach((index, c) {
       try {
         final listener = _positionListeners.remove(index);
@@ -1085,10 +1090,10 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     if (index == _currentIndex) return;
     final oldVideoId = _videos[_currentIndex].id;
     _quizEngine.reset(oldVideoId);
-    // Stop every pooled controller before switching the active index. This
-    // covers a controller that finished buffering after the previous swipe.
-    _controllerPool.pauseAllControllers();
-    _pauseCurrentVideo(); _reprimeWindowIfNeeded(index); _stopViewTracking(_currentIndex);
+    // Stop this player's own controllers before switching the active index.
+    // This covers a controller that finished buffering after the previous swipe.
+    _pauseAllPlayback();
+    _reprimeWindowIfNeeded(index); _stopViewTracking(_currentIndex);
     setState(() {
       _currentIndex = index;
       _activeQuiz = null;

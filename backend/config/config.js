@@ -52,8 +52,6 @@ if (!envLoaded) {
 // Configuration validation
 // **FIX: Make validation lenient to allow healthcheck to work even if some config is missing**
 const validateConfig = () => {
-  const enablePayments = process.env.ENABLE_PAYMENTS === 'true';
-  
   // Only database is truly critical - everything else can have fallbacks
   const criticalVars = [
     // Check for either MONGODB_URI or MONGO_URI (only for actual database operations)
@@ -78,14 +76,6 @@ const validateConfig = () => {
     warnings.push('Warning: JWT_SECRET not set (using fallback - not secure for production)');
     // Set a temporary fallback for healthcheck (will need to be set properly in production)
     process.env.JWT_SECRET = 'healthcheck-fallback-secret-' + Date.now();
-  }
-  
-  if (enablePayments) {
-    const missingPaymentVars = ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET']
-      .filter(varName => !process.env[varName]);
-    if (missingPaymentVars.length > 0) {
-      warnings.push(`Payments enabled but missing: ${missingPaymentVars.join(', ')}`);
-    }
   }
   
   if (warnings.length > 0) {
@@ -113,14 +103,6 @@ export const config = {
     },
   },
 
-  // Razorpay configuration
-  razorpay: {
-    keyId: process.env.RAZORPAY_KEY_ID,
-    keySecret: process.env.RAZORPAY_KEY_SECRET,
-    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
-    environment: process.env.RAZORPAY_KEY_ID?.startsWith('rzp_test_') ? 'test' : 'live',
-  },
-
   // JWT configuration
   jwt: {
     secret: process.env.JWT_SECRET,
@@ -142,10 +124,8 @@ export const config = {
 
   // Feature flags
   features: {
-    enablePayments: process.env.ENABLE_PAYMENTS === 'true',
     enableAnalytics: process.env.ENABLE_ANALYTICS === 'true',
     enableNotifications: process.env.ENABLE_NOTIFICATIONS === 'true',
-    enableUPIPayments: process.env.ENABLE_UPI_PAYMENTS === 'true',
   },
 
   // Security configuration

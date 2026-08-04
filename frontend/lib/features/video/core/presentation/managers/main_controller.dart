@@ -5,8 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vayug/core/providers/profile_providers.dart';
 import 'package:vayug/core/providers/video_providers.dart';
 import 'dart:async';
-import 'package:vayug/features/video/core/presentation/managers/shared_video_controller_pool.dart';
-import 'package:vayug/features/video/core/presentation/managers/video_controller_manager.dart';
 import 'package:vayug/shared/services/playback_coordinator.dart';
 
 class MainController extends ChangeNotifier {
@@ -32,53 +30,12 @@ class MainController extends ChangeNotifier {
     notifyListeners();
   }
 
-  // **OBSERVER PATTERN: Support multiple video feeds in the stack**
-  final List<VoidCallback> _pauseObservers = [];
-  final List<VoidCallback> _resumeObservers = [];
-
-  /// **NEW: Register a video feed observer**
-  void registerVideoObserver({
-    required VoidCallback onPause,
-    required VoidCallback onResume,
-  }) {
-    if (!_pauseObservers.contains(onPause)) {
-      _pauseObservers.add(onPause);
-    }
-    if (!_resumeObservers.contains(onResume)) {
-      _resumeObservers.add(onResume);
-    }
-    AppLogger.log('🎬 MainController: Registered video observer (Total: ${_pauseObservers.length})');
-  }
-
-  /// **NEW: Unregister a video feed observer**
-  void unregisterVideoObserver({
-    required VoidCallback onPause,
-    required VoidCallback onResume,
-  }) {
-    _pauseObservers.remove(onPause);
-    _resumeObservers.remove(onResume);
-    AppLogger.log('🎬 MainController: Unregistered video observer (Remaining: ${_pauseObservers.length})');
-  }
-
-  // Deprecated single callbacks - keeping for compatibility during migration
-  VoidCallback? _pauseVideosCallback;
-  VoidCallback? _resumeVideosCallback;
-
-  /// **LEGACY: Register video pause callback (migrating to registerVideoObserver)**
-  void registerVideoPauseCallback(VoidCallback callback) {
-    _pauseVideosCallback = callback;
-    if (!_pauseObservers.contains(callback)) {
-      _pauseObservers.add(callback);
-    }
-  }
-
-  /// **LEGACY: Register video resume callback (migrating to registerVideoObserver)**
-  void registerVideoResumeCallback(VoidCallback callback) {
-    _resumeVideosCallback = callback;
-    if (!_resumeObservers.contains(callback)) {
-      _resumeObservers.add(callback);
-    }
-  }
+  // Video pause/resume observers used to live here as an app-wide broadcast:
+  // every registered feed heard every tab switch, including feeds sitting in a
+  // background tab that `IndexedStack` keeps mounted. Those feeds then paused
+  // whatever was actually on screen. Playback ownership now belongs to
+  // `PlaybackCoordinator`, which notifies exactly one surface — screens pass
+  // `onActivate`/`onDeactivate` to `PlaybackCoordinator.register` instead.
 
   int get currentIndex => _currentIndex;
   /// The tab that should be considered active by media immediately, even while
@@ -95,13 +52,16 @@ class MainController extends ChangeNotifier {
 
     _pendingTabIndex = index;
 
-    // Hand ownership to the new tab BEFORE any pause observer or preload runs.
-    // A player in the tab being left keeps `routeActive == true` (a tab switch
-    // is not a route pop), so without this it would re-claim the playback slot
-    // and pause the feed the user just switched to.
+    // Hand ownership to the new tab BEFORE any preload runs. A player in the
+    // tab being left keeps `routeActive == true` (a tab switch is not a route
+    // pop), so without this it would re-claim the playback slot and pause the
+    // feed the user just switched to.
+    //
+    // This single call both pauses the tab being left and resumes the surface
+    // in the tab being entered: the coordinator pauses every session whose tab
+    // went away, then activates the one that is now on screen. There is no
+    // longer a broadcast that a background feed can answer.
     PlaybackCoordinator().setActiveTab(index);
-
-    _handleIndexChangeFallback(index);
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_pendingTabIndex != index) return;
@@ -112,43 +72,6 @@ class MainController extends ChangeNotifier {
       // Persistently saving tab state is now disabled per user request
       notifyListeners();
     });
-  }
-
-  /// **NEW: Fallback method for when VideoManager is not available**
-  void _handleIndexChangeFallback(int index) {
-    // ALWAYS pause videos when switching tabs to prevent audio leak from Yug, Vayu, or Profile
-    // IMMEDIATE video pause for ALL observers
-    for (final callback in _pauseObservers) {
-      try {
-        callback();
-      } catch (e) {
-        AppLogger.log('⚠️ MainController: Error in pause observer: $e');
-      }
-    }
-    _pauseVideosCallback?.call();
-
-    // SINGLE safety delay to ensure videos are paused after state transition
-    Future.delayed(const Duration(milliseconds: 150), () {
-      if (_currentIndex != index) {
-        for (final callback in _pauseObservers) {
-          try {
-            callback();
-          } catch (_) {}
-        }
-        _pauseVideosCallback?.call();
-      }
-    });
-
-    // If we're entering the video tab (Yug), resume videos
-    if (index == 0 && isAppInForeground) {
-      // Notify all observers to resume
-      for (final callback in _resumeObservers) {
-        try {
-          callback();
-        } catch (_) {}
-      }
-      _resumeVideosCallback?.call();
-    }
   }
 
   void navigateToProfile() {
@@ -195,57 +118,21 @@ class MainController extends ChangeNotifier {
     return 0; // VideoManager was removed
   }
 
-  /// Register callback to pause videos (Legacy)
-  void registerPauseVideosCallback(VoidCallback callback) {
-    registerVideoPauseCallback(callback);
-  }
-
-  /// Register callback to resume videos (Legacy)
-  void registerResumeVideosCallback(VoidCallback callback) {
-    registerVideoResumeCallback(callback);
-  }
-
-  /// Unregister callbacks
-  void unregisterCallbacks() {
-    _pauseVideosCallback = null;
-    _resumeVideosCallback = null;
-    // Note: This doesn't clear the List observers to prevent accidental clearing
-    // of background observers when a foreground one disposes.
-  }
-
-  /// Force pause all videos (called from external sources)
+  /// Silence every video surface, e.g. before navigating somewhere that is not
+  /// a video. Ownership is untouched, so the surface resumes when it is next
+  /// activated.
   void forcePauseVideos() {
-    AppLogger.log('🔇 MainController: forcePauseVideos() triggered for ${_pauseObservers.length} observers');
-    try {
-      final sharedPool = SharedVideoControllerPool();
-      sharedPool.pauseAllControllers();
-      
-      // ALSO pause VideoControllerManager (used by legacy components or direct feed)
-      VideoControllerManager().forcePauseAllVideosSync();
-    } catch (e) {
-      // Ignore errors during pause
-    }
-
-    // Notify ALL registered observers
-    for (final callback in _pauseObservers) {
-      try {
-        callback();
-      } catch (e) {
-        AppLogger.log('⚠️ MainController: Error calling pause observer: $e');
-      }
-    }
-    
-    _pauseVideosCallback?.call();
+    AppLogger.log('🔇 MainController: forcePauseVideos()');
+    PlaybackCoordinator().pauseAll();
   }
 
-  /// Resume videos (called when app comes back to foreground)
+  /// Resume videos (called when app comes back to foreground).
+  ///
+  /// Resuming is the coordinator's decision: it activates the one surface that
+  /// is on screen. Asking every feed to resume is what used to let a
+  /// background player take the audio.
   void resumeVideos() {
-    for (final callback in _resumeObservers) {
-      try {
-        callback();
-      } catch (_) {}
-    }
-    _resumeVideosCallback?.call();
+    PlaybackCoordinator().setAppLifecycle(true);
   }
 
   /// Check if videos should be paused based on current state
@@ -268,38 +155,26 @@ class MainController extends ChangeNotifier {
 
   /// Emergency stop all videos (for critical situations)
   void emergencyStopVideos() {
-    _pauseVideosCallback?.call();
-
-    // Multiple safety calls to ensure videos are stopped
-    Future.delayed(const Duration(milliseconds: 50), () {
-      _pauseVideosCallback?.call();
-    });
-
-    Future.delayed(const Duration(milliseconds: 150), () {
-      _pauseVideosCallback?.call();
-    });
+    PlaybackCoordinator().pauseAll();
   }
 
   /// **NEW: Handle app backgrounding with immediate pause**
   void handleAppBackgrounded() {
     _isAppInForeground = false;
-    forcePauseVideos();
+    // Order matters: marking the app backgrounded makes every session
+    // ineligible, so nothing can re-claim playback behind the sweep.
+    PlaybackCoordinator().setAppLifecycle(false);
+    PlaybackCoordinator().pauseAll();
     notifyListeners();
   }
 
-  /// **NEW: Handle app foregrounding with delayed resume**
+  /// **NEW: Handle app foregrounding**
   void handleAppForegrounded() {
     _isAppInForeground = true;
     notifyListeners();
-
-    // Only resume if on video tab
-    if (isVideoScreen) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (_isAppInForeground && isVideoScreen) {
-          resumeVideos();
-        }
-      });
-    }
+    // Which surface resumes is the coordinator's call — restricting this to
+    // tab 0 left a Vayu or profile player silent after every task switch.
+    PlaybackCoordinator().setAppLifecycle(true);
   }
 
   /// **SIMPLIFIED: Get comprehensive video state info (VideoManager removed)**
@@ -323,8 +198,6 @@ class MainController extends ChangeNotifier {
         PlaybackCoordinator().setActiveTab(_currentIndex);
       }
       _isAppInForeground = true;
-      _pauseVideosCallback = null;
-      _resumeVideosCallback = null;
 
       notifyListeners();
     } catch (e) {

@@ -104,7 +104,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
 
     if (controller != null && isInitializedSafe) {
       if (!_shouldAutoplayForContext('forcePlayCurrent')) return;
-      _pauseAllOtherVideos(videoId);
+      _pauseOtherLocalVideos(videoId);
       _lifecyclePaused = false;
       _maybeApplyInitialStartSeek(videoId, controller);
       _playWithPolicy(controller, 'feed force play');
@@ -133,7 +133,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
       }
       if (c != null && cInit) {
         if (!_shouldAutoplayForContext('forcePlayCurrent preload')) return;
-        _pauseAllOtherVideos(videoId);
+        _pauseOtherLocalVideos(videoId);
         _lifecyclePaused = false;
         _maybeApplyInitialStartSeek(videoId, c);
         _playWithPolicy(c, 'feed force play after preload');
@@ -149,7 +149,7 @@ extension _VideoFeedPlayback on _VideoFeedAdvancedState {
     });
   }
 
-  // _pauseCurrentVideo / _pauseAllOtherVideos / _pauseAllVideosOnTabSwitch used
+  // _pauseCurrentVideo / _pauseOtherLocalVideos / _pauseAllVideosOnTabSwitch used
   // to be duplicated here. A class member always shadows an extension member,
   // so these copies never ran — including their coordinator calls. The single
   // implementations now live in _VideoFeedAdvancedState.

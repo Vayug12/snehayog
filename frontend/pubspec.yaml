@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 3.6.1+56
+version: 3.6.1+57
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -75,10 +75,6 @@ dependencies:
   in_app_update: ^4.2.1
 
 
-  # **NEW: Vayu Monetization Package**
-  snehayog_monetization:
-    path: ../packages/snehayog_monetization
-
   jwt_decoder: ^2.0.1
   flutter_cache_manager: ^3.3.1
   connectivity_plus: ^6.0.5
@@ -112,6 +108,7 @@ dependencies:
   # **NEW: E2EE (End-to-End Encryption) dependencies**
   pointycastle: ^3.9.1
   shelf: ^1.4.2
+  purchases_flutter: ^10.7.0
 
 
 dev_dependencies:
@@ -174,5 +171,4 @@ flutter:
 
 
 # **NEW: Fluttertoast removed to fix compilation issues - using SnackBar instead**
-# **NEW: Custom Razorpay implementation using web-based checkout**
 # **NEW: No more fluttertoast dependency issues**

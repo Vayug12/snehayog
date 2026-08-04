@@ -10,6 +10,7 @@ import { getGlobalLeaderboard } from '../controllers/video/videoFeedController.j
 import RecommendationService from '../services/yugFeedServices/recommendationService.js';
 import Notice from '../models/Notice.js';
 import Video from '../models/Video.js';
+import { billableMatch } from '../services/adServices/impressionCounting.js';
 
 const router = express.Router();
 
@@ -456,7 +457,7 @@ router.get('/top-earners-from-following', verifyToken, async (req, res) => {
       { 
         $match: { 
           creatorId: { $in: followingIds },
-          isViewed: true,
+          ...billableMatch(),
           timestamp: { $gte: startOfMonth }
         } 
       },

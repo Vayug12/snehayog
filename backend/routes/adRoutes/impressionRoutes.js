@@ -4,8 +4,8 @@ import AdCreative from '../../models/AdCreative.js';
 import AdImpression from '../../models/AdImpression.js';
 import User from '../../models/User.js';
 import Video from '../../models/Video.js'; // Import Video model to fetch creatorId
-import CreatorMonthlyStat from '../../models/CreatorMonthlyStat.js';
-import { AD_CONFIG } from '../../constants/index.js';
+import { recordCreativeCounter, recordCreatorEarning, recordCampaignSpend } from '../../services/adServices/adStatsBuffer.js';
+import { renderedMatch, billableMatch } from '../../services/adServices/impressionCounting.js';
 
 const router = express.Router();
 const DAILY_VIEW_FREQUENCY_CAP = 3;
@@ -49,37 +49,15 @@ async function normalizeUserId(userId) {
   return null;
 }
 
-// **NEW: Helper to update real-time revenue stats**
-async function updateMonthlyStats(creatorId, adType) {
-  if (!creatorId) return;
-
-  try {
-    // Calculate IST yearMonth
-    const now = new Date();
-    const ist = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
-    const yearMonth = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}`;
-
-    const update = { $inc: {} };
-    const bannerCpm = AD_CONFIG?.BANNER_CPM ?? 10;
-    const carouselCpm = AD_CONFIG?.DEFAULT_CPM ?? 30;
-
-    if (adType === 'banner') {
-      update.$inc.bannerImpressions = 1;
-      update.$inc.grossRevenue = (1 / 1000) * bannerCpm;
-    } else if (adType === 'carousel') {
-      update.$inc.carouselImpressions = 1;
-      update.$inc.grossRevenue = (1 / 1000) * carouselCpm;
-    }
-
-    await CreatorMonthlyStat.findOneAndUpdate(
-      { creatorId, yearMonth },
-      update,
-      { upsert: true, new: true }
-    );
-    // console.log(`📈 Real-time stats updated for ${creatorId} [${yearMonth}] (${adType})`);
-  } catch (error) {
-    console.error('⚠️ Error updating real-time revenue stats:', error);
-  }
+// **Helper to book a delivered view on both sides of the ledger**
+// Buffered: the writes are batched by adStatsBuffer and flushed every few
+// seconds instead of hitting Mongo once per impression.
+//
+// Creator credit and advertiser spend are booked together, at the same CPM —
+// splitting them would let a campaign fund creator payouts past its budget.
+function bookDeliveredView(creatorId, adId, adType) {
+  if (creatorId) recordCreatorEarning(creatorId, adType);
+  recordCampaignSpend(adId, adType);
 }
 
 // POST /ads/impressions/batch - Sync impressions captured while the app was offline.
@@ -96,6 +74,10 @@ router.post('/impressions/batch', async (req, res) => {
     let processed = 0;
     let ignored = 0;
 
+    // Pass 1 — validate input and split clicks from view impressions.
+    const clickAdIds = [];
+    const candidates = [];
+
     for (const impression of impressions) {
       const { videoId, adId, userId, adType, impressionType } = impression || {};
       const supportedType = adType === 'banner' || adType === 'carousel';
@@ -108,15 +90,7 @@ router.post('/impressions/batch', async (req, res) => {
       }
 
       if (impressionType === 'click') {
-        const clickResult = await AdCreative.updateOne(
-          { _id: adId },
-          { $inc: { clicks: 1 } },
-        );
-        if (clickResult.matchedCount === 0) {
-          ignored += 1;
-        } else {
-          processed += 1;
-        }
+        clickAdIds.push(adId);
         continue;
       }
 
@@ -125,34 +99,87 @@ router.post('/impressions/batch', async (req, res) => {
         continue;
       }
 
-      const [creative, video, normalizedUserId] = await Promise.all([
-        AdCreative.findById(adId).select('_id').lean(),
-        Video.findById(videoId).select('uploader').lean(),
-        normalizeUserId(userId),
-      ]);
+      candidates.push({ videoId, adId, userId, adType, timestamp: impression.timestamp });
+    }
 
-      if (!creative || !video) {
+    // Pass 2 — resolve every referenced document in one round trip each,
+    // instead of three queries per impression inside a loop.
+    const adIds = [...new Set([...candidates.map((c) => String(c.adId)), ...clickAdIds.map(String)])];
+    const videoIds = [...new Set(candidates.map((c) => String(c.videoId)))];
+    const userIds = [...new Set(candidates.map((c) => c.userId).filter(Boolean))];
+
+    const [creatives, videos, normalizedUserIds] = await Promise.all([
+      adIds.length ? AdCreative.find({ _id: { $in: adIds } }).select('_id').lean() : [],
+      videoIds.length ? Video.find({ _id: { $in: videoIds } }).select('uploader').lean() : [],
+      Promise.all(userIds.map((id) => normalizeUserId(id))),
+    ]);
+
+    const knownAdIds = new Set(creatives.map((c) => String(c._id)));
+    const videoUploaders = new Map(videos.map((v) => [String(v._id), v.uploader || null]));
+    const userIdMap = new Map(userIds.map((id, i) => [id, normalizedUserIds[i]]));
+
+    // Pass 3 — build the impression documents.
+    const docs = [];
+    const impressionCounts = new Map();
+
+    for (const candidate of candidates) {
+      const adIdKey = String(candidate.adId);
+      const videoIdKey = String(candidate.videoId);
+
+      if (!knownAdIds.has(adIdKey) || !videoUploaders.has(videoIdKey)) {
         ignored += 1;
         continue;
       }
 
-      const creatorId = video.uploader || null;
+      const creatorId = videoUploaders.get(videoIdKey);
+      const normalizedUserId = candidate.userId ? (userIdMap.get(candidate.userId) ?? null) : null;
+
       if (normalizedUserId && creatorId && normalizedUserId.toString() === creatorId.toString()) {
         ignored += 1;
         continue;
       }
 
-      const parsedTimestamp = new Date(impression.timestamp);
-      await AdImpression.create({
-        videoId,
-        adId,
+      const parsedTimestamp = new Date(candidate.timestamp);
+      docs.push({
+        videoId: candidate.videoId,
+        adId: candidate.adId,
         userId: normalizedUserId,
         creatorId,
-        adType,
-        impressionType: adType === 'carousel' ? 'scroll_view' : 'view',
+        adType: candidate.adType,
+        impressionType: candidate.adType === 'carousel' ? 'scroll_view' : 'view',
         timestamp: Number.isNaN(parsedTimestamp.getTime()) ? new Date() : parsedTimestamp,
       });
-      await AdCreative.updateOne({ _id: adId }, { $inc: { impressions: 1 } });
+      impressionCounts.set(adIdKey, (impressionCounts.get(adIdKey) || 0) + 1);
+    }
+
+    // Single insert for the whole payload.
+    if (docs.length > 0) {
+      try {
+        const inserted = await AdImpression.insertMany(docs, { ordered: false });
+        processed += inserted.length;
+      } catch (bulkError) {
+        // ordered:false continues past individual failures (e.g. duplicate keys),
+        // so count what actually landed rather than failing the whole sync.
+        const insertedCount = bulkError?.insertedDocs?.length
+          ?? bulkError?.result?.insertedCount
+          ?? bulkError?.result?.nInserted
+          ?? 0;
+        processed += insertedCount;
+        ignored += docs.length - insertedCount;
+        console.error('⚠️ Partial failure syncing offline impressions:', bulkError?.message);
+      }
+
+      for (const [adId, count] of impressionCounts) {
+        recordCreativeCounter(adId, 'impressions', count);
+      }
+    }
+
+    for (const adId of clickAdIds) {
+      if (!knownAdIds.has(String(adId))) {
+        ignored += 1;
+        continue;
+      }
+      recordCreativeCounter(adId, 'clicks');
       processed += 1;
     }
 
@@ -181,8 +208,9 @@ router.post('/impressions/banner', async (req, res) => {
       return res.status(400).json({ error: 'Video ID is required' });
     }
 
-    // Find the creative and increment impression count (for global tracking)
-    const creative = await AdCreative.findById(adId);
+    // Verify the creative exists. The counter itself is incremented atomically
+    // via the batched $inc below, so only the id is needed here.
+    const creative = await AdCreative.findById(adId).select('impressions').lean();
     if (!creative) {
       console.error('❌ Ad creative not found:', adId);
       return res.status(404).json({ error: 'Ad not found' });
@@ -226,16 +254,15 @@ router.post('/impressions/banner', async (req, res) => {
       console.error('⚠️ Error creating impression record:', impressionError);
     }
 
-    // Increment global impressions count (for backward compatibility)
-    creative.impressions = (creative.impressions || 0) + 1;
-    await creative.save();
+    // Increment global impressions count (for backward compatibility).
+    // Buffered $inc — atomic and batched, unlike the previous read-modify-write
+    // save() which silently lost counts under concurrent impressions.
+    recordCreativeCounter(adId, 'impressions');
 
-    // console.log(`✅ Banner ad impression tracked. Ad: ${adId}, Global count: ${creative.impressions}`);
-
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
       message: 'Banner ad impression tracked successfully',
-      impressions: creative.impressions
+      impressions: (creative.impressions || 0) + 1
     });
   } catch (error) {
     console.error('❌ Error tracking banner ad impression:', error);
@@ -270,8 +297,9 @@ router.post('/impressions/carousel', async (req, res) => {
       return res.status(400).json({ error: 'Video ID is required' });
     }
 
-    // Find the creative and increment impression count (for global tracking)
-    const creative = await AdCreative.findById(adId);
+    // Verify the creative exists. The counter itself is incremented atomically
+    // via the batched $inc below, so only the id is needed here.
+    const creative = await AdCreative.findById(adId).select('impressions').lean();
     if (!creative) {
       console.error('❌ Ad creative not found:', adId);
       return res.status(404).json({ error: 'Ad not found' });
@@ -312,16 +340,15 @@ router.post('/impressions/carousel', async (req, res) => {
       console.error('⚠️ Error creating impression record:', impressionError);
     }
 
-    // Increment global impressions count (for backward compatibility)
-    creative.impressions = (creative.impressions || 0) + 1;
-    await creative.save();
+    // Increment global impressions count (for backward compatibility).
+    // Buffered $inc — atomic and batched, unlike the previous read-modify-write
+    // save() which silently lost counts under concurrent impressions.
+    recordCreativeCounter(adId, 'impressions');
 
-    // console.log(`✅ Carousel ad impression tracked. Ad: ${adId}, Global count: ${creative.impressions}`);
-
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
       message: 'Carousel ad impression tracked successfully',
-      impressions: creative.impressions
+      impressions: (creative.impressions || 0) + 1
     });
   } catch (error) {
     console.error('❌ Error tracking carousel ad impression:', error);
@@ -339,10 +366,12 @@ router.get('/impressions/video/:videoId/banner', async (req, res) => {
 
     console.log(`📊 Getting banner impressions for video: ${videoId}`);
 
-    // **FIXED: Count impressions specific to this video**
+    // Rendered rows only — a delivered ad also writes a second, `isViewed` row,
+    // and counting both reports twice the ads that were actually shown.
     const count = await AdImpression.countDocuments({
       videoId: videoId,
-      adType: 'banner'
+      adType: 'banner',
+      ...renderedMatch()
     });
 
     console.log(`✅ Banner impressions for video ${videoId}: ${count}`);
@@ -364,10 +393,11 @@ router.get('/impressions/video/:videoId/carousel', async (req, res) => {
 
     console.log(`📊 Getting carousel impressions for video: ${videoId}`);
 
-    // **FIXED: Count impressions specific to this video**
+    // Rendered rows only — see the banner endpoint above.
     const count = await AdImpression.countDocuments({
       videoId: videoId,
-      adType: 'carousel'
+      adType: 'carousel',
+      ...renderedMatch()
     });
 
     console.log(`✅ Carousel impressions for video ${videoId}: ${count}`);
@@ -420,7 +450,7 @@ router.post('/impressions/banner/view', async (req, res) => {
         adId: adId,
         userId: normalizedUserId,
         adType: 'banner',
-        isViewed: true,
+        ...billableMatch(),
         timestamp: { $gte: startOfDay }
       });
 
@@ -466,11 +496,10 @@ router.post('/impressions/banner/view', async (req, res) => {
         timestamp: new Date()
       });
       
-      // **NEW: Update real-time stats**
-      // **NEW: Increment views on AdCreative**
-      await AdCreative.findByIdAndUpdate(adId, { $inc: { views: 1 } });
-      
-      await updateMonthlyStats(creatorId, 'banner');
+      // Increment views on AdCreative (buffered $inc, flushed in batches)
+      recordCreativeCounter(adId, 'views');
+
+      bookDeliveredView(creatorId, adId, 'banner');
 
     res.status(200).json({ 
       success: true,
@@ -526,7 +555,7 @@ router.post('/impressions/carousel/view', async (req, res) => {
         adId: adId,
         userId: normalizedUserId,
         adType: 'carousel',
-        isViewed: true,
+        ...billableMatch(),
         timestamp: { $gte: startOfDay }
       });
 
@@ -571,11 +600,10 @@ router.post('/impressions/carousel/view', async (req, res) => {
         timestamp: new Date()
       });
       
-      // **NEW: Update real-time stats**
-      // **NEW: Increment views on AdCreative**
-      await AdCreative.findByIdAndUpdate(adId, { $inc: { views: 1 } });
-      
-      await updateMonthlyStats(creatorId, 'carousel');
+      // Increment views on AdCreative (buffered $inc, flushed in batches)
+      recordCreativeCounter(adId, 'views');
+
+      bookDeliveredView(creatorId, adId, 'carousel');
 
     res.status(200).json({ 
       success: true,
@@ -605,7 +633,7 @@ router.get('/views/video/:videoId/banner', async (req, res) => {
     const query = {
       videoId: videoId,
       adType: 'banner',
-      isViewed: true
+      ...billableMatch()
     };
 
     // **NEW: Add month filtering if month and year provided**
@@ -648,7 +676,7 @@ router.get('/views/video/:videoId/carousel', async (req, res) => {
     const query = {
       videoId: videoId,
       adType: 'carousel',
-      isViewed: true
+      ...billableMatch()
     };
 
     // **NEW: Add month filtering if month and year provided**

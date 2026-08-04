@@ -1,10 +1,22 @@
 part of '../video_feed_advanced.dart';
 
 mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
+  /// Called by the coordinator when this feed becomes / stops being the one
+  /// surface allowed to play. Implemented by the state class.
+  void onPlaybackActivated();
+  void onPlaybackDeactivated();
+
   final PlaybackCoordinator _playbackCoordinator = PlaybackCoordinator();
-  late final PlaybackSession _playbackSession =
-      _playbackCoordinator.register(source: 'video-feed');
+  late final PlaybackSession _playbackSession = _playbackCoordinator.register(
+    source: 'video-feed',
+    onActivate: onPlaybackActivated,
+    onDeactivate: onPlaybackDeactivated,
+  );
   ModalRoute<dynamic>? _playbackRoute;
+
+  /// Tab this subtree lives in, read from the enclosing [TabScope] in
+  /// `didChangeDependencies`. Null outside a tab (root route, tests).
+  int? _tabScopeIndex;
 
   // Core state - **OPTIMIZED: Using ValueNotifiers for granular updates**
   List<VideoModel> _videos = [];

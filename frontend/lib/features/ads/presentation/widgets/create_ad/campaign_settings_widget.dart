@@ -48,8 +48,10 @@ class CampaignSettingsWidget extends StatelessWidget {
             TextFormField(
               controller: budgetController,
               decoration: InputDecoration(
-                labelText: 'Daily Budget (₹) *',
-                hintText: '100',
+                // Total, not daily — this amount is debited from the
+                // advertiser's ad credits the moment the campaign is created.
+                labelText: 'Total Budget (₹) *',
+                hintText: '1000',
                 border: OutlineInputBorder(
                   borderSide: BorderSide(
                     color: (isBudgetValid == false)

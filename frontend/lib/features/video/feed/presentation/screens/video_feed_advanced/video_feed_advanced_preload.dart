@@ -33,7 +33,8 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
 
     // **PIN: covers first load and every page settle, not just swipes.**
     if (_currentIndex >= 0 && _currentIndex < _videos.length) {
-      SharedVideoControllerPool().pinVideo(_videos[_currentIndex].id);
+      SharedVideoControllerPool()
+          .pinVideo(_videos[_currentIndex].id, sessionId: _playbackSession.id);
     }
 
     // **CRITICAL BANDWIDTH FIX: Kill all previous background downloads except active window**
@@ -1379,7 +1380,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
       // **CRITICAL FIX: Use _shouldAutoplayForContext instead of _allowAutoplay**
       if (!_shouldAutoplayForContext('autoplay immediate')) return;
 
-      _pauseAllOtherVideos(videoId);
+      _pauseOtherLocalVideos(videoId);
 
       // **ENHANCED: Try to play immediately, with error handling**
       final controllerToPlay = controller;
@@ -1516,33 +1517,21 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
     SharedVideoControllerPool().attachListener(videoId, handleQuizCheck);
   }
 
+  /// Whether a freshly initialized controller must stay paused.
+  ///
+  /// Tab and route placement come from the coordinator. The hand-rolled copy
+  /// this replaced exempted profile- and deep-link-opened feeds from the tab
+  /// check, so one sitting in a background tab would start playing the moment
+  /// a controller finished initializing.
   bool _shouldPauseVideo(int index, String videoId) {
     if (index != _currentIndex) return true;
     if (_userPaused[videoId] == true) return true;
     if (_lifecyclePaused) return true;
-    
-    final bool isStandalone = _openedFromProfile || _openedFromDeepLink;
-    if (!isStandalone) {
-      if (!_isScreenVisible) return true;
-      
-      // Tab checks
-      if (_mainController != null) {
-        final currentTabIndex = _mainController!.currentIndex;
-        if (widget.parentTabIndex != null) {
-          if (currentTabIndex != widget.parentTabIndex) return true;
-        } else if (widget.isMainYugTab && currentTabIndex != 0) {
-          // Main feed should only play if Yug tab (index 0) is active
-          return true;
-        }
-      }
-    }
-    
-    // Route check
-    if (mounted) {
-      final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
-      if (!isCurrentRoute) return true;
-    }
-    
-    return false;
+    if (!_isScreenVisible) return true;
+
+    return !_playbackCoordinator.canPlay(
+      _playbackSession,
+      reason: 'preload gate for $videoId',
+    );
   }
 }

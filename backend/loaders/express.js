@@ -24,6 +24,7 @@ import dubbingRoutes from '../routes/dubbingRoutes.js';
 import e2eeRoutes from '../routes/e2ee/e2eeRoutes.js';
 import agentRoutes from '../routes/agentRoutes.js';
 import videoGenRoutes from '../routes/videoGenRoutes.js';
+import revenuecatWebhookRoutes from '../routes/webhooks/revenuecatRoutes.js';
 
 // Import middleware
 import { errorHandler, notFoundHandler } from '../middleware/errorHandler.js';
@@ -67,7 +68,6 @@ export default async ({ app }) => {
       const allowedOrigins = [
         'https://snehayog.site',
         'https://vayug.fly.dev',
-        'http://localhost',
         'http://localhost:5001',
         'http://localhost:8080',
         /^http:\/\/localhost:\d+$/,
@@ -115,6 +115,13 @@ export default async ({ app }) => {
 
   // Apply Global Rate Limiter
   app.use(globalLimiter);
+
+  // Webhooks — mounted BEFORE the global JSON parser on purpose.
+  // The RevenueCat handler authenticates against the raw request bytes, and
+  // express.json() consumes the stream, so a webhook mounted after this line
+  // can never verify what it was actually sent. Kept behind the rate limiter:
+  // a throttled webhook returns non-2xx, which RevenueCat simply retries.
+  app.use('/api/webhooks', revenuecatWebhookRoutes);
 
   // Body Parsing
   app.use(express.json({ limit: '10mb' }));

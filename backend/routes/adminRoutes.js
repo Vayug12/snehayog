@@ -13,6 +13,7 @@ import RecommendationService from '../services/yugFeedServices/recommendationSer
 import WatchHistory from '../models/WatchHistory.js';
 import RevenueService from '../services/adServices/revenueService.js';
 import queueService from '../services/yugFeedServices/queueService.js';
+import { billableMatch, renderedSum } from '../services/adServices/impressionCounting.js';
 
 const router = express.Router();
 
@@ -260,7 +261,9 @@ router.get('/creators', requireAdminDashboardKey, async (req, res) => {
                 ]
               }
             },
-            totalAdImpressions: { $sum: 1 }
+            // Rendered rows only. `$sum: 1` counted the `isViewed` row too,
+            // which made every creator's reach look twice what it was.
+            totalAdImpressions: renderedSum()
           }
         },
         {
@@ -319,7 +322,7 @@ router.get('/creators', requireAdminDashboardKey, async (req, res) => {
         }
       ]),
       AdImpression.aggregate([
-        { $match: { isViewed: true } },
+        { $match: billableMatch() },
         {
           $lookup: {
             from: 'videos',
@@ -600,16 +603,20 @@ router.get('/stats', requireAdminDashboardKey, async (req, res) => {
     const allVideoIds = allVideos.map(v => v._id);
 
     // Calculate total ad impressions and earnings
+    // Billable rows, because these feed the revenue figures below.
+    // `impressionType` used to stand in for this and got both cases wrong: it
+    // is 'view' on both banner rows (so banner double-counted) and never 'view'
+    // on a carousel row (so carousel was always zero).
     const bannerImpressions = await AdImpression.countDocuments({
       videoId: { $in: allVideoIds },
       adType: 'banner',
-      impressionType: 'view'
+      ...billableMatch()
     });
 
     const carouselImpressions = await AdImpression.countDocuments({
       videoId: { $in: allVideoIds },
       adType: 'carousel',
-      impressionType: 'view'
+      ...billableMatch()
     });
 
     // Calculate revenue (same logic as revenue API)
@@ -926,8 +933,7 @@ router.get('/creators/:creatorId/ad-impressions', requireAdminDashboardKey, asyn
     const bannerViews = await AdImpression.countDocuments({
       videoId: { $in: videoIds },
       adType: 'banner',
-      impressionType: 'view',
-      isViewed: true, // **FIX: Only count verified views**
+      ...billableMatch(),
       timestamp: {
         $gte: monthStart,
         $lt: monthEnd
@@ -935,11 +941,12 @@ router.get('/creators/:creatorId/ad-impressions', requireAdminDashboardKey, asyn
     });
 
     // Count carousel ad impressions for the specified month
+    // `impressionType: 'view'` here made this permanently zero — carousel rows
+    // are written as 'scroll_view'.
     const carouselViews = await AdImpression.countDocuments({
       videoId: { $in: videoIds },
       adType: 'carousel',
-      impressionType: 'view',
-      isViewed: true, // **FIX: Only count verified views**
+      ...billableMatch(),
       timestamp: {
         $gte: monthStart,
         $lt: monthEnd

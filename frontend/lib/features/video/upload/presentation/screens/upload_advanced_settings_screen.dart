@@ -401,9 +401,9 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
       builder: (context, selected, _) {
         return _buildSettingRow(
           icon: Icons.lock_person,
-          title: 'Subscriber Only',
+          title: 'End-to-end encrypted',
           subtitle: selected.isEmpty
-              ? 'Share with specific subscribers'
+              ? 'End-to-end encrypted video'
               : '${selected.length} subscriber${selected.length == 1 ? '' : 's'} selected',
           trailing: selected.isEmpty
               ? null

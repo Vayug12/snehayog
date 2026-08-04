@@ -56,8 +56,9 @@ const AdImpressionSchema = new mongoose.Schema({
   },
   timestamp: {
     type: Date,
-    default: Date.now,
-    index: true
+    default: Date.now
+    // Indexed below as a TTL index — declaring `index: true` here too would
+    // make Mongo reject the TTL index with IndexOptionsConflict.
   },
   // Prevent duplicate tracking (same user, same video, same ad)
   // This helps prevent accidental double-counting
@@ -100,6 +101,18 @@ AdImpressionSchema.index({ creatorId: 1, isViewed: 1, timestamp: 1 });
 // **OPTIMIZATION: Compound index for global leaderboard aggregation**
 // matches: { isViewed: true, timestamp: { $gte: startOfMonth } }
 AdImpressionSchema.index({ isViewed: 1, timestamp: 1 });
+
+// **RETENTION: Expire raw impression rows after AD_IMPRESSION_TTL_DAYS (default 90).**
+// Each row costs ~500 bytes once its indexes are counted, so unbounded growth is
+// the dominant storage cost at scale. Long-term earnings live in
+// CreatorMonthlyStat, which is already maintained per impression; revenueService
+// only ever queries the current and previous month from this collection, so a
+// 90-day window keeps every live read path intact while capping storage.
+const AD_IMPRESSION_TTL_DAYS = Number(process.env.AD_IMPRESSION_TTL_DAYS) || 90;
+AdImpressionSchema.index(
+  { timestamp: 1 },
+  { expireAfterSeconds: AD_IMPRESSION_TTL_DAYS * 24 * 60 * 60 }
+);
 
 export default mongoose.models.AdImpression || mongoose.model('AdImpression', AdImpressionSchema);
 

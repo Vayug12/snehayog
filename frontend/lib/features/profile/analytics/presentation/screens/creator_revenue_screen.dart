@@ -286,11 +286,6 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
               Text("Your Audience", style: AppTypography.titleMedium),
             ],
           ),
-          AppSpacing.vSpace12,
-          Text(
-            "Download a list of your subscribers' emails to communicate with them directly.",
-            style: AppTypography.bodyMedium.copyWith(color: AppColors.textSecondary),
-          ),
           AppSpacing.vSpace16,
           SizedBox(
             width: double.infinity,
@@ -619,8 +614,6 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
         (_revenueData?['totalRevenue'] as num?)?.toDouble() ??
         (_revenueData?['netRevenue'] as num?)?.toDouble() ??
         0.0;
-    final totalImpressions =
-        ((_revenueData?['revenueBreakdown']?['total']?['impressions']) as num?)?.toInt() ?? 0;
 
     return Container(
       padding: EdgeInsets.all(AppSpacing.spacing5),
@@ -646,12 +639,8 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
             lifetimeCreatorReward.toStringAsFixed(2),
             style: AppTypography.displaySmall.copyWith(color: AppColors.success, fontWeight: FontWeight.bold),
           ),
-          Text(
-            "Total reward earned from eligible ad revenue",
-            style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
-          ),
           AppSpacing.vSpace24,
-          // This Month + Last Period + Total Impressions
+          // This Month + Last Period
           Row(
             children: [
               Expanded(
@@ -660,10 +649,6 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
               Container(width: 1, height: 40, color: AppColors.borderPrimary),
               Expanded(
                 child: _buildRevenueStat("Last Period", lastMonth.toStringAsFixed(2), Icons.history),
-              ),
-              Container(width: 1, height: 40, color: AppColors.borderPrimary),
-              Expanded(
-                child: _buildRevenueStat("Total Impressions", _formatCount(totalImpressions), Icons.remove_red_eye),
               ),
             ],
           ),
@@ -688,12 +673,6 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
         ],
       ),
     );
-  }
-
-  String _formatCount(int count) {
-    if (count >= 1000000) return '${(count / 1000000).toStringAsFixed(1)}M';
-    if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}K';
-    return count.toString();
   }
 
   void _showMonthlyEarningsSheet() {
@@ -966,11 +945,6 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
             ],
           ),
           AppSpacing.vSpace12,
-          Text(
-            "Aap apne specific subscribers ko notification bhej sakte hai",
-            style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
-          ),
-          AppSpacing.vSpace16,
           SizedBox(
             width: double.infinity,
             child: AppButton(
@@ -979,7 +953,7 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
                 MaterialPageRoute(builder: (context) => const CreatorToolsScreen()),
               ),
               label: "Send Notification",
-              icon: const Icon(Icons.send_rounded, size: 18),
+              icon: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
             ),
           ),
           if (manager.creatorAlertStats.isNotEmpty) ...[

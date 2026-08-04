@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
-import 'package:vayug/features/video/core/presentation/managers/main_controller.dart';
 import 'package:provider/provider.dart' as provider;
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
@@ -531,41 +530,29 @@ class ProfileVideosWidget extends StatelessWidget {
             final selectedEpisodeIndex = filteredVideos.indexWhere((item) => item.id == episodeId);
             final selectedEpisode = selectedEpisodeIndex >= 0 ? filteredVideos[selectedEpisodeIndex] : video;
             
+            // No parentTabIndex, here or below: this profile can be a pushed
+            // route inside ANY tab, so hardcoding 4 bound the player to the
+            // Profile tab and the coordinator blocked every play. The player
+            // resolves its real tab from the enclosing TabScope.
             Navigator.push(
               parentContext,
               MaterialPageRoute(
                 builder: (context) => VayuLongFormPlayerScreen(
                   video: selectedEpisode,
                   relatedVideos: filteredVideos,
-                  parentTabIndex: 4, // Profile tab index (4)
                 ),
               ),
             );
           } else {
-            try {
-              final mainController = provider.Provider.of<MainController>(parentContext, listen: false);
-              Navigator.push(
-                parentContext,
-                MaterialPageRoute(
-                  builder: (context) => VideoScreen(
-                    initialVideos: filteredVideos,
-                    initialVideoId: episodeId,
-                    parentTabIndex: mainController.currentIndex,
-                  ),
+            Navigator.push(
+              parentContext,
+              MaterialPageRoute(
+                builder: (context) => VideoScreen(
+                  initialVideos: filteredVideos,
+                  initialVideoId: episodeId,
                 ),
-              );
-            } catch (e) {
-              Navigator.push(
-                parentContext,
-                MaterialPageRoute(
-                  builder: (context) => VideoScreen(
-                    initialVideos: filteredVideos,
-                    initialVideoId: episodeId,
-                    parentTabIndex: 4, // Profile tab index (4)
-                  ),
-                ),
-              );
-            }
+              ),
+            );
           }
         },
         onLongPressEpisode: (episodeData, index) {

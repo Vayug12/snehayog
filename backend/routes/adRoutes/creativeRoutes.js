@@ -5,6 +5,7 @@ import AdCreative from '../../models/AdCreative.js';
 import AdCampaign from '../../models/AdCampaign.js';
 import User from '../../models/User.js';
 import cloudflareR2Service from '../../services/uploadServices/cloudflareR2Service.js';
+import { servableCampaignMatch } from '../../services/adServices/campaignServability.js';
 
 const router = express.Router();
 
@@ -287,12 +288,17 @@ router.get('/carousel', asyncHandler(async (req, res) => {
       });
     }
     
-    // Find all active carousel ads
-    const carouselCreatives = await AdCreative.find({
+    // Find all active carousel ads whose campaign is still servable — an
+    // exhausted or expired campaign must not be surfaced here either.
+    const carouselCreatives = (await AdCreative.find({
       adType: 'carousel',
       isActive: true,
       reviewStatus: 'approved'
-    }).populate('campaignId', 'name advertiserUserId status');
+    }).populate({
+      path: 'campaignId',
+      select: 'name advertiserUserId status startDate endDate spentINR totalBudget',
+      match: servableCampaignMatch()
+    })).filter(creative => creative.campaignId !== null);
     
     console.log(`🎯 Found ${carouselCreatives.length} ACTIVE & APPROVED carousel ads`);
     

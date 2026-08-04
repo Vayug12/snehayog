@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vayug/features/ads/data/ad_model.dart';
+import 'package:vayug/features/ads/data/wallet_model.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/shared/services/cloudflare_r2_service.dart';
 import 'package:vayug/shared/config/app_config.dart';
@@ -21,7 +22,6 @@ class AdService {
   static String get baseUrl => AppConfig.baseUrl;
   final AuthService _authService = AuthService();
   final CloudflareR2Service _cloudflareService = CloudflareR2Service();
-  // final RazorpayService _razorpayService = RazorpayService();  // Temporarily commented
   final SmartCacheManager _cacheManager = SmartCacheManager();
   final IAdService _activeAdsService = ActiveAdsService();
   final AdRefreshNotifier _adRefreshNotifier = AdRefreshNotifier();
@@ -52,10 +52,6 @@ class AdService {
         budget / 100.0,
         cpm,
       );
-
-      // **NEW: Calculate revenue split**
-      // final revenueSplit =
-      //     _razorpayService.calculateRevenueSplit(budget / 100.0);  // Temporarily commented
 
       final response = await httpClientService.post(
         Uri.parse('$baseUrl/api/ads'),
@@ -98,8 +94,11 @@ class AdService {
     }
   }
 
-  // **NEW: Create ad with payment processing**
-  Future<Map<String, dynamic>> createAdWithPayment({
+  /// Create an ad funded by the advertiser's prepaid credit balance.
+  ///
+  /// Gated behind [AppConfig.adCreationEnabled] — the backend endpoint lands
+  /// with the ad credit wallet.
+  Future<Map<String, dynamic>> createAdWithCredits({
     required String title,
     required String description,
     String? imageUrl,
@@ -258,7 +257,7 @@ class AdService {
       }
 
       final response = await httpClientService.post(
-        Uri.parse('$baseUrl/api/ads/create-with-payment'),
+        Uri.parse('$baseUrl/api/ads/create-with-credits'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${userData['token']}',
@@ -268,114 +267,46 @@ class AdService {
 
       if (response.statusCode == 201) {
         final data = json.decode(response.body);
-        AppLogger.log(
-            '✅ AdService: Ad created successfully with payment required');
+        AppLogger.log('✅ AdService: Ad created successfully');
 
         return {
           'success': true,
           'ad': data['ad'],
-          'invoice': data['invoice'],
           'message': data['message'],
+          // The server returns the post-debit balance, so the wallet chip can
+          // update without a second round trip.
+          'balance': data['wallet']?['balance'],
         };
-      } else {
-        // **NEW: Enhanced error logging**
-        AppLogger.log(
-            '❌ AdService: Backend returned error status: ${response.statusCode}');
-        AppLogger.log('❌ AdService: Response body: ${response.body}');
-
-        final error = json.decode(response.body);
-        AppLogger.log('❌ AdService: Parsed error: $error');
-
-        throw Exception(error['error'] ?? 'Failed to create ad');
       }
+
+      AppLogger.log(
+          '❌ AdService: Backend returned error status: ${response.statusCode}');
+      AppLogger.log('❌ AdService: Response body: ${response.body}');
+
+      Map<String, dynamic> error;
+      try {
+        error = json.decode(response.body) as Map<String, dynamic>;
+      } catch (_) {
+        error = const {};
+      }
+
+      // 402 is not a generic failure. It is the one ad-creation error the user
+      // can act on, and acting on it needs the shortfall — so it is surfaced
+      // as its own type instead of a red banner with a stringified body.
+      if (response.statusCode == 402 ||
+          error['code'] == 'INSUFFICIENT_CREDITS') {
+        throw InsufficientCreditsException.fromJson(error);
+      }
+
+      throw Exception(error['error'] ?? 'Failed to create ad');
+    } on InsufficientCreditsException {
+      // Must escape the catch-all below, which would flatten it into a string.
+      rethrow;
     } catch (e) {
-      AppLogger.log('❌ AdService: Error creating ad with payment: $e');
+      AppLogger.log('❌ AdService: Error creating ad: $e');
       throw Exception('Error creating ad: $e');
     }
   }
-
-  // **NEW: Process payment after successful Razorpay payment**
-  Future<Map<String, dynamic>> processPayment({
-    required String orderId,
-    required String paymentId,
-    required String signature,
-    required String adId,
-  }) async {
-    try {
-      final userData = await _authService.getUserData();
-      if (userData == null) {
-        throw Exception('User not authenticated');
-      }
-
-      AppLogger.log('🔍 AdService: Processing payment...');
-      AppLogger.log('🔍 AdService: Order ID: $orderId, Payment ID: $paymentId');
-
-      final response = await httpClientService.post(
-        Uri.parse('$baseUrl/api/ads/process-payment'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${userData['token']}',
-        },
-        body: json.encode({
-          'orderId': orderId,
-          'paymentId': paymentId,
-          'signature': signature,
-          'adId': adId,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        AppLogger.log('✅ AdService: Payment processed successfully');
-
-        return {
-          'success': true,
-          'ad': data['ad'],
-          'invoice': data['invoice'],
-          'message': data['message'],
-        };
-      } else {
-        final error = json.decode(response.body);
-        throw Exception(error['error'] ?? 'Failed to process payment');
-      }
-    } catch (e) {
-      AppLogger.log('❌ AdService: Error processing payment: $e');
-      throw Exception('Error processing payment: $e');
-    }
-  }
-
-  // **NEW: Process payment and activate ad**
-  Future<AdModel> processPaymentAndActivateAd({
-    required String adId,
-    required String paymentId,
-    required String orderId,
-  }) async {
-    try {
-      final userData = await _authService.getUserData();
-      if (userData == null) {
-        throw Exception('User not authenticated');
-      }
-
-      // Verify payment with Razorpay
-      // final paymentDetails =
-      //     await _razorpayService.getPaymentDetails(paymentId); // Temporarily commented
-
-      // if (paymentDetails['status'] != 'captured') {
-      //   throw Exception('Payment not completed');
-      // }
-
-      // Update ad status to active
-      final updatedAd = await updateAdStatus(adId, 'active');
-
-      // **NEW: Record payment and revenue split**
-      // _recordPaymentAndRevenue(adId, paymentDetails); // Temporarily commented
-
-      return updatedAd;
-    } catch (e) {
-      throw Exception('Error processing payment: $e');
-    }
-  }
-
 
 
   // Get user's ads

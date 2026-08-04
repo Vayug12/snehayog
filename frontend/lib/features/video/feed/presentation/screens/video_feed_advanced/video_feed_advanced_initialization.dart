@@ -493,7 +493,7 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
                           AppLogger.log(
                             '🎬 VideoFeedAdvanced: Forcing play for deep link video at index 0 (controller ready but not playing)',
                           );
-                          _pauseAllOtherVideos(videoId);
+                          _pauseOtherLocalVideos(videoId);
                           try {
                             if (!_shouldAutoplayForContext('deep link force play')) return;
                             controller.setVolume(1.0);

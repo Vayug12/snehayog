@@ -55,19 +55,6 @@ export const validateAdData = (req, res, next) => {
   next();
 };
 
-export const validatePaymentData = (req, res, next) => {
-  const { orderId, paymentId, signature, adId } = req.body;
-
-  if (!orderId || !paymentId || !signature || !adId) {
-    return res.status(400).json({ 
-      error: 'Missing payment details',
-      required: ['orderId', 'paymentId', 'signature', 'adId']
-    });
-  }
-
-  next();
-};
-
 export const validatePagination = (req, res, next) => {
   const { page = 1, limit = 10 } = req.query;
   

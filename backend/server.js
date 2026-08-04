@@ -11,6 +11,7 @@ import redisService from './services/caching/redisService.js';
 import monthlyNotificationCron from './services/notificationServices/monthlyNotificationCron.js';
 import recommendationScoreCron from './services/yugFeedServices/recommendationScoreCron.js';
 import autoResumeCron from './workers/autoResume.js';
+import { shutdownAdStatsBuffer } from './services/adServices/adStatsBuffer.js';
 
 // **FIX: Don't disable console.log in production - we need it for Railway debugging**
 if (process.env.DISABLE_CONSOLE_LOG === 'true') {
@@ -44,6 +45,10 @@ const gracefulShutdown = async (signal) => {
   console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
 
   try {
+    // Drain buffered ad counters BEFORE closing Mongo — Fly auto-stops idle
+    // machines, so anything still in the buffer would be lost revenue.
+    await shutdownAdStatsBuffer();
+
     // Stop cron jobs
     if (monthlyNotificationCron && monthlyNotificationCron.stop) monthlyNotificationCron.stop();
     if (recommendationScoreCron && recommendationScoreCron.stop) recommendationScoreCron.stop();

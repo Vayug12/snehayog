@@ -4,6 +4,7 @@ import Video from '../../models/Video.js';
 import { AD_CONFIG } from '../../constants/index.js';
 import AdImpression from '../../models/AdImpression.js';
 import View from '../../models/View.js';
+import { billableMatch } from './impressionCounting.js';
 
 /**
  * Unified service for calculating creator revenue and engagement metrics.
@@ -52,8 +53,7 @@ class RevenueService {
       // Use raw collection to allow searching for Google ID strings in creatorId
       const bannerCount = await AdImpression.collection.countDocuments({
         adType: 'banner',
-        isViewed: true,
-        impressionType: 'view',
+        ...billableMatch(),
         timestamp: { $gte: startDate, $lt: endDate },
         $or: [
           { creatorId: user._id },
@@ -63,10 +63,11 @@ class RevenueService {
         ]
       });
 
+      // No `impressionType` filter: carousel rows are written as 'scroll_view',
+      // so requiring 'view' here paid every creator zero for carousel inventory.
       const carouselCount = await AdImpression.collection.countDocuments({
         adType: 'carousel',
-        isViewed: true,
-        impressionType: 'view',
+        ...billableMatch(),
         timestamp: { $gte: startDate, $lt: endDate },
         $or: [
           { creatorId: user._id },
@@ -82,8 +83,7 @@ class RevenueService {
       
       const lastMonthBanner = await AdImpression.collection.countDocuments({
         adType: 'banner',
-        isViewed: true,
-        impressionType: 'view',
+        ...billableMatch(),
         timestamp: { $gte: lastMonthDate, $lt: lastMonthEnd },
         $or: [
           { creatorId: user._id },
@@ -95,8 +95,7 @@ class RevenueService {
 
       const lastMonthCarousel = await AdImpression.collection.countDocuments({
         adType: 'carousel',
-        isViewed: true,
-        impressionType: 'view',
+        ...billableMatch(),
         timestamp: { $gte: lastMonthDate, $lt: lastMonthEnd },
         $or: [
           { creatorId: user._id },

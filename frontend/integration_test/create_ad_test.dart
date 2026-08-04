@@ -28,8 +28,8 @@ void main() {
       'token': 'test-token',
     });
 
-    // Mock Ad Creation Success (matching createAdWithPayment which screen uses)
-    when(() => mockAdService.createAdWithPayment(
+    // Mock Ad Creation Success (matching createAdWithCredits which screen uses)
+    when(() => mockAdService.createAdWithCredits(
           title: any(named: 'title'),
           description: any(named: 'description'),
           adType: any(named: 'adType'),

@@ -1,5 +1,6 @@
 import { IAdSource } from '../IAdSource.js';
 import AdCreative from '../../../../models/AdCreative.js';
+import { servableCampaignMatch } from '../../campaignServability.js';
 
 /**
  * **CarouselAdSource**
@@ -25,11 +26,7 @@ export class CarouselAdSource extends IAdSource {
       .sort({ createdAt: -1 })
       .populate({
         path: 'campaignId',
-        match: {
-          status: 'active',
-          startDate: { $lte: new Date() },
-          endDate: { $gte: new Date() }
-        }
+        match: servableCampaignMatch()
       })
       .limit(limit)
       .lean();

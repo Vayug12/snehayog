@@ -37,13 +37,6 @@ export const config = {
     credentials: true
   },
 
-  // Payment Configuration
-  payment: {
-    razorpay: {
-      keyId: process.env.RAZORPAY_KEY_ID || 'your_razorpay_key_id',
-      keySecret: process.env.RAZORPAY_KEY_SECRET || 'your_razorpay_key_secret'
-    }
-  },
 };
 
 // Helper function to get server URL

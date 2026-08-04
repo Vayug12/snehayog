@@ -24,7 +24,7 @@ class AppConfig {
   // Make sure your phone/emulator is on the same Wi‑Fi network
   static const String _currentMobileIp = 'http://192.168.0.198:5001';
   static const String _currentMobileIp2 = 'http://172.20.10.2:5001';
-  static const String _localIpBaseUrl = _currentMobileIp2;
+  static const String _localIpBaseUrl = _currentMobileIp;
 
   // Local development server (localhost) - for web
   static const String _localWebBaseUrl = 'http://localhost:5001';
@@ -131,27 +131,38 @@ class AppConfig {
   static const int minAdBudget = 1; // Minimum daily budget in dollars
 
   // **NEW: Fixed CPM for India market**
+  // Must match AD_CONFIG.DEFAULT_CPM / BANNER_CPM on the server. The server
+  // recomputes both CPM and impressions when an ad is created, so a mismatch
+  // here does not change what is delivered — it just shows the advertiser an
+  // impression estimate they will not get.
   static const double fixedCpm = 30.0;
-  static const double bannerCpm = 10.0;
+  static const double bannerCpm = 20.0;
 
   static const double creatorRevenueShare = 0.80;
   static const double platformRevenueShare = 0.20;
 
-  static const String razorpayKeyId = 'rzp_test_RBiIx4GqiPJgsc';
-  static const String razorpayKeySecret = 'ZfJRn3obw6qAg3FkZuEN8CkD';
-  static const String razorpayWebhookSecret = 'M_6mvVtUguwMwp3';
+  /// RevenueCat public SDK key, supplied at build time:
+  ///
+  ///   flutter build apk --dart-define=REVENUECAT_ANDROID_KEY=goog_xxx
+  ///
+  /// **Never hardcode it here.** The Razorpay keys that had to be revoked were
+  /// leaked exactly this way — committed to a shipped client, so they live in
+  /// git history and in every build already on a device. This one is a public
+  /// SDK key rather than a secret, but the habit is what matters: the webhook
+  /// secret and the REST key stay server-side and are never in this file.
+  static const String revenueCatAndroidKey =
+      String.fromEnvironment('REVENUECAT_ANDROID_KEY');
 
-  static const List<String> supportedPaymentMethods = [
-    'card',
-    'netbanking',
-    'wallet',
-    'upi',
-    'paytm',
-    'phonepe',
-    'amazonpay',
-    'googlepay',
-    'applepay',
-  ];
+  /// In-app credit purchases are only offered when a key was built in.
+  /// Without one the wallet still works — it is just topped up by an admin
+  /// grant rather than by the store.
+  static bool get adCreditPurchasesEnabled => revenueCatAndroidKey.isNotEmpty;
+
+  /// Ads are funded from the prepaid ad-credit wallet via
+  /// `POST /api/ads/create-with-credits`. Enabled now that the wallet ledger
+  /// and that endpoint are live; in-app credit purchases land separately, so
+  /// until then a balance is topped up by an admin grant.
+  static const bool adCreationEnabled = true;
 
   // **NEW: Ad Serving Rules**
   static const int adInsertionFrequency =
