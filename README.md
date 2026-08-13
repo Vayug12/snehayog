@@ -1,6 +1,6 @@
 # Vayug
 
-Vayug is the product-facing name of the Snehayog project. It is a creator-first video platform for discovering, watching, publishing, and monetizing short-form and long-form video.
+Vayug is the product-facing name of the Vayug project. It is a creator-first video platform for discovering, watching, publishing, and monetizing short-form and long-form video.
 
 The project is currently built around a Flutter client, a Node.js/Express backend, asynchronous video processing, and Cloudflare-backed media delivery.
 
