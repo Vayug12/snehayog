@@ -19,12 +19,14 @@ import notificationRoutes from '../routes/notification/notificationRoutes.js';
 import searchRoutes from '../routes/searchRoutes.js';
 import appConfigRoutes from '../routes/appConfigRoutes.js';
 import systemRoutes from '../routes/systemRoutes.js';
+import sitemapRoutes from '../routes/sitemapRoutes.js';
 // uploadRoutes → LAZY loaded (only when /upload is hit)
 import dubbingRoutes from '../routes/dubbingRoutes.js';
 import e2eeRoutes from '../routes/e2ee/e2eeRoutes.js';
 import agentRoutes from '../routes/agentRoutes.js';
 import videoGenRoutes from '../routes/videoGenRoutes.js';
 import revenuecatWebhookRoutes from '../routes/webhooks/revenuecatRoutes.js';
+import attributionRoutes from '../routes/attributionRoutes.js';
 
 // Import middleware
 import { errorHandler, notFoundHandler } from '../middleware/errorHandler.js';
@@ -57,6 +59,9 @@ export default async ({ app }) => {
   // Middleware
   app.use(traceMiddleware);
   app.use(compression());
+  // Must be mounted before express.static so the database-backed sitemap wins
+  // over the legacy static sitemap.xml file.
+  app.use(sitemapRoutes);
   app.use(express.static(path.join(backendRoot, 'public')));
   app.use('/.well-known', express.static(path.join(backendRoot, 'public/.well-known')));
 
@@ -77,6 +82,7 @@ export default async ({ app }) => {
         'http://172.20.10.2:5001',
         'http://10.78.84.104:5001',
         'http://192.168.0.198:5001',
+        'http://192.168.0.190:5001',
         'http://10.78.84.18:5001',
         /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
         'http://10.0.2.2:5001',
@@ -205,6 +211,7 @@ export default async ({ app }) => {
   apiRouter.use('/e2ee', e2eeRoutes);
   apiRouter.use('/agent', agentRoutes);
   apiRouter.use('/video-gen', videoGenRoutes);
+  apiRouter.use('/attribution', attributionRoutes);
 
   // Apply Passive Auth BEFORE Rate Limiter
   app.use('/api', apiVersioning, passiveVerifyToken, versionTracking, apiLimiter, apiRouter);

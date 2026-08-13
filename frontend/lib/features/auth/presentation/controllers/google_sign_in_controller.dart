@@ -7,44 +7,47 @@ import 'dart:convert';
 
 class GoogleSignInController extends ChangeNotifier {
   final IAuthService _authService;
-  bool _isLoading = false;
+  bool _isLoading = true; // Start as true — auth state is unknown until init completes
+  bool _isInitialized = false;
   String? _error;
   Map<String, dynamic>? _userData;
 
   bool get isLoading => _isLoading;
+  bool get isInitialized => _isInitialized;
   String? get error => _error;
   bool get isSignedIn => _userData != null;
   Map<String, dynamic>? get userData => _userData;
 
   /// Manually check and refresh authentication status
   Future<void> checkAuthStatus() async {
+    _isInitialized = false;
+    _isLoading = true;
+    notifyListeners();
     await _initInBackground();
   }
 
   GoogleSignInController({IAuthService? authService}) : _authService = authService ?? AuthService() {
-    // **OPTIMIZED: Don't block UI during initialization**
+    // **FIXED: Start loading immediately so UI shows skeleton during init**
     _initInBackground();
   }
 
   Future<void> _initInBackground() async {
     try {
-      // **OPTIMIZED: Use cached data immediately, verify in background**
-      // First, try to get cached user data instantly (no network call)
+      // **FIXED: Try cached data first for instant UI (no network call)**
       try {
         final prefs = await SharedPreferences.getInstance();
         final needsLogin = prefs.getBool('auth_needs_login') ?? false;
         final jwt = prefs.getString('jwt_token');
         final fallbackUser = prefs.getString('fallback_user');
-        // If token is missing/expired and refresh couldn't recover, treat as signed-out
-        // so UI shows Sign-In CTA instead of empty state.
+
+        // If token is missing/expired, treat as signed-out
         if (needsLogin || jwt == null || jwt.isEmpty) {
           _userData = null;
-          _isLoading = false;
           _error = needsLogin ? 'Session expired - please sign in again' : null;
-          notifyListeners();
           return;
         }
 
+        // Load from cache instantly — user sees profile immediately
         if (fallbackUser != null) {
           final cachedData = jsonDecode(fallbackUser);
           _userData = {
@@ -56,27 +59,23 @@ class GoogleSignInController extends ChangeNotifier {
             'token': jwt,
             'isFallback': true,
           };
-          _isLoading = false;
-          notifyListeners();
-
 
           // Refresh from backend in background (non-blocking)
           unawaited(_refreshUserDataInBackground());
           return;
         }
       } catch (e) {
-
+        // SharedPreferences read failed — fall through to network check
       }
 
+      // No cached data — need network call
       _isLoading = true;
       notifyListeners();
 
       // Check if user is already logged in
       final isLoggedIn = await _authService.isLoggedIn();
       if (isLoggedIn) {
-
         _userData = await _authService.getUserData();
-
       } else {
         // Try to silently recover session once (refresh token / Google silent sign-in)
         final refreshed = await _authService.refreshAccessToken();
@@ -87,10 +86,10 @@ class GoogleSignInController extends ChangeNotifier {
         }
       }
     } catch (e) {
-
       _error = e.toString();
-      _userData = null; // Ensure userData is null on error
+      _userData = null;
     } finally {
+      _isInitialized = true;
       _isLoading = false;
       notifyListeners();
     }

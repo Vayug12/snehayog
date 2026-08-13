@@ -69,6 +69,7 @@ jobs:
 
   build-check:
     name: Build Check
+    needs: test
     runs-on: ubuntu-latest
     
     steps:

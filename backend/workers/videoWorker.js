@@ -9,6 +9,7 @@ import recommendationService from '../services/yugFeedServices/recommendationSer
 import redisService from '../services/caching/redisService.js';
 import geminiService from '../services/geminiService.js';
 import { sendNotificationToUser } from '../services/notificationServices/notificationService.js';
+import { beat, msSinceBeat } from '../utils/progressHeartbeat.js';
 
 // Connect to MongoDB & Redis only if not already connected (reuses API server connections when in-process)
 const initializeWorkerConnections = async () => {
@@ -228,6 +229,7 @@ let shutdownTimeout = null;
 // **OPTIMIZED: Multi-Job Type Dispatcher**
 const videoWorker = new Worker('video-processing', async (job) => {
   activeJobsCount++;
+  beat();
 
   try {
     switch (job.name) {
@@ -259,10 +261,11 @@ const videoWorker = new Worker('video-processing', async (job) => {
     throw error;
   } finally {
     activeJobsCount = Math.max(0, activeJobsCount - 1);
+    beat();
   }
 }, {
   connection: redisOptions,
-  concurrency: 1 // CRITICAL: Only 1 job at a time on 1GB Fly.io machine
+  concurrency: 1 // CRITICAL: Only 1 job at a time on the 2GB Fly.io worker machine
 });
 
 videoWorker.on('active', (job) => {
@@ -340,6 +343,45 @@ if (isDedicatedWorkerMachine && process.env.DISABLE_AUTO_SHUTDOWN !== 'true') {
   });
 } else {
   console.log(`ℹ️ Worker: Idle auto-shutdown disabled (process group: ${process.env.FLY_PROCESS_GROUP || 'local'}).`);
+}
+
+// Upar wale 'drained' shutdown ke neeche ek independent floor.
+//
+// Wo path poori tarah BullMQ events par tika hai, aur us par akela bharosa nahi
+// kiya ja sakta: 'active' shutdown timer clear kar deta hai, aur agar job hang ho
+// jaaye (FFmpeg stall, R2 download atka) to 'drained' dobara kabhi fire nahi hota
+// — timer phir kabhi set hi nahi hota aur 2GB ki VM chalti rehti hai. 7 Aug 2026
+// ko exactly yahi hua: ek job 3h05m latka raha, jo us hafte ke poore worker bill
+// ka ~83% tha.
+//
+// Ye watchdog events nahi, PROGRESS dekhta hai. Dheema encode bhi ~1 tick/second
+// deta hai, isliye ghanton lamba genuine job isse kabhi nahi marta — sirf wahi
+// marta hai jahan clock chal raha ho par kaam aage na badh raha ho.
+//
+// Poll 5 min ka hai aur threshold 15 min, to hang 15-20 min ke beech pakda jaata
+// hai. Ye jaan-boojh kar dheela rakha gaya hai: DownloadSource jaisa silent step
+// bade file par kuch minute le sakta hai, aur false-kill hang se zyada mehnga hai.
+const STALL_MS = parseInt(process.env.WORKER_STALL_MS, 10) || 15 * 60 * 1000;
+const WATCHDOG_INTERVAL_MS = 5 * 60 * 1000;
+
+if (isDedicatedWorkerMachine && process.env.DISABLE_AUTO_SHUTDOWN !== 'true') {
+  const watchdog = setInterval(() => {
+    const stalledMs = msSinceBeat();
+    if (stalledMs < STALL_MS) return;
+
+    console.error(
+      `🛑 Worker: ${(stalledMs / 60000).toFixed(1)} min se zero progress ` +
+      `(activeJobs=${activeJobsCount}). Hang maan kar VM band ki ja rahi hai. ` +
+      `Job ka lock expire hone par BullMQ use stalled maanega aur ek baar retry karega.`
+    );
+    process.exit(0);
+  }, WATCHDOG_INTERVAL_MS);
+
+  // Watchdog khud event loop ko zinda na rakhe — warna ye khud hi wahi cheez ban
+  // jaata hai jise rokne ke liye banaya gaya hai.
+  watchdog.unref();
+
+  console.log(`🐕 Worker: Stall watchdog on — ${(STALL_MS / 60000).toFixed(0)} min bina progress ke exit.`);
 }
 
 console.log('👷 Video Worker Started and Listening for jobs...');

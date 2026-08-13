@@ -65,10 +65,6 @@ class ProfileMenuWidget extends StatelessWidget {
                 padding: EdgeInsets.all(AppSpacing.spacing3),
                 decoration: BoxDecoration(
                   color: AppColors.backgroundSecondary.withValues(alpha: 0.5),
-                  border: const Border(
-                    bottom:
-                        BorderSide(color: AppColors.borderPrimary, width: 1),
-                  ),
                 ),
                 child: Row(
                   children: [
@@ -256,21 +252,16 @@ class ProfileMenuWidget extends StatelessWidget {
                       },
                     });
 
-                    return GridView.builder(
+                    return ListView.separated(
                       padding: EdgeInsets.symmetric(
-                        horizontal: AppSpacing.spacing4,
-                        vertical: AppSpacing.spacing2,
-                      ),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: AppSpacing.spacing2,
-                        mainAxisSpacing: AppSpacing.spacing2,
-                        childAspectRatio: 1.4,
+                        horizontal: AppSpacing.spacing2,
+                        vertical: AppSpacing.spacing3,
                       ),
                       itemCount: menuItems.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 4),
                       itemBuilder: (context, index) {
                         final item = menuItems[index];
-                        return _buildMenuBox(
+                        return _buildMenuRow(
                           title: item['title'],
                           icon: item['icon'],
                           color: item['color'],
@@ -297,7 +288,7 @@ class ProfileMenuWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildMenuBox({
+  Widget _buildMenuRow({
     required String title,
     required dynamic icon,
     required Color color,
@@ -307,42 +298,42 @@ class ProfileMenuWidget extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        child: Container(
-          decoration: BoxDecoration(
-            color: AppColors.backgroundSecondary.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(
-              color: AppColors.borderPrimary.withValues(alpha: 0.5),
-              width: 1,
-            ),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: AppSpacing.spacing2,
+            vertical: AppSpacing.spacing2,
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Row(
             children: [
-              Container(
-                padding: EdgeInsets.all(AppSpacing.spacing1),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: HugeIcon(
-                  icon: icon,
-                  color: color,
-                  size: 22,
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: Center(
+                  child: HugeIcon(
+                    icon: icon,
+                    color: color,
+                    size: 22,
+                  ),
                 ),
               ),
-              SizedBox(height: AppSpacing.spacing1),
-              Text(
-                title,
-                style: AppTypography.labelMedium.copyWith(
-                  color: AppColors.textPrimary,
-                  fontWeight: AppTypography.weightMedium,
-                  fontSize: 11,
+              SizedBox(width: AppSpacing.spacing2),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTypography.bodyMedium.copyWith(
+                    color: title == 'Logout' ? AppColors.error : AppColors.textPrimary,
+                    fontWeight: AppTypography.weightMedium,
+                    letterSpacing: -0.1,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              ),
+              HugeIcon(
+                icon: HugeIcons.strokeRoundedArrowRight01,
+                color: AppColors.textTertiary.withValues(alpha: 0.7),
+                size: 18,
               ),
             ],
           ),

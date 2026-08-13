@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:vayug/features/ads/data/ad_model.dart';
 import 'package:vayug/features/ads/data/services/ad_service.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
@@ -153,12 +154,14 @@ class _AdDisplayWidgetState extends State<AdDisplayWidget> {
                   if (widget.ad.imageUrl != null)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        widget.ad.imageUrl!,
+                      child: CachedNetworkImage(
+                        imageUrl: widget.ad.imageUrl!,
                         width: 56,
                         height: 56,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
+                        memCacheWidth: 112,
+                        maxWidthDiskCache: 112,
+                        errorWidget: (context, url, error) =>
                             const Icon(Icons.image, size: 56),
                       ),
                     ),
@@ -225,12 +228,14 @@ class _AdDisplayWidgetState extends State<AdDisplayWidget> {
             if (widget.ad.imageUrl != null)
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.network(
-                  widget.ad.imageUrl!,
+                child: CachedNetworkImage(
+                  imageUrl: widget.ad.imageUrl!,
                   width: double.infinity,
                   height: double.infinity,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
+                  memCacheWidth: 1080,
+                  maxWidthDiskCache: 1080,
+                  errorWidget: (context, url, error) =>
                       const Icon(Icons.image, size: 100),
                 ),
               ),
@@ -389,12 +394,14 @@ class _AdDisplayWidgetState extends State<AdDisplayWidget> {
                 if (widget.ad.imageUrl != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      widget.ad.imageUrl!,
+                    child: CachedNetworkImage(
+                      imageUrl: widget.ad.imageUrl!,
                       width: 60,
                       height: 60,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
+                      memCacheWidth: 120,
+                      maxWidthDiskCache: 120,
+                      errorWidget: (context, url, error) =>
                           const Icon(Icons.image, size: 60),
                     ),
                   ),

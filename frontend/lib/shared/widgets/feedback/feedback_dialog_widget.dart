@@ -6,6 +6,7 @@ import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
+import 'package:vayug/shared/services/install_attribution_service.dart';
 
 class FeedbackDialogWidget extends StatefulWidget {
   const FeedbackDialogWidget({super.key});
@@ -66,6 +67,18 @@ class _FeedbackDialogWidgetState extends State<FeedbackDialogWidget> {
       // Get user data for feedback submission
       final authService = AuthService();
       final userData = await authService.getUserData();
+      final attribution =
+          await InstallAttributionService.instance.getAttributionPayload();
+      final payload = <String, dynamic>{
+        'rating': _rating.toInt(),
+        'comments': _messageController.text.trim(),
+        'userEmail': userData?['email'] ?? 'anonymous@user.com',
+        'userId': userData?['googleId'] ?? userData?['id'] ?? 'anonymous',
+      };
+
+      if (attribution.isNotEmpty) {
+        payload['attribution'] = attribution;
+      }
 
       // Submit feedback to backend
       final response = await httpClientService.post(
@@ -73,12 +86,7 @@ class _FeedbackDialogWidgetState extends State<FeedbackDialogWidget> {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: json.encode({
-          'rating': _rating.toInt(),
-          'comments': _messageController.text.trim(),
-          'userEmail': userData?['email'] ?? 'anonymous@user.com',
-          'userId': userData?['googleId'] ?? userData?['id'] ?? 'anonymous',
-        }),
+        body: json.encode(payload),
       );
 
       if (response.statusCode == 201) {

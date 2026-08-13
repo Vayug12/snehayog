@@ -28,7 +28,9 @@ import 'package:vayug/core/providers/video_providers.dart';
 import 'package:vayug/shared/services/error_logging_service.dart';
 import 'package:vayug/shared/services/deep_link_service.dart';
 import 'package:vayug/shared/services/http_client_service.dart';
+import 'package:vayug/shared/services/in_app_review_service.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
+import 'package:vayug/shared/services/install_attribution_service.dart';
 
 // Enable on a desktop/web debug run with --dart-define=DEVICE_PREVIEW=true.
 const _enableDevicePreview = bool.fromEnvironment('DEVICE_PREVIEW');
@@ -39,14 +41,16 @@ void main() async {
   // Enable Edge-to-Edge display
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(
+    // These colours are used on Android versions before 15. Android 15 ignores
+    // the colour setters in edge-to-edge mode, so the native theme and the
+    // contrast flag below remain important there as well.
     const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
       systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
       systemNavigationBarContrastEnforced:
           false, // Prevents Android from adding black background
       statusBarIconBrightness: Brightness.light,
       systemNavigationBarIconBrightness: Brightness.light,
-      systemNavigationBarDividerColor: Colors.transparent,
     ),
   );
 
@@ -78,6 +82,8 @@ void main() async {
   // **NEW: Initialize Ad Impression Service for offline syncing**
 
   AdImpressionService().initialize();
+  unawaited(InstallAttributionService.instance.getAttributionPayload());
+  unawaited(InstallAttributionService.instance.syncAttributionToBackend());
 
   // **STAGE 1: BASIC CONFIG (Moved to Splash Screen for Parallelism)**
   // await AppInitializationManager.instance.initializeStage1();
@@ -110,6 +116,7 @@ class MyApp extends ConsumerStatefulWidget {
 
 class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   StreamSubscription? _sub;
+  bool _hasRecordedLaunch = false;
 
   @override
   void initState() {
@@ -119,6 +126,23 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
 
     // Initialize Deep Link Service
     DeepLinkService().initialize();
+
+    _recordAppLaunchForReviewPrompt();
+  }
+
+  Future<void> _recordAppLaunchForReviewPrompt() async {
+    if (_hasRecordedLaunch) return;
+    _hasRecordedLaunch = true;
+
+    try {
+      await InAppReviewService.instance.recordAppLaunch();
+    } catch (e, stackTrace) {
+      AppLogger.error(
+        'Failed to record app launch for in-app review',
+        e,
+        stackTrace,
+      );
+    }
   }
 
   @override
@@ -294,8 +318,10 @@ class _MainScreenWithLocationCheckState
   bool _hasCheckedLocation = false;
   bool _hasCheckedGallery = false;
   bool _hasCheckedWelcome = false;
+  bool _hasScheduledInAppReview = false;
   bool _shouldShowWelcome = false;
   bool _isLoading = true;
+  Timer? _inAppReviewTimer;
 
   @override
   void initState() {
@@ -324,6 +350,7 @@ class _MainScreenWithLocationCheckState
           });
           _checkLocationInBackground();
           _checkGalleryInBackground();
+          _scheduleInAppReviewPrompt();
         }
         return;
       }
@@ -341,6 +368,7 @@ class _MainScreenWithLocationCheckState
         if (!shouldShow) {
           _checkLocationInBackground();
           _checkGalleryInBackground();
+          _scheduleInAppReviewPrompt();
         }
       }
     } catch (e) {
@@ -350,6 +378,7 @@ class _MainScreenWithLocationCheckState
           _isLoading = false;
         });
         _checkLocationInBackground();
+        _scheduleInAppReviewPrompt();
       }
     }
   }
@@ -367,7 +396,24 @@ class _MainScreenWithLocationCheckState
       // Check permissions in background after welcome screen
       _checkLocationInBackground();
       _checkGalleryInBackground();
+      _scheduleInAppReviewPrompt();
     }
+  }
+
+  void _scheduleInAppReviewPrompt() {
+    if (_hasScheduledInAppReview) return;
+    _hasScheduledInAppReview = true;
+
+    _inAppReviewTimer = Timer(const Duration(seconds: 45), () async {
+      if (!mounted) return;
+      await InAppReviewService.instance.requestReviewIfEligible();
+    });
+  }
+
+  @override
+  void dispose() {
+    _inAppReviewTimer?.cancel();
+    super.dispose();
   }
 
   /// **Check location permission in background without blocking UI**

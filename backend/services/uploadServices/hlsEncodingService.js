@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
+import { beat } from '../../utils/progressHeartbeat.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -213,6 +214,11 @@ class HLSEncodingService {
       });
 
       command.on('progress', (progress) => {
+        // Worker stall watchdog ka sabse barik signal: '-stats' on hone ki wajah se
+        // ye ~1 baar/second aata hai. FFmpeg hang ho to event rukta hai jabki process
+        // zinda rehta hai — hang ki asli pehchaan yehi hai.
+        beat();
+
         const encodedSeconds = timemarkToSeconds(progress.timemark);
 
         let percent = progress.percent;

@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Video from '../../models/Video.js';
 import User from '../../models/User.js';
+import Follower from '../../models/Follower.js';
 import RemovedVideoRecord from '../../models/RemovedVideoRecord.js';
 import RecommendationService from '../../services/yugFeedServices/recommendationService.js';
 import FeedQueueService from '../../services/yugFeedServices/feedQueueService.js';
@@ -394,6 +395,131 @@ export const getFeed = async (req, res) => {
   } catch (error) {
     console.error('❌ Error fetching videos:', error);
     res.status(500).json({ error: 'Failed to fetch videos', message: error.message });
+  }
+};
+
+/**
+ * Minimum creators a user must subscribe to before the following feed unlocks.
+ * Shared with /api/users/suggested-creators so both ends agree on the gate.
+ */
+export const MIN_SUBSCRIPTIONS = 5;
+
+const FOLLOWING_FEED_TTL = 60; // seconds — short, so new uploads surface quickly
+
+/**
+ * Resolve the requesting user's Mongo _id from the verified token.
+ * verifyToken memoizes _id, so this usually costs no DB round trip.
+ */
+const resolveUserObjectId = async (req) => {
+  const cachedId = req.user?._id;
+  if (cachedId && mongoose.Types.ObjectId.isValid(cachedId)) {
+    return new mongoose.Types.ObjectId(cachedId);
+  }
+
+  const googleId = req.user?.googleId || req.user?.id;
+  if (!googleId) return null;
+
+  const user = await User.findOne({ googleId }).select('_id').lean();
+  return user?._id || null;
+};
+
+/**
+ * Feed built exclusively from creators the user subscribes to.
+ * Stays locked until the user follows MIN_SUBSCRIPTIONS creators, so the
+ * response always carries the gate state and the client never has to guess.
+ */
+export const getFollowingFeed = async (req, res) => {
+  try {
+    const userId = await resolveUserObjectId(req);
+    if (!userId) return res.status(404).json({ error: 'User not found' });
+
+    const videoType = (req.query.videoType || 'vayu').toLowerCase();
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 30);
+    const cursor = req.query.cursor;
+    const forceRefresh = req.query.refresh === 'true';
+
+    const followDocs = await Follower.find({ follower: userId })
+      .select('following')
+      .lean();
+    const followingIds = followDocs
+      .map((doc) => doc.following)
+      .filter(Boolean);
+
+    if (followingIds.length < MIN_SUBSCRIPTIONS) {
+      return res.json({
+        videos: [],
+        hasMore: false,
+        nextCursor: null,
+        gate: {
+          unlocked: false,
+          required: MIN_SUBSCRIPTIONS,
+          followingCount: followingIds.length,
+        },
+      });
+    }
+
+    const cacheKey = `feed:following:${userId}:${videoType}:${cursor || 'head'}:l${limit}`;
+    if (!forceRefresh && redisService.getConnectionStatus()) {
+      const cached = await redisService.get(cacheKey);
+      if (cached) return res.json(cached);
+    }
+
+    const query = {
+      uploader: { $in: followingIds },
+      videoType,
+      processingStatus: 'completed',
+      // Exclusive uploads are visible only to the creator's allowed subscribers.
+      $or: [
+        { isSubscriberOnly: { $ne: true } },
+        { allowedSubscribers: userId },
+      ],
+    };
+
+    if (cursor) {
+      const cursorDate = new Date(cursor);
+      if (!isNaN(cursorDate.getTime())) {
+        query.createdAt = { $lt: cursorDate };
+      }
+    }
+
+    // Over-fetch by one to know whether another page exists without a count().
+    const candidates = await Video.find(query)
+      .populate('uploader', 'name profilePic googleId')
+      .sort({ createdAt: -1 })
+      .limit(limit + 1)
+      .lean();
+
+    const hasMore = candidates.length > limit;
+    const pageVideos = hasMore ? candidates.slice(0, limit) : candidates;
+
+    await populateEpisodesForVideos(pageVideos);
+
+    let nextCursor = null;
+    if (pageVideos.length > 0) {
+      const last = pageVideos[pageVideos.length - 1];
+      nextCursor = last.createdAt || last.uploadedAt;
+      if (nextCursor instanceof Date) nextCursor = nextCursor.toISOString();
+    }
+
+    const payload = {
+      videos: serializeVideos(pageVideos, req.apiVersion, userId.toString(), req.traceId),
+      hasMore,
+      nextCursor,
+      gate: {
+        unlocked: true,
+        required: MIN_SUBSCRIPTIONS,
+        followingCount: followingIds.length,
+      },
+    };
+
+    if (redisService.getConnectionStatus()) {
+      await redisService.set(cacheKey, payload, FOLLOWING_FEED_TTL);
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    console.error('❌ Error fetching following feed:', error);
+    return res.status(500).json({ error: 'Failed to fetch subscribed videos' });
   }
 };
 

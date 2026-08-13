@@ -528,8 +528,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
     return AnnotatedRegion<SystemUiOverlayStyle>(
           value: const SystemUiOverlayStyle(
             systemNavigationBarColor: Colors.transparent,
-            systemNavigationBarIconBrightness: Brightness.light,
             systemNavigationBarDividerColor: Colors.transparent,
+            systemNavigationBarIconBrightness: Brightness.light,
             systemNavigationBarContrastEnforced: false,
           ),
           child: PopScope(
@@ -602,12 +602,15 @@ class _MainScreenState extends ConsumerState<MainScreen>
                         ],
                       ),
                       child: Container(
-                        height: 52 + MediaQuery.of(context).padding.bottom,
+                        height: 52 + MediaQuery.viewPaddingOf(context).bottom,
                         padding: EdgeInsets.only(
                           left: 4,
                           right: 4,
                           top: 0,
-                          bottom: math.max(2.0, MediaQuery.of(context).padding.bottom),
+                          bottom: math.max(
+                            2.0,
+                            MediaQuery.viewPaddingOf(context).bottom,
+                          ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,

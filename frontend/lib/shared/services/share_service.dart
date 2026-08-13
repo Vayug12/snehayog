@@ -3,6 +3,7 @@ import 'package:vayug/features/ads/data/carousel_ad_model.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/utils/url_utils.dart';
 
 class ShareService {
   final VideoService _videoService = VideoService();
@@ -52,11 +53,11 @@ class ShareService {
       queryParameters['end'] = '$endSeconds';
     }
 
-    final shareLink = Uri.https(
-      'snehayog.site',
-      '/video/${video.id}',
-      queryParameters.isEmpty ? null : queryParameters,
-    ).toString();
+    final shareLink = UrlUtils.buildVideoShareUrl(
+      video.id,
+      video.videoName,
+      queryParameters: queryParameters,
+    );
     final sectionLabel = endSeconds != null && endSeconds > startSeconds
         ? ' Watch the shared section.'
         : startSeconds > 0

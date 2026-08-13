@@ -1,6 +1,41 @@
 import 'package:vayug/shared/utils/app_logger.dart';
 
 class UrlUtils {
+  static const int _maxVideoSlugLength = 80;
+
+  static String slugifyVideoTitle(String title) {
+    var slug = title
+        .trim()
+        .toLowerCase()
+        .replaceAll('&', ' and ')
+        .replaceAll("'", '')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+
+    if (slug.length > _maxVideoSlugLength) {
+      slug = slug.substring(0, _maxVideoSlugLength).replaceAll(
+            RegExp(r'-+$'),
+            '',
+          );
+    }
+
+    return slug.isEmpty ? 'video' : slug;
+  }
+
+  static String buildVideoShareUrl(
+    String videoId,
+    String title, {
+    Map<String, String>? queryParameters,
+  }) {
+    return Uri.https(
+      'snehayog.site',
+      '/video/$videoId/${slugifyVideoTitle(title)}',
+      queryParameters == null || queryParameters.isEmpty
+          ? null
+          : queryParameters,
+    ).toString();
+  }
+
   /// Enriches a URL with UTM parameters for attribution tracking.
   /// 
   /// [source] defaults to 'vayug'

@@ -7,9 +7,9 @@ import 'package:vayug/core/providers/subscription_providers.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/vayu/presentation/screens/vayu_long_form_player_screen.dart';
 import 'package:vayug/features/video/core/presentation/screens/video_screen.dart';
+import 'package:vayug/shared/widgets/auth_sign_in_prompt.dart';
 import 'package:vayug/shared/widgets/unified_video_card.dart';
 import 'package:vayug/shared/widgets/vayu_video_card.dart';
-import 'package:hugeicons/hugeicons.dart';
 import 'package:vayug/features/video/subscriptions/presentation/managers/subscription_state_manager.dart';
 
 class SubscriptionsScreen extends ConsumerStatefulWidget {
@@ -243,25 +243,13 @@ class _SubscriptionsScreenState extends ConsumerState<SubscriptionsScreen> {
     return _buildFeedSlivers(state);
   }
 
+  /// The screen already reloads on an auth change, so no post-sign-in
+  /// callback is needed here.
   Widget _buildSignInPrompt() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const HugeIcon(
-              icon: HugeIcons.strokeRoundedUserMultiple02,
-              color: AppColors.primary,
-              size: 48),
-          const SizedBox(height: 24),
-          Text('Sign in to see exclusive content',
-              style: AppTypography.titleLarge.copyWith(
-                  color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const Text(
-              'Subscriber-only videos from creators you follow will appear here.',
-              textAlign: TextAlign.center),
-        ],
-      ),
+    // The title names what is behind the gate; the button names the action.
+    return const AuthSignInPrompt(
+      icon: Icons.people_outline,
+      title: 'Subscriber-only videos',
     );
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/shared/constants/app_constants.dart';
 import 'package:vayug/features/profile/core/presentation/screens/profile_screen.dart';
@@ -205,17 +206,18 @@ class _UploaderAvatar extends StatelessWidget {
       backgroundColor: Colors.grey,
       child: uploader.profilePic.isNotEmpty
           ? ClipOval(
-              child: Image.network(
-                uploader.profilePic,
+              child: CachedNetworkImage(
+                imageUrl: uploader.profilePic,
                 width: AppConstants.avatarRadius * 2,
                 height: AppConstants.avatarRadius * 2,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
+                memCacheWidth: 96,
+                maxWidthDiskCache: 96,
+                errorWidget: (context, url, error) {
                   print('🖼️ _UploaderAvatar: Image.network error: $error');
                   return _buildInitialsAvatar(context);
                 },
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
+                placeholder: (context, url) {
                   return const SizedBox(
                     width: 24,
                     height: 24,

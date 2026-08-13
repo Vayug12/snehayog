@@ -6,7 +6,7 @@ import SavedVideo from '../models/SavedVideo.js';
 import { verifyToken, passiveVerifyToken } from '../utils/verifytoken.js'; // Added passiveVerifyToken
 import jwt from 'jsonwebtoken'; // Added for token info endpoint
 import redisService from '../services/caching/redisService.js';
-import { getGlobalLeaderboard } from '../controllers/video/videoFeedController.js';
+import { getGlobalLeaderboard, MIN_SUBSCRIPTIONS } from '../controllers/video/videoFeedController.js';
 import RecommendationService from '../services/yugFeedServices/recommendationService.js';
 import Notice from '../models/Notice.js';
 import Video from '../models/Video.js';
@@ -26,6 +26,10 @@ const getIsFollowingCacheKey = (currentUserId, targetUserId) =>
   (currentUserId && targetUserId) ? `isfollowing:${currentUserId}:${targetUserId}` : null;
 
 const IS_FOLLOWING_CACHE_TTL = 30; // 30 seconds
+
+const ACTIVE_CREATORS_CACHE_TTL = 600; // 10 minutes
+
+const getActiveCreatorsCacheKey = (videoType) => `creators:active:${videoType}`;
 
 const cacheResponse = async (key, data, ttl) => {
   if (!key || !data) return;
@@ -1181,6 +1185,103 @@ router.get('/subscriber-videos', verifyToken, async (req, res) => {
   } catch (err) {
     console.error('❌ Get subscriber videos error:', err);
     res.status(500).json({ error: 'Failed to fetch subscriber videos', details: err.message });
+  }
+});
+
+/**
+ * Creators who actually publish the requested feed type.
+ * Cached because the distinct scan is far heavier than the follow lookup.
+ */
+const getActiveCreatorIds = async (videoType) => {
+  const cacheKey = getActiveCreatorsCacheKey(videoType);
+  const cached = await getCachedResponse(cacheKey);
+  if (Array.isArray(cached)) return cached;
+
+  const ids = await Video.distinct('uploader', {
+    videoType,
+    processingStatus: 'completed',
+    isSubscriberOnly: { $ne: true },
+  });
+
+  const creatorIds = ids.filter(Boolean).map((id) => id.toString());
+  if (creatorIds.length > 0) {
+    await cacheResponse(cacheKey, creatorIds, ACTIVE_CREATORS_CACHE_TTL);
+  }
+  return creatorIds;
+};
+
+/**
+ * GET /api/users/suggested-creators
+ * Creators the user can subscribe to in order to unlock the following feed.
+ * Already-followed creators and the user themself are never suggested.
+ */
+router.get('/suggested-creators', verifyToken, async (req, res) => {
+  try {
+    let userObjectId = null;
+    if (req.user?._id && mongoose.Types.ObjectId.isValid(req.user._id)) {
+      userObjectId = new mongoose.Types.ObjectId(req.user._id);
+    } else {
+      const googleId = req.user?.googleId || req.user?.id;
+      const user = googleId
+        ? await User.findOne({ googleId }).select('_id').lean()
+        : null;
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      userObjectId = user._id;
+    }
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+    const videoType = (req.query.videoType || 'vayu').toLowerCase();
+
+    const [followDocs, activeCreatorIds] = await Promise.all([
+      Follower.find({ follower: userObjectId }).select('following').lean(),
+      getActiveCreatorIds(videoType),
+    ]);
+
+    const excludedIds = new Set([
+      userObjectId.toString(),
+      ...followDocs.map((doc) => doc.following?.toString()).filter(Boolean),
+    ]);
+
+    const candidateIds = activeCreatorIds.filter((id) => !excludedIds.has(id));
+
+    let creators = [];
+    if (candidateIds.length > 0) {
+      creators = await User.find({ _id: { $in: candidateIds } })
+        .select('googleId name profilePic followerCount')
+        .sort({ followerCount: -1 })
+        .limit(limit)
+        .lean();
+    }
+
+    // Top up with other publishing creators so a new user always has enough
+    // choices to clear the gate, even before the platform has long-form uploads.
+    if (creators.length < limit) {
+      creators.forEach((c) => excludedIds.add(c._id.toString()));
+      const fillers = await User.find({
+        _id: { $nin: Array.from(excludedIds) },
+        'videos.0': { $exists: true },
+      })
+        .select('googleId name profilePic followerCount')
+        .sort({ followerCount: -1 })
+        .limit(limit - creators.length)
+        .lean();
+      creators = creators.concat(fillers);
+    }
+
+    res.json({
+      success: true,
+      creators: creators.map((c) => ({
+        id: c.googleId || c._id.toString(),
+        name: c.name || 'Creator',
+        profilePic: c.profilePic || '',
+        followerCount: c.followerCount || 0,
+      })),
+      followingCount: followDocs.length,
+      required: MIN_SUBSCRIPTIONS,
+    });
+  } catch (err) {
+    console.error('❌ Get suggested creators error:', err);
+    res.status(500).json({ error: 'Failed to fetch suggested creators' });
   }
 });
 

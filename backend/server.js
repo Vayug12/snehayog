@@ -13,7 +13,6 @@ import recommendationScoreCron from './services/yugFeedServices/recommendationSc
 import autoResumeCron from './workers/autoResume.js';
 import { shutdownAdStatsBuffer } from './services/adServices/adStatsBuffer.js';
 
-// **FIX: Don't disable console.log in production - we need it for Railway debugging**
 if (process.env.DISABLE_CONSOLE_LOG === 'true') {
   // eslint-disable-next-line no-console
   console.log = () => { };

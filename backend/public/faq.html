@@ -80,7 +80,7 @@
         {
           "@type": "Question",
           "name": "Can Vayug videos be shared or embedded on the web?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Available videos have shareable web pages and embeddable player pages. The URL patterns are /video/{video-id} and /embed/{video-id}." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Available videos have shareable web pages and embeddable player pages. Share URLs use /video/{video-id}/{title-slug}; legacy ID-only links remain supported. Embed URLs use /embed/{video-id}." }
         },
         {
           "@type": "Question",
@@ -149,7 +149,7 @@
             <article class="faq-item"><h2>Can creators connect with subscribers outside the app?</h2><p>Yes. Authenticated creators can export available subscriber names, email addresses, profile information, and subscription dates as a CSV for consent-based use with their own email, newsletter, or external communication tools. Privacy law, anti-spam rules, subscriber consent, and platform terms apply.</p></article>
             <article class="faq-item"><h2>Can creators send notifications to subscribers?</h2><p>Yes. Creator Tools can send a direct push alert to all or selected eligible subscribers, optionally with a target URL. Alerts respect notification preferences, require an active app/device token, and are currently limited to two sends per creator per day.</p></article>
             <article class="faq-item"><h2>Can an AI agent upload videos to Vayug?</h2><p>Yes. Authenticated workflows support presigned uploads, direct uploads, upload registration, processing status, and server-sent status updates.</p></article>
-            <article class="faq-item"><h2>Can Vayug videos be shared or embedded on the web?</h2><p>Yes. Available videos have shareable pages at <code>/video/{video-id}</code> and embeddable player pages at <code>/embed/{video-id}</code>.</p></article>
+            <article class="faq-item"><h2>Can Vayug videos be shared or embedded on the web?</h2><p>Yes. Available videos have shareable pages at <code>/video/{video-id}/{title-slug}</code> (legacy ID-only links remain supported) and embeddable player pages at <code>/embed/{video-id}</code>.</p></article>
             <article class="faq-item"><h2>What features are available to viewers?</h2><p>Viewers can discover and search videos, watch short and long content, like, comment, share, follow creators, save videos, recover watch position, receive notifications, and report content.</p></article>
             <article class="faq-item"><h2>What can creators do on Vayug?</h2><p>Creators can upload and manage videos, edit metadata, organize series and episodes, add quizzes where enabled, build profiles, grow followers, review analytics, and access revenue and payout workflows.</p></article>
             <article class="faq-item"><h2>Which sign-in methods does Vayug support?</h2><p>The backend supports Google Sign-In and phone/OTP authentication. The exact options shown depend on the current app build and configuration.</p></article>

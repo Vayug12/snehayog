@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/auth_sign_in_prompt.dart';
 import 'package:vayug/core/providers/profile_providers.dart';
-import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
 import 'package:vayug/features/profile/core/data/services/user_service.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
@@ -186,43 +186,9 @@ class _CreatorToolsScreenState extends ConsumerState<CreatorToolsScreen> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.lock_person_rounded, color: AppColors.primary, size: 64),
-              ),
-              const SizedBox(height: 32),
-              const Text(
-                'Creator Access Required',
-                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Sign in to your account to send broadcast alerts and updates to your subscribers.',
-                style: TextStyle(color: AppColors.textTertiary, fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 40),
-              AppButton(
-                onPressed: () => ref.read(googleSignInProvider).signIn(),
-                label: 'Sign In with Google',
-                variant: AppButtonVariant.primary,
-                isFullWidth: true,
-                icon: const Icon(Icons.login_rounded, color: Colors.white, size: 18),
-              ),
-            ],
-          ),
-        ),
+      body: const AuthSignInPrompt(
+        icon: Icons.lock_person_rounded,
+        title: 'Creator access required',
       ),
     );
   }

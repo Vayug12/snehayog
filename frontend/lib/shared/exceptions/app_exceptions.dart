@@ -37,6 +37,20 @@ class UnauthorizedException extends AppException {
       : super(message, code: code, details: details);
 }
 
+/// Raised when an encrypted video's key cannot be obtained.
+///
+/// E2EE playback must stop before the video player is created. Otherwise a
+/// missing session/key is reported later as an opaque player or proxy error.
+class E2eeVideoAccessException extends AppException {
+  const E2eeVideoAccessException(
+    String message, {
+    required String code,
+    dynamic details,
+  }) : super(message, code: code, details: details);
+
+  bool get requiresSignIn => code == 'authentication_required';
+}
+
 /// Data-related exceptions
 class DataException extends AppException {
   const DataException(String message, {String? code, dynamic details})

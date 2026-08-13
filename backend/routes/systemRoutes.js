@@ -1,8 +1,12 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
 import databaseManager from '../config/database.js';
 import Video from '../models/Video.js';
+import User from '../models/User.js';
+import { passiveVerifyToken } from '../utils/verifytoken.js';
+import { buildVideoPath, slugifyVideoTitle } from '../utils/videoUrl.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +21,34 @@ const escapeHtml = (value = '') => String(value)
   .replace(/'/g, '&#39;');
 
 const router = express.Router();
+
+const isPrivateVideo = (video) => video.isSubscriberOnly === true
+  || (Array.isArray(video.allowedSubscribers) && video.allowedSubscribers.length > 0);
+
+/**
+ * Web share/embed pages are public for normal videos, but subscriber-only
+ * videos must never render a player or expose their stream URL to guests.
+ * The uploader is allowed to view their own private video.
+ */
+const canViewPrivateVideo = async (video, req) => {
+  if (!isPrivateVideo(video)) return true;
+
+  const requestingGoogleId = req.user?.googleId || req.user?.id;
+  if (!requestingGoogleId) return false;
+
+  const requestingUser = req.user?._id
+    ? { _id: req.user._id }
+    : await User.findOne({ googleId: requestingGoogleId }).select('_id').lean();
+  if (!requestingUser?._id) return false;
+
+  const requestingUserId = requestingUser._id.toString();
+  const uploaderId = video.uploader?._id?.toString() || video.uploader?.toString();
+  if (uploaderId === requestingUserId) return true;
+
+  return (video.allowedSubscribers || []).some((id) => id.toString() === requestingUserId);
+};
+
+const sendPrivateVideoNotFound = (res) => res.status(404).send('Video not found');
 
 // Asset Links dynamic response
 const assetLinksPackageName = process.env.ANDROID_ASSETLINKS_PACKAGE_NAME;
@@ -63,6 +95,11 @@ router.get('/', (req, res) => {
   res.sendFile(path.join(backendRoot, 'public', 'index.html'));
 });
 
+// Public documentation hub for people, search engines and AI agents.
+router.get(['/docs', '/docs/'], (req, res) => {
+  res.sendFile(path.join(backendRoot, 'public', 'docs.html'));
+});
+
 router.get('/llms.txt', (req, res) => {
   res.sendFile(path.join(backendRoot, 'public', 'llm.txt'));
 });
@@ -86,21 +123,25 @@ Object.entries(seoPages).forEach(([route, fileName]) => {
   });
 });
 
-router.get('/video/:id', async (req, res) => {
+router.get(['/video/:id', '/video/:id/:slug'], passiveVerifyToken, async (req, res) => {
   // Prevent browser caching of the redirect response
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
 
   try {
-    const { id } = req.params;
+    const { id, slug } = req.params;
     
     // Safety check for ID format
-    if (!id || id.length < 12) {
+    if (!mongoose.isObjectIdOrHexString(id)) {
        return res.status(400).send('Invalid Link Format');
     }
 
     const video = await Video.findById(id).populate('uploader', 'name');
+
+    if (video && !(await canViewPrivateVideo(video, req))) {
+      return sendPrivateVideoNotFound(res);
+    }
 
     // Preserve a shared section when the web fallback opens the installed app.
     const sharedTimestampParams = new URLSearchParams();
@@ -149,6 +190,14 @@ router.get('/video/:id', async (req, res) => {
         `);
     }
 
+    const canonicalVideoPath = buildVideoPath(video._id, video.videoName);
+    const expectedSlug = slugifyVideoTitle(video.videoName);
+    if (slug !== expectedSlug || req.path !== canonicalVideoPath) {
+      const queryIndex = req.originalUrl.indexOf('?');
+      const querySuffix = queryIndex >= 0 ? req.originalUrl.slice(queryIndex) : '';
+      return res.redirect(301, `${canonicalVideoPath}${querySuffix}`);
+    }
+
     // Video Found: Serve the Premium Web Player
     video.incrementView(null, 2, 'embed').catch(err => console.error('Error tracking shared view:', err));
 
@@ -158,8 +207,7 @@ router.get('/video/:id', async (req, res) => {
     const finalThumbnailUrl = (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) 
       ? video.thumbnailUrl
       : (video.thumbnailUrl ? `${baseUrl}${video.thumbnailUrl}` : '');
-    const isSubscriberOnly = video.isSubscriberOnly === true
-      || (Array.isArray(video.allowedSubscribers) && video.allowedSubscribers.length > 0);
+    const isSubscriberOnly = isPrivateVideo(video);
     const safeVideoName = escapeHtml(video.videoName || 'Vayug video');
     const safeDescription = escapeHtml(video.description || 'Watch this video on Vayug');
     const safeCreatorName = escapeHtml(video.uploader?.name || 'Vayug creator');
@@ -169,7 +217,7 @@ router.get('/video/:id', async (req, res) => {
       ? Math.min(Math.max(storedAspectRatio, 0.5625), 2.4)
       : 16 / 9;
     const isPortraitVideo = playerAspectRatio < 1;
-    const canonicalVideoUrl = `${publicSiteUrl}/video/${id}`;
+    const canonicalVideoUrl = `${publicSiteUrl}${canonicalVideoPath}`;
     const robotsDirective = isSubscriberOnly ? 'noindex, nofollow' : 'index, follow';
     const canonicalMarkup = isSubscriberOnly
       ? ''
@@ -343,13 +391,17 @@ router.get('/video/:id', async (req, res) => {
 });
 
 // Minimalist external embed route
-router.get('/embed/:id', async (req, res) => {
+router.get('/embed/:id', passiveVerifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const video = await Video.findById(id).populate('uploader', 'name');
 
     if (!video) {
       return res.status(404).send('Video not found');
+    }
+
+    if (!(await canViewPrivateVideo(video, req))) {
+      return sendPrivateVideoNotFound(res);
     }
 
     // Track view from embed source
@@ -397,7 +449,7 @@ router.get('/embed/:id', async (req, res) => {
 <body>
   <div class="player-container">
     <video id="video" poster="${finalThumbnailUrl}" controls playsinline preload="metadata"></video>
-    <a href="https://snehayog.site/video/${video._id}" target="_blank" class="vayu-btn">
+    <a href="${publicSiteUrl}${buildVideoPath(video._id, video.videoName)}" target="_blank" class="vayu-btn">
       <span>Watch on Vayug</span>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
     </a>

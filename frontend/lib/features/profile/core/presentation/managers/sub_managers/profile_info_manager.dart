@@ -102,9 +102,9 @@ class ProfileInfoManager extends ChangeNotifier {
       }
     }
 
+    _error = null;
     if (!silent) {
       _isProfileLoading = true;
-      _error = null;
       notifyListenersSafe();
     }
 
@@ -126,7 +126,14 @@ class ProfileInfoManager extends ChangeNotifier {
       );
 
       if (data != null && data.isNotEmpty) {
-        _userData = _normalizeUserData(data, userId);
+        final existingPaymentDetails = _userData?['paymentDetails'];
+        final normalized = _normalizeUserData(data, userId);
+        if (normalized['paymentDetails'] == null &&
+            existingPaymentDetails != null) {
+          normalized['paymentDetails'] = existingPaymentDetails;
+          normalized['hasUpiId'] = true;
+        }
+        _userData = normalized;
         nameController.text = _userData?['name']?.toString() ?? '';
         websiteController.text = _userData?['websiteUrl']?.toString() ?? '';
         _lastFullLoadTime = DateTime.now();
@@ -285,6 +292,17 @@ class ProfileInfoManager extends ChangeNotifier {
       _isProfileLoading = false;
       notifyListenersSafe();
     }
+  }
+
+  void setPaymentDetails(Map<String, dynamic>? paymentDetails) {
+    if (_userData == null) return;
+    _userData!['paymentDetails'] = paymentDetails;
+    _userData!['hasUpiId'] = paymentDetails?['upiId']
+            ?.toString()
+            .trim()
+            .isNotEmpty ??
+        false;
+    notifyListenersSafe();
   }
 
   Future<String> _resolveProfileCacheKey(String? userId) async {

@@ -177,6 +177,7 @@ The primary implemented revenue path is the platform share of eligible advertisi
 
 ## SEO landing pages
 
+- Official documentation hub and public URL directory: /docs
 - For creators: /for-creators
 - E2EE subscriber-only videos: /e2ee
 - Creator monetization: /creator-monetization

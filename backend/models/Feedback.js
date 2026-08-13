@@ -58,6 +58,38 @@ const feedbackSchema = new mongoose.Schema({
   ipAddress: {
     type: String,
     trim: true
+  },
+  attribution: {
+    source: {
+      type: String,
+      trim: true,
+      lowercase: true
+    },
+    medium: {
+      type: String,
+      trim: true,
+      lowercase: true
+    },
+    campaign: {
+      type: String,
+      trim: true,
+      lowercase: true
+    },
+    content: {
+      type: String,
+      trim: true,
+      lowercase: true
+    },
+    term: {
+      type: String,
+      trim: true,
+      lowercase: true
+    },
+    rawReferrer: {
+      type: String,
+      trim: true,
+      maxlength: 1000
+    }
   }
 }, {
   timestamps: true
@@ -69,6 +101,7 @@ feedbackSchema.index({ rating: 1 });
 feedbackSchema.index({ isRead: 1 });
 feedbackSchema.index({ isReplied: 1 });
 feedbackSchema.index({ userEmail: 1 });
+feedbackSchema.index({ 'attribution.source': 1 });
 
 // Virtual for formatted date
 feedbackSchema.virtual('formattedDate').get(function() {

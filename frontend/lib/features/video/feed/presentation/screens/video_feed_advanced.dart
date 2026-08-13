@@ -66,6 +66,7 @@ import 'package:vayug/shared/widgets/tab_scope.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
 import 'package:vayug/features/video/edit/presentation/screens/edit_video_details.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/auth_sign_in_prompt.dart';
 import 'package:vayug/core/interfaces/i_dubbing_service.dart';
 import 'package:vayug/features/video/dubbing/data/models/dubbing_models.dart';
 import 'package:vayug/features/video/dubbing/data/services/on_device_dubbing_service.dart';
@@ -97,8 +98,10 @@ class VideoFeedAdvanced extends ConsumerStatefulWidget {
   final String? initialVideoId;
   final String? videoType;
   final bool isMainYugTab; // **NEW: Flag to identify the primary Yug feed**
-  final int? parentTabIndex; // **NEW: Tab index where this feed resides (0 for Yug, 1 for Vayu, etc.)**
-  final int? startAtSeconds; // Share links: start playback of initialVideoId here
+  final int?
+      parentTabIndex; // **NEW: Tab index where this feed resides (0 for Yug, 1 for Vayu, etc.)**
+  final int?
+      startAtSeconds; // Share links: start playback of initialVideoId here
   final int? endAtSeconds; // Share links: pause playback of initialVideoId here
   final IDubbingService? dubbingService;
   final IAdService? adService;
@@ -148,14 +151,16 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // **NEW: Restore last viewed video index (Main Feed only)**
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // **FIX: Only restore if NOT opened with specific initial videos/index from Profile/Search**
-      if (widget.initialVideos == null && 
-          widget.initialIndex == null && 
-          widget.initialVideoId == null && 
+      if (widget.initialVideos == null &&
+          widget.initialIndex == null &&
+          widget.initialVideoId == null &&
           mounted) {
         final mainController = ref.read(mainControllerProvider);
-        final savedIndex = await mainController.getLastViewedVideoIndex(0); // Yug is tab 0
+        final savedIndex =
+            await mainController.getLastViewedVideoIndex(0); // Yug is tab 0
         if (savedIndex > 0 && mounted) {
-          AppLogger.log('🚀 VideoFeed: Resuming at video index $savedIndex (Main Feed)');
+          AppLogger.log(
+              '🚀 VideoFeed: Resuming at video index $savedIndex (Main Feed)');
           if (_pageController.hasClients) {
             _pageController.jumpToPage(savedIndex);
           }
@@ -246,12 +251,14 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
             controller.pause();
             _controllerStates[video.id] = false;
             _ensureWakelockForVisibility();
-            AppLogger.log('⏸️ VideoFeedAdvanced: Paused current video at index $_currentIndex');
+            AppLogger.log(
+                '⏸️ VideoFeedAdvanced: Paused current video at index $_currentIndex');
           }
         } catch (e) {
           _controllerPool.remove(video.id);
           _controllerStates.remove(video.id);
-          AppLogger.log('⚠️ VideoFeedAdvanced: Error pausing current video: $e');
+          AppLogger.log(
+              '⚠️ VideoFeedAdvanced: Error pausing current video: $e');
         }
       }
     }
@@ -278,7 +285,6 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         }
       } catch (_) {}
     }
-
   }
 
   void _pauseAllVideosOnTabSwitch() {
@@ -308,6 +314,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     _ensureWakelockForVisibility();
   }
+
   /// **Helper to allow extensions to call setState safely**
   void safeSetState(VoidCallback fn) {
     if (mounted) {
@@ -345,6 +352,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       case AppLifecycleState.resumed:
         _playbackCoordinator.setAppLifecycle(true);
         _videoControllerManager.onAppResumed();
+        _retryBannerAdsNow(resetAttempts: true);
         // **FIX: Stop setting _isScreenVisible = true unconditionally**
         // Relying on VisibilityDetector and MainController index instead
         // to prevent audio leak when resuming on a different tab.
@@ -633,12 +641,14 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       } else {
         // 2. Not in local pool - check if shared pool has a valid one we can adopt
         final sharedController = sharedPool.getController(video.id);
-        if (sharedController != null && !sharedPool.isControllerDisposed(sharedController)) {
-          AppLogger.log('♻️ VideoFeedAdvanced: Adopting valid controller from shared pool for ${video.id}');
+        if (sharedController != null &&
+            !sharedPool.isControllerDisposed(sharedController)) {
+          AppLogger.log(
+              '♻️ VideoFeedAdvanced: Adopting valid controller from shared pool for ${video.id}');
           _controllerPool[video.id] = sharedController;
           _controllerStates[video.id] = false;
           _preloadedVideos.add(video.id);
-          
+
           // Attach listeners to this adopted controller
           _attachEndListenerIfNeeded(sharedController, index);
           _attachBufferingListenerIfNeeded(sharedController, index);
@@ -658,7 +668,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // Restore missing/disposed controllers
     for (final index in indicesToRestore) {
       if (index == _currentIndex) {
-        AppLogger.log('🔄 VideoFeedAdvanced: Restoring controller for index $index (Current Video)');
+        AppLogger.log(
+            '🔄 VideoFeedAdvanced: Restoring controller for index $index (Current Video)');
       }
 
       _preloadVideo(index).then((_) {
@@ -696,7 +707,6 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       }
     });
   }
-
 
   void _enableWakelock() {
     if (_wakelockEnabled) return;
@@ -792,7 +802,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // Component Visibility Guard: this widget can be scrolled off inside an
     // otherwise-active route, which no route or tab state reflects.
     if (!_isScreenVisible) {
-      AppLogger.log('🚫 AUTOPLAY[$reason]: component hidden (_isScreenVisible=false)');
+      AppLogger.log(
+          '🚫 AUTOPLAY[$reason]: component hidden (_isScreenVisible=false)');
       return false;
     }
 
@@ -892,12 +903,13 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     final videoId = _videos[index].id;
     final sharedPool = SharedVideoControllerPool();
-    
+
     // **PRIORITY 1: Check existing local reference with ATOMIC VALIDATION**
     VideoPlayerController? controller = _controllerPool[videoId];
     if (controller != null) {
       if (!sharedPool.isControllerValid(controller)) {
-        AppLogger.log('⚠️ VideoFeed: Local controller for $videoId is STALE. Evicting.');
+        AppLogger.log(
+            '⚠️ VideoFeed: Local controller for $videoId is STALE. Evicting.');
         _controllerPool.remove(videoId);
         _controllerStates.remove(videoId);
         _preloadedVideos.remove(videoId);
@@ -917,7 +929,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     // **PRIORITY 3: If valid, adopt into local state**
     if (sharedPool.isControllerValid(controller)) {
-      AppLogger.log('⚡ VideoFeed: Adopting controller for $videoId from global pool');
+      AppLogger.log(
+          '⚡ VideoFeed: Adopting controller for $videoId from global pool');
       _controllerPool[videoId] = controller!;
       _controllerStates[videoId] = false;
       _preloadedVideos.add(videoId);
@@ -942,7 +955,9 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     // 2. Persist current video index for state restoration - **FIX: Always check bounds**
     if (index >= 0 && index < _videos.length) {
-      ref.read(mainControllerProvider).updateCurrentVideoIndex(index, tabIndex: 0);
+      ref
+          .read(mainControllerProvider)
+          .updateCurrentVideoIndex(index, tabIndex: 0);
     }
 
     // 3. Update local state
@@ -974,9 +989,10 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     // 5. Scroll Velocity Detection
     final currentTime = DateTime.now();
-    final scrollDelta = currentTime.difference(_lastPageChangeTime).inMilliseconds;
+    final scrollDelta =
+        currentTime.difference(_lastPageChangeTime).inMilliseconds;
     _lastPageChangeTime = currentTime;
-    _wasLastScrollFast = scrollDelta < 300; 
+    _wasLastScrollFast = scrollDelta < 300;
 
     // 6. RESOURCE PROTECTION: Cancel irrelevant loads
     _cancelIrrelevantPreloads(index);
@@ -1037,7 +1053,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   void _handlePageChange(int index) {
     if (!mounted || index != _currentIndex) return;
 
-    AppLogger.log('📱 Page changed to index $index. Triggering SNAP autoplay...');
+    AppLogger.log(
+        '📱 Page changed to index $index. Triggering SNAP autoplay...');
 
     // 1. Trigger autoplay for the now-centered video
     _tryAutoplayCurrent();
@@ -1048,7 +1065,6 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // 3. Mark as seen
     _markCurrentVideoAsSeen();
   }
-
 
   /// **NEW: Atomic safety helper for getting a valid controller**
   VideoPlayerController? _getValidController(int index) {
@@ -1061,7 +1077,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // **CRITICAL SAFETY CHECK: Global -> Local Sync**
     final sharedPool = SharedVideoControllerPool();
     if (!sharedPool.isControllerValid(controller)) {
-      AppLogger.log('⚠️ VideoFeed: Detected stale local reference for video $videoId. Evicting local entry.');
+      AppLogger.log(
+          '⚠️ VideoFeed: Detected stale local reference for video $videoId. Evicting local entry.');
       _controllerPool.remove(videoId);
       _controllerStates.remove(videoId);
       _preloadedVideos.remove(videoId);
@@ -1071,7 +1088,6 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     return controller;
   }
-
 
   /// **DEBOUNCED PRELOAD: Avoid too many preloads during fast scrolling**
   void _preloadNearbyVideosDebounced() {
@@ -1227,7 +1243,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         _userPausedVN[videoId]?.value = false;
         _playbackCoordinator.setUserPaused(_playbackSession, false);
         _hideLongPressAdOverlay();
-        _hidePauseAdOverlay(videoId: videoId); // **NEW: Hide pause ad when video plays**
+        _hidePauseAdOverlay(
+            videoId: videoId); // **NEW: Hide pause ad when video plays**
 
         _lifecyclePaused = false;
 
@@ -1307,6 +1324,19 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     }
 
     final errorString = error.toString().toLowerCase();
+
+    if (errorString.contains('device_key_changed') ||
+        errorString.contains('device_key_missing')) {
+      return 'This device cannot decrypt this video. Please use the original device or contact support.';
+    }
+    if (errorString.contains('authentication_required') ||
+        errorString.contains('please sign in again') ||
+        errorString.contains('please sign in to watch this encrypted video')) {
+      return 'Please sign in to watch this encrypted video.';
+    }
+    if (errorString.contains('access_denied')) {
+      return 'You do not have access to this encrypted video.';
+    }
 
     if (errorString.contains('decoding error') ||
         errorString.contains('e2ee') ||
@@ -1475,15 +1505,14 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       if (errorString.contains('sign in') ||
           errorString.contains('authenticated')) {
         errorMessage = 'Please sign in again to like videos';
-        Future.delayed(const Duration(milliseconds: 500), _triggerSignInOptions);
+        Future.delayed(
+            const Duration(milliseconds: 500), _triggerSignInOptions);
       }
       _showSnackBar(errorMessage, isError: true);
     } finally {
       _likeInProgress[video.id] = false;
     }
   }
-
-
 
   /// **NEW: Trigger Google Sign-In directly (shows account picker popup)**
   Future<bool> _triggerSignInOptions() async {
@@ -1504,7 +1533,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       final user = await authController.signIn();
       if (user != null) {
         AppLogger.log('✅ Sign-in successful after like/comment action');
-        final userId = (user['googleId'] ?? user['id'] ?? user['_id'])?.toString();
+        final userId =
+            (user['googleId'] ?? user['id'] ?? user['_id'])?.toString();
         if (userId != null && userId.isNotEmpty && mounted) {
           setState(() => _currentUserId = userId);
         }
@@ -1667,7 +1697,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     Navigator.push(
       context,
       MaterialPageRoute(
-        settings: RouteSettings(name: 'profile', arguments: {'userId': targetUserId}),
+        settings:
+            RouteSettings(name: 'profile', arguments: {'userId': targetUserId}),
         builder: (context) => ProfileScreen(userId: targetUserId),
       ),
     ).catchError((error) {
@@ -1685,7 +1716,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       // Show loading state
       if (mounted) {
         VayuSnackBar.showInfo(
-          context, 
+          context,
           'Testing connection...',
           duration: const Duration(seconds: 2),
         );
@@ -1709,7 +1740,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
       if (mounted) {
         VayuSnackBar.showError(
-          context, 
+          context,
           'Connection failed: ${_getUserFriendlyErrorMessage(e)}',
           duration: const Duration(seconds: 3),
         );
@@ -1928,9 +1959,10 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     _preloadDebounceTimer?.cancel();
     _adRefreshSubscription?.cancel();
     _connectivitySubscription?.cancel();
+    _bannerAdRetryTimer?.cancel();
     _poolDisposalSubscription?.cancel();
     _longPressAdAutoHideTimer?.cancel();
-    
+
     for (var s in _dubbingSubscriptions.values) {
       s.cancel();
     }
@@ -2008,7 +2040,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
       }
     });
 
-    AppLogger.log('💾 VideoFeedAdvanced: Saved $savedControllers controllers to shared pool');
+    AppLogger.log(
+        '💾 VideoFeedAdvanced: Saved $savedControllers controllers to shared pool');
 
     // Manage memory for standard flow
     if (savedControllers > 2) {
@@ -2281,40 +2314,43 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         if (result.dubbedUrl != null) {
           final vIndex = _videos.indexWhere((v) => v.id == videoId);
           if (vIndex != -1) {
-             final currentDubbedUrls = Map<String, String>.from(_videos[vIndex].dubbedUrls ?? {});
-             final String lang = result.language ?? targetLang;
-             currentDubbedUrls[lang] = result.dubbedUrl!;
-             setState(() {
-               _videos[vIndex] = _videos[vIndex].copyWith(dubbedUrls: currentDubbedUrls);
-               
-               // NEW: Auto-play the dubbed video instantly and safely recreate the player
-               // This prevents "No active player with ID" caused by FFmpeg memory spikes
-               if (vIndex == _currentIndex && mounted) {
-                 _selectedAudioLanguage[videoId] = lang;
-                 
-                 // **CRASH-PROOF: Safely dispose and reset local pool state**
-                 if (_controllerPool.containsKey(videoId)) {
-                   final ctrl = _controllerPool[videoId];
-                   if (ctrl != null) {
-                     // 1. Clear local state first to prevent UI from finding the old controller
-                     _controllerPool.remove(videoId);
-                     _controllerStates.remove(videoId);
-                     _preloadedVideos.remove(videoId);                     
-                     // 2. Use SharedPool for authoritative disposal (removes from shared maps + disposes)
-                     SharedVideoControllerPool().disposeController(videoId);
-                     
-                     AppLogger.log('🗑️ VideoFeed: Safely disposed old controller for $videoId during auto-swap');
-                   }
-                 }
-                 
-                 // 3. Delay re-preload to next frame to allow "null controller" build to complete
-                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                   if (mounted) {
-                     _preloadVideo(vIndex);
-                   }
-                 });
-               }
-             });
+            final currentDubbedUrls =
+                Map<String, String>.from(_videos[vIndex].dubbedUrls ?? {});
+            final String lang = result.language ?? targetLang;
+            currentDubbedUrls[lang] = result.dubbedUrl!;
+            setState(() {
+              _videos[vIndex] =
+                  _videos[vIndex].copyWith(dubbedUrls: currentDubbedUrls);
+
+              // NEW: Auto-play the dubbed video instantly and safely recreate the player
+              // This prevents "No active player with ID" caused by FFmpeg memory spikes
+              if (vIndex == _currentIndex && mounted) {
+                _selectedAudioLanguage[videoId] = lang;
+
+                // **CRASH-PROOF: Safely dispose and reset local pool state**
+                if (_controllerPool.containsKey(videoId)) {
+                  final ctrl = _controllerPool[videoId];
+                  if (ctrl != null) {
+                    // 1. Clear local state first to prevent UI from finding the old controller
+                    _controllerPool.remove(videoId);
+                    _controllerStates.remove(videoId);
+                    _preloadedVideos.remove(videoId);
+                    // 2. Use SharedPool for authoritative disposal (removes from shared maps + disposes)
+                    SharedVideoControllerPool().disposeController(videoId);
+
+                    AppLogger.log(
+                        '🗑️ VideoFeed: Safely disposed old controller for $videoId during auto-swap');
+                  }
+                }
+
+                // 3. Delay re-preload to next frame to allow "null controller" build to complete
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    _preloadVideo(vIndex);
+                  }
+                });
+              }
+            });
           }
           VayuSnackBar.showSuccess(
             context,
@@ -2344,7 +2380,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   void _showAudioLanguageSelector(BuildContext context, VideoModel video) {
     final hasEnglishDub = video.dubbedUrls?.containsKey('english') ?? false;
     final hasHindiDub = video.dubbedUrls?.containsKey('hindi') ?? false;
-    final String detectedSource = hasEnglishDub ? 'Hindi' : (hasHindiDub ? 'English' : 'Original');
+    final String detectedSource =
+        hasEnglishDub ? 'Hindi' : (hasHindiDub ? 'English' : 'Original');
 
     VayuBottomSheet.show<void>(
       context: context,
@@ -2365,15 +2402,17 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           ),
           AppSpacing.vSpace16,
           _buildAudioLanguageOption(
-            context, video, 
-            '$detectedSource (Original)', 
+            context,
+            video,
+            '$detectedSource (Original)',
             'default',
             badge: 'Original',
             icon: Icons.graphic_eq_rounded,
           ),
           AppSpacing.vSpace8,
           _buildAudioLanguageOption(
-            context, video, 
+            context,
+            video,
             'English',
             'english',
             badge: hasEnglishDub ? 'Dubbed' : null,
@@ -2382,7 +2421,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           ),
           AppSpacing.vSpace8,
           _buildAudioLanguageOption(
-            context, video, 
+            context,
+            video,
             'Hindi',
             'hindi',
             badge: hasHindiDub ? 'Dubbed' : null,
@@ -2395,15 +2435,16 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   }
 
   Widget _buildAudioLanguageOption(
-    BuildContext context, 
-    VideoModel video, 
-    String title, 
+    BuildContext context,
+    VideoModel video,
+    String title,
     String langCode, {
     String? badge,
     bool available = true,
     IconData icon = Icons.volume_up_rounded,
   }) {
-    final String currentSelected = _selectedAudioLanguage[video.id] ?? 'default';
+    final String currentSelected =
+        _selectedAudioLanguage[video.id] ?? 'default';
     final bool isSelected = currentSelected == langCode;
     final bool canStartDub = langCode != 'default' && !available;
     final String actionLabel = isSelected
@@ -2544,7 +2585,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
     setState(() {
       _selectedAudioLanguage[videoId] = langCode;
-      
+
       // **CRASH-PROOF: Safely dispose current controller and clear pools**
       if (_controllerPool.containsKey(videoId)) {
         final ctrl = _controllerPool[videoId];
@@ -2554,14 +2595,14 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
           _controllerStates.remove(videoId);
           _preloadedVideos.remove(videoId);
 
-          
           // 2. Use SharedPool for safe disposal (manages listeners and avoids double-dispose)
           SharedVideoControllerPool().disposeController(videoId);
-          
-          AppLogger.log('🗑️ VideoFeed: Disposed old controller for $videoId during manual language switch');
+
+          AppLogger.log(
+              '🗑️ VideoFeed: Disposed old controller for $videoId during manual language switch');
         }
       }
-      
+
       // 3. Re-preload and play in NEXT frame after UI has cleared the old player
       final index = _videos.indexWhere((v) => v.id == videoId);
       if (index != -1) {
@@ -2574,4 +2615,3 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     });
   }
 }
-

@@ -14,6 +14,7 @@ import 'package:vayug/shared/utils/url_utils.dart';
 class ProfileHeaderWidget extends ConsumerWidget {
   final bool isViewingOwnProfile;
   final ProfileStateManager stateManager;
+  final bool? hasUpiId;
   final bool hasReferralBillingUnlock;
   final VoidCallback? onProfilePhotoChange;
   final VoidCallback? onAddUpiId;
@@ -26,6 +27,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
     super.key,
     required this.isViewingOwnProfile,
     required this.stateManager,
+    required this.hasUpiId,
     this.hasReferralBillingUnlock = false,
     this.onProfilePhotoChange,
     this.onAddUpiId,
@@ -60,8 +62,8 @@ class ProfileHeaderWidget extends ConsumerWidget {
                           child: _buildStatItem(
                             context,
                             label: AppText.get('profile_stat_subscribers'),
-                            value:
-                                _getFollowersCountString(context, stateManager, ref),
+                            value: _getFollowersCountString(
+                                context, stateManager, ref),
                           ),
                         ),
                         Container(
@@ -127,7 +129,8 @@ class ProfileHeaderWidget extends ConsumerWidget {
                             Flexible(
                               child: Text(
                                 () {
-                                  var domain = stateManager.userData!['websiteUrl']
+                                  var domain = stateManager
+                                      .userData!['websiteUrl']
                                       .toString()
                                       .replaceFirst(RegExp(r'^https?://'), '')
                                       .replaceFirst(RegExp(r'^www\.'), '')
@@ -304,10 +307,13 @@ class ProfileHeaderWidget extends ConsumerWidget {
   Widget _buildActionButtons(ProfileStateManager stateManager) {
     if (!isViewingOwnProfile) return const SizedBox.shrink();
 
+    final isBillingUnlocked =
+        stateManager.totalVideoCount >= 2 || hasReferralBillingUnlock;
+    final showBillingSetup = isBillingUnlocked && hasUpiId == false;
+
     return Row(
       children: [
-        if (stateManager.isEditing ||
-            (stateManager.totalVideoCount >= 2 || hasReferralBillingUnlock))
+        if (stateManager.isEditing || showBillingSetup)
           Expanded(
             child: stateManager.isEditing
                 ? Row(
@@ -343,11 +349,10 @@ class ProfileHeaderWidget extends ConsumerWidget {
                     ],
                   )
                 : ElevatedButton.icon(
+                    key: const Key('profile_setup_billing_button'),
                     onPressed: onAddUpiId,
-                    icon: HugeIcon(
-                      icon: stateManager.hasUpiId
-                          ? HugeIcons.strokeRoundedCheckmarkCircle02
-                          : HugeIcons.strokeRoundedWallet01,
+                    icon: const HugeIcon(
+                      icon: HugeIcons.strokeRoundedWallet01,
                       color: Colors.white,
                       size: 18,
                     ),
@@ -358,9 +363,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
                       maxLines: 1,
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: stateManager.hasUpiId
-                          ? AppColors.primary
-                          : AppColors.success,
+                      backgroundColor: AppColors.primary,
                       foregroundColor: AppColors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -370,8 +373,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
                   ),
           ),
         if (!stateManager.isEditing) ...[
-          if (stateManager.totalVideoCount >= 2 || hasReferralBillingUnlock)
-            const SizedBox(width: 12),
+          if (showBillingSetup) const SizedBox(width: 12),
           if (stateManager.totalVideoCount > 0)
             Expanded(
               child: OutlinedButton(

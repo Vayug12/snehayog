@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Must stay in sync with AppColors.backgroundPrimary
+         (lib/core/design/colors.dart). This is what shows through wherever
+         Flutter has not painted yet - including behind the system navigation
+         bar - so any mismatch reads as an off-theme strip on screen. -->
+    <color name="app_background">#0F172A</color>
+</resources>

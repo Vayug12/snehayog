@@ -49,8 +49,7 @@ class _TopEarnersGridState extends State<TopEarnersGrid> {
       if (token == null || token.isEmpty) {
         setState(() {
           _hasError = true;
-          _errorMessage =
-              'Sign in to see top creators from your following list.';
+          _errorMessage = 'Sign in to see top creators.';
           _isLoading = false;
         });
         return;
@@ -166,21 +165,12 @@ class _TopEarnersGridState extends State<TopEarnersGrid> {
               Icon(Icons.people_outline, size: 40, color: Colors.grey),
               SizedBox(height: 8),
               Text(
-                'No top creators found',
+                'No top creators yet',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF4B5563),
                 ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Start following creators to see who has the highest Score.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF9CA3AF),
-                ),
-                textAlign: TextAlign.center,
               ),
             ],
           ),

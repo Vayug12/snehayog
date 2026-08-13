@@ -3,10 +3,29 @@ import Feedback from '../../models/Feedback.js';
 
 const router = express.Router();
 
+const sanitizeAttribution = (attribution = {}) => {
+  const cleanString = (value, maxLength = 120) => {
+    if (value === null || value === undefined) return undefined;
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) return undefined;
+    return normalized.slice(0, maxLength);
+  };
+
+  return {
+    source: cleanString(attribution.source || attribution.utm_source),
+    medium: cleanString(attribution.medium || attribution.utm_medium),
+    campaign: cleanString(attribution.campaign || attribution.utm_campaign),
+    content: cleanString(attribution.content || attribution.utm_content),
+    term: cleanString(attribution.term || attribution.utm_term),
+    rawReferrer: cleanString(attribution.rawReferrer || attribution.raw_referrer, 1000)
+  };
+};
+
 // Submit feedback
 router.post('/submit', async (req, res) => {
   try {
-    const { rating, comments, userEmail, userId, type, videoId } = req.body;
+    const { rating, comments, userEmail, userId, type, videoId, attribution } = req.body;
+    const sanitizedAttribution = sanitizeAttribution(attribution);
 
     console.log('📝 Feedback submission attempt:', { 
       rating, 
@@ -14,6 +33,7 @@ router.post('/submit', async (req, res) => {
       userId, 
       type,
       videoId,
+      attributionSource: sanitizedAttribution.source,
       commentsLength: comments?.length 
     });
 
@@ -43,7 +63,8 @@ router.post('/submit', async (req, res) => {
       userEmail: userEmail.trim().toLowerCase(),
       userId: userId || null,
       userAgent: req.headers['user-agent'] || '',
-      ipAddress: req.ip || req.connection?.remoteAddress || ''
+      ipAddress: req.ip || req.connection?.remoteAddress || '',
+      attribution: sanitizedAttribution
     });
 
     await feedback.save();

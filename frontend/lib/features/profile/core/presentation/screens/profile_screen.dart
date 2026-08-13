@@ -93,8 +93,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   late final TabController _tabController;
   final ValueNotifier<int> _activeProfileTabIndex = ValueNotifier<int>(0);
 
-  final ValueNotifier<bool> _hasUpiId = ValueNotifier<bool>(
-      false); // Default to false - show notice until confirmed
+  // null means the server-backed UPI status is still being verified.
+  final ValueNotifier<bool?> _hasUpiId = ValueNotifier<bool?>(null);
 
   bool _isDeleteLoadingDialogVisible = false;
 
@@ -139,9 +139,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     // Load referral stats
     _loadReferralStats();
     _fetchVerifiedReferralStats();
-
-    // **RESTORED: Check UPI ID status on init**
-    _checkUpiIdStatus();
 
     // NO SETSTATE NEEDED: The UI components that need the active tab index 
     // use a ValueListenableBuilder for granular updates.
@@ -191,6 +188,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       _isLoading.value = false;
       
       if (_profileStateManager.userData != null) {
+        // Verify billing only after profile state exists. Until then the CTA
+        // stays hidden instead of briefly showing incorrect setup UI.
+        unawaited(_checkUpiIdStatus());
         if (_profileStateManager.userVideos.isEmpty && !_profileStateManager.isVideosLoading) {
            _loadVideos(forceRefresh: forceRefresh, silent: true).catchError((_) {});
         }
@@ -308,16 +308,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         }
       } catch (_) {}
 
-      await _loadData(forceRefresh: true);
+      // Unlike initial loading, manual refresh must wait for profile, videos,
+      // and earnings so the pull indicator reflects the real fresh state.
+      await _profileStateManager.refreshData();
 
-      _refreshEarningsData(forceRefresh: true).catchError((_) {});
-      await _loadReferralStats();
-      await _fetchVerifiedReferralStats();
+      await Future.wait([
+        _loadReferralStats(),
+        _fetchVerifiedReferralStats(),
+        _checkUpiIdStatus(),
+      ]);
 
       AppLogger.log('✅ ProfileScreen: Manual refresh completed');
+      if (mounted) {
+        VayuSnackBar.showSuccess(context, 'Profile refreshed');
+      }
     } catch (e) {
       AppLogger.log('❌ ProfileScreen: Error during refresh: $e');
-      if (mounted) _error.value = AppText.get('error_refresh');
+      if (mounted) {
+        VayuSnackBar.showError(context, AppText.get('error_refresh_cache'));
+      }
     }
   }
 
@@ -902,11 +911,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   }
 
   /// Handle Add UPI ID button tap
-  void _handleAddUpiId() {
-    ProfileDialogsWidget.showHowToEarnDialog(
+  Future<void> _handleAddUpiId() async {
+    await ProfileDialogsWidget.showHowToEarnDialog(
       context,
       stateManager: _profileStateManager,
     );
+
+    if (mounted) {
+      _hasUpiId.value = _profileStateManager.hasUpiId;
+    }
   }
 
 
@@ -985,12 +998,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   }
 
   Widget _buildBody(ProfileStateManager manager, GoogleSignInController authController, bool isViewingOwnProfile) {
-    // **FIXED: If auth is still loading, show skeleton instead of sign-in UI**
-    if (authController.isLoading && !_isSigningIn) {
+    // **FIXED: Wait for auth initialization to complete before deciding what to show**
+    if (!authController.isInitialized) {
       return _wrapWithSliverAppBar(const ProfileSkeleton(), isViewingOwnProfile, manager);
     }
 
-    // **FIXED: Check authentication status first**
+    // Auth initialized — check if user is signed in
     if (widget.userId == null && !authController.isSignedIn) {
       final isSessionExpired = authController.error?.contains('expired') == true;
       return _wrapWithSliverAppBar(
@@ -1150,8 +1163,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   dragStartBehavior: DragStartBehavior.down,
                   controller: _tabController,
                   children: [
-                    YugGridTab(manager: manager, onReferFriends: _handleReferFriends),
-                    VayuGridTab(manager: manager, onReferFriends: _handleReferFriends),
+                    ValueListenableBuilder<int>(
+                      valueListenable: _invitedCount,
+                      builder: (context, invitedCount, _) => YugGridTab(
+                        manager: manager,
+                        onReferFriends: _handleReferFriends,
+                        hasReferralBillingUnlock: invitedCount >= 2,
+                      ),
+                    ),
+                    ValueListenableBuilder<int>(
+                      valueListenable: _invitedCount,
+                      builder: (context, invitedCount, _) => VayuGridTab(
+                        manager: manager,
+                        onReferFriends: _handleReferFriends,
+                        hasReferralBillingUnlock: invitedCount >= 2,
+                      ),
+                    ),
                     AboutUserTab(manager: manager),
                   ],
                 ),
@@ -1267,16 +1294,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         child: ValueListenableBuilder<int>(
           valueListenable: _invitedCount,
           builder: (context, invitedCount, _) {
-            return ProfileHeaderWidget(
-              isViewingOwnProfile: isViewingOwnProfile,
-              stateManager: manager,
-              hasReferralBillingUnlock: invitedCount >= 2,
-              onProfilePhotoChange: _handleProfilePhotoChange,
-              onAddUpiId: _handleAddUpiId,
-              onReferFriends: _handleReferFriends,
-              onEarningsTap: _handleEarningsTap,
-              onSaveProfile: _handleSaveProfile,
-              onCancelEdit: _handleCancelEdit,
+            return ValueListenableBuilder<bool?>(
+              valueListenable: _hasUpiId,
+              builder: (context, hasUpiId, _) => ProfileHeaderWidget(
+                isViewingOwnProfile: isViewingOwnProfile,
+                stateManager: manager,
+                hasUpiId: hasUpiId,
+                hasReferralBillingUnlock: invitedCount >= 2,
+                onProfilePhotoChange: _handleProfilePhotoChange,
+                onAddUpiId: _handleAddUpiId,
+                onReferFriends: _handleReferFriends,
+                onEarningsTap: _handleEarningsTap,
+                onSaveProfile: _handleSaveProfile,
+                onCancelEdit: _handleCancelEdit,
+              ),
             );
           },
         ),
@@ -1389,38 +1420,32 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
               },
             ),
       actions: _buildAppBarActions(stateManager, isViewingOwnProfile),
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Container(
-          height: 1,
-          color: AppColors.borderPrimary,
-        ),
-      ),
     );
   }
 
 
   List<Widget> _buildAppBarActions(ProfileStateManager stateManager, bool isViewingOwnProfile) {
     final actions = <Widget>[
-      IconButton(
-        icon: const HugeIcon(icon: HugeIcons.strokeRoundedSearch01,
-          color: Colors.white,
-          size: 20,
+      if (isViewingOwnProfile)
+        IconButton(
+          icon: const HugeIcon(
+            icon: HugeIcons.strokeRoundedMoreVertical,
+            color: AppColors.iconPrimary,
+            size: 20,
+          ),
+          tooltip: 'More',
+          onPressed: _showProfileActionsSheet,
+        )
+      else
+        IconButton(
+          icon: const HugeIcon(
+            icon: HugeIcons.strokeRoundedSearch01,
+            color: AppColors.iconPrimary,
+            size: 20,
+          ),
+          tooltip: 'Search',
+          onPressed: _openSearch,
         ),
-        tooltip: 'Search videos & creators',
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const SearchDiscoveryScreen(),
-            ),
-          );
-        },
-      ),
-      if (isViewingOwnProfile) ...[
-        _buildHelpAction(),
-        _buildFeedbackAction(),
-      ],
     ];
 
     if (isViewingOwnProfile && stateManager.isSelecting && stateManager.selectedVideoIds.isNotEmpty) {
@@ -1467,25 +1492,103 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     return actions;
   }
 
-  Widget _buildHelpAction() {
-    return IconButton(
-      icon: const HugeIcon(icon: HugeIcons.strokeRoundedHelpCircle,
-        color: Colors.white,
-        size: 20,
+  void _openSearch() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SearchDiscoveryScreen(),
       ),
-      tooltip: 'Help & FAQ',
-      onPressed: _showFAQDialog,
     );
   }
 
-  Widget _buildFeedbackAction() {
-    return IconButton(
-      icon: const HugeIcon(icon: HugeIcons.strokeRoundedIdea01,
-        color: Colors.white,
+  Future<void> _showProfileActionsSheet() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surfacePrimary,
+      barrierColor: Colors.black.withValues(alpha: 0.48),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 32,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.textTertiary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              _buildProfileActionItem(
+                context: sheetContext,
+                value: 'search',
+                icon: HugeIcons.strokeRoundedSearch01,
+                label: 'Search',
+              ),
+              _buildProfileActionItem(
+                context: sheetContext,
+                value: 'feedback',
+                icon: HugeIcons.strokeRoundedIdea01,
+                label: 'Feedback',
+              ),
+              _buildProfileActionItem(
+                context: sheetContext,
+                value: 'help',
+                icon: HugeIcons.strokeRoundedHelpCircle,
+                label: 'Help',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case 'search':
+        _openSearch();
+        return;
+      case 'feedback':
+        _showFeedbackDialog();
+        return;
+      case 'help':
+        _showFAQDialog();
+        return;
+    }
+  }
+
+  Widget _buildProfileActionItem({
+    required BuildContext context,
+    required String value,
+    required List<List<dynamic>> icon,
+    required String label,
+  }) {
+    return ListTile(
+      minTileHeight: 56,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      leading: HugeIcon(
+        icon: icon,
+        color: AppColors.textSecondary,
         size: 20,
       ),
-      tooltip: 'Provide Feedback',
-      onPressed: _showFeedbackDialog,
+      title: Text(
+        label,
+        style: AppTypography.bodyLarge.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      onTap: () => Navigator.pop(context, value),
     );
   }
 
@@ -1675,48 +1778,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
   Future<void> _checkUpiIdStatus() async {
     try {
-      // Only check for own profile
       if (widget.userId != null) {
-        _hasUpiId.value = true; // Don't show notice for other users
+        _hasUpiId.value = true;
         return;
       }
 
-      // **FIXED: Do NOT exit early based on generic "hasPaymentSetup" flag**
-      // We want to specifically check for the existence of a UPI ID.
-      // Generic setup flags might include Bank/Bank Transfer which don't fulfill the "UPI" requirement.
-
-      // **Step 1: check local state (ProfileStateManager) for UPI ID**
-      final userData = ref.read(profileStateManagerProvider).userData;
-        if (userData != null) {
-          final paymentDetails = userData['paymentDetails'];
-
-          if (paymentDetails != null) {
-          final upiId = paymentDetails['upiId'];
-          final hasUpiLocal =
-              upiId != null && upiId.toString().trim().isNotEmpty;
-
-          if (hasUpiLocal) {
-            // UPI ID found in local state - set immediately and skip API call
-            _hasUpiId.value = true;
-            AppLogger.log(
-                '✅ ProfileScreen: UPI ID found in local state - hiding notice');
-            return;
-          }
-        }
+      if (_profileStateManager.hasUpiId) {
+        _hasUpiId.value = true;
+        return;
       }
 
-      final token = userData?['token'];
+      // Profile API intentionally excludes auth tokens. Read the token from
+      // AuthService before calling the authenticated payout endpoint.
+      final authData = await _authService.getUserData();
+      final token = authData?['token'];
 
       if (token == null) {
-        AppLogger.log('⚠️ ProfileScreen: No token available for UPI ID check');
-        _hasUpiId.value =
-            false; // Show notice if not signed in (they need to sign in first)
+        AppLogger.log('⚠️ ProfileScreen: Auth token unavailable for UPI check');
         return;
       }
 
-      // If not found in local state, verify with API
-      AppLogger.log(
-          '🔍 ProfileScreen: UPI ID not in local state, checking API...');
       final response = await httpClientService.get(
         Uri.parse('${NetworkHelper.apiBaseUrl}/creator-payouts/profile'),
         headers: {
@@ -1727,39 +1808,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final paymentDetails = data['paymentDetails'];
-        final paymentMethod = data['creator']?['preferredPaymentMethod'];
+        final rawPaymentDetails = data['paymentDetails'];
+        final paymentDetails = rawPaymentDetails is Map
+            ? Map<String, dynamic>.from(rawPaymentDetails)
+            : null;
+        final upiId = paymentDetails?['upiId']?.toString().trim() ?? '';
 
-        AppLogger.log('🔍 ProfileScreen: Payment method: $paymentMethod');
-        AppLogger.log('🔍 ProfileScreen: Payment details: $paymentDetails');
-
-        // Check if UPI ID is set
-        if (paymentDetails != null) {
-          final upiId = paymentDetails['upiId'];
-          final hasUpi = upiId != null && upiId.toString().trim().isNotEmpty;
-          _hasUpiId.value = hasUpi;
-          AppLogger.log(
-              '🔍 ProfileScreen: UPI ID status from API: ${hasUpi ? "SET" : "NOT SET"}');
-        } else {
-          // If payment details don't exist, show notice
-          _hasUpiId.value = false;
-          AppLogger.log(
-              '🔍 ProfileScreen: No payment details found - showing notice');
-        }
+        _profileStateManager.setPaymentDetails(paymentDetails);
+        _hasUpiId.value = upiId.isNotEmpty;
       } else {
-        // If API fails, check local state as fallback
-        final hasUpiLocal = ref.read(profileStateManagerProvider).userData?['hasUpiId'] ?? false;
-        _hasUpiId.value = hasUpiLocal;
         AppLogger.log(
-            '⚠️ ProfileScreen: API returned status ${response.statusCode} - using local state: ${hasUpiLocal ? "HAS UPI" : "NO UPI"}');
+            '⚠️ ProfileScreen: UPI check returned ${response.statusCode}');
       }
     } catch (e) {
       AppLogger.log('⚠️ ProfileScreen: Error checking UPI ID status: $e');
-      // On error, check local state as fallback
-      final hasUpiLocal = _profileStateManager.hasUpiId;
-      _hasUpiId.value = hasUpiLocal;
-      AppLogger.log(
-          '⚠️ ProfileScreen: Using local state fallback: ${hasUpiLocal ? "HAS UPI" : "NO UPI"}');
+      if (_profileStateManager.hasUpiId) {
+        _hasUpiId.value = true;
+      }
     }
   }
 

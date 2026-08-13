@@ -301,85 +301,85 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
           
           final e2ee = serviceLocator.e2eeService;
           final encKey = await e2ee.fetchEncryptedVideoKey(video.id);
-          if (encKey != null) {
+          if (encKey == null || encKey.isEmpty) {
+            throw StateError('e2ee_error: key_unavailable');
+          }
+
             final symmetricKey = await e2ee.decryptSymmetricKey(encKey);
-            videoCacheProxy.registerSymmetricKey(video.id, symmetricKey);
+          videoCacheProxy.registerSymmetricKey(video.id, symmetricKey);
 
-            final originalUrl = _getActingUrl(video);
-            videoCacheProxy.markUrlAsPlayable(originalUrl);
-            final isAlreadyCached = await videoCacheProxy.isCached(originalUrl);
-            final isDecryptedReady = await videoCacheProxy.isDecryptedReady(originalUrl);
+          final originalUrl = _getActingUrl(video);
+          videoCacheProxy.markUrlAsPlayable(originalUrl);
+          final isAlreadyCached = await videoCacheProxy.isCached(originalUrl);
+          final isDecryptedReady = await videoCacheProxy.isDecryptedReady(originalUrl);
 
-            AppLogger.log(
-              '🔐 VideoPreloader: Cache status for ${video.id}: '
-              'cached=$isAlreadyCached, decrypted=$isDecryptedReady',
+          AppLogger.log(
+            '🔐 VideoPreloader: Cache status for ${video.id}: '
+            'cached=$isAlreadyCached, decrypted=$isDecryptedReady',
+          );
+
+          if (!isAlreadyCached) {
+            AppLogger.log('🔐 VideoPreloader: Starting E2EE prefetch for ${video.id}...');
+            unawaited(videoCacheProxy.prefetchFullFile(originalUrl, videoId: video.id));
+
+            // **PREBUFFER GATE: Wait for enough encrypted bytes on disk
+            // before creating ExoPlayer — prevents "Source error" on slow networks.**
+            // **IMPORTANT: Don't remove _e2eeDecryptingVideos here — keep it alive
+            // until the controller is fully initialized. This ensures the progress
+            // bar stays visible throughout the entire download + init process.**
+            if (mounted) {
+              safeSetState(() {
+                _e2eeDecryptingVideos.add(videoId);
+              });
+            }
+
+            final ready = await videoCacheProxy.waitForE2eePrebuffer(
+              originalUrl,
+              minBytes: 2 * 1024 * 1024, // 2 MB ≈ 8-10 seconds of video — enough for ExoPlayer to start without Source error
+              timeout: Duration(seconds: _isLowEndDevice ? 60 : 45),
             );
 
-            if (!isAlreadyCached) {
-              AppLogger.log('🔐 VideoPreloader: Starting E2EE prefetch for ${video.id}...');
-              unawaited(videoCacheProxy.prefetchFullFile(originalUrl, videoId: video.id));
+            // Don't remove _e2eeDecryptingVideos here — it stays until controller init completes
 
-              // **PREBUFFER GATE: Wait for enough encrypted bytes on disk
-              // before creating ExoPlayer — prevents "Source error" on slow networks.**
-              // **IMPORTANT: Don't remove _e2eeDecryptingVideos here — keep it alive
-              // until the controller is fully initialized. This ensures the progress
-              // bar stays visible throughout the entire download + init process.**
-              if (mounted) {
-                safeSetState(() {
-                  _e2eeDecryptingVideos.add(videoId);
-                });
-              }
-
-              final ready = await videoCacheProxy.waitForE2eePrebuffer(
-                originalUrl,
-                minBytes: 2 * 1024 * 1024, // 2 MB ≈ 8-10 seconds of video — enough for ExoPlayer to start without Source error
-                timeout: Duration(seconds: _isLowEndDevice ? 60 : 45),
-              );
-
-              // Don't remove _e2eeDecryptingVideos here — it stays until controller init completes
-
-              if (!ready) {
-                AppLogger.log('⚠️ VideoPreloader: E2EE prebuffer timed out for ${video.id}, proceeding anyway');
-              } else {
-                AppLogger.log('✅ VideoPreloader: E2EE prebuffer ready for ${video.id}');
-              }
-            } else if (!isDecryptedReady) {
-              // **FIX: Cache exists but .dec not ready — wait for background decrypt**
-              // Without this, ExoPlayer hits on-the-fly decrypt which is slow → Source error
-              AppLogger.log(
-                '🔐 VideoPreloader: E2EE cache exists but .dec not ready for ${video.id}, '
-                'triggering and waiting for background decrypt...',
-              );
-              unawaited(videoCacheProxy.prefetchFullFile(originalUrl, videoId: video.id));
-              // **IMPORTANT: Keep _e2eeDecryptingVideos alive until controller init completes**
-              if (mounted) {
-                safeSetState(() {
-                  _e2eeDecryptingVideos.add(videoId);
-                });
-              }
-
-              // Wait for .dec to become ready (background decrypt)
-              final decReady = await videoCacheProxy.waitForE2eePrebuffer(
-                originalUrl,
-                minBytes: 2 * 1024 * 1024, // 2MB of decrypted data
-                timeout: Duration(seconds: _isLowEndDevice ? 60 : 45),
-              );
-
-              // Don't remove _e2eeDecryptingVideos here — it stays until controller init completes
-
-              if (decReady) {
-                AppLogger.log('✅ VideoPreloader: E2EE .dec ready for ${video.id}');
-              } else {
-                AppLogger.log(
-                  '⚠️ VideoPreloader: E2EE .dec not ready for ${video.id} after timeout, '
-                  'will use on-the-fly decrypt (may be slow)',
-                );
-              }
+            if (!ready) {
+              AppLogger.log('⚠️ VideoPreloader: E2EE prebuffer timed out for ${video.id}, proceeding anyway');
             } else {
-              AppLogger.log('✅ VideoPreloader: E2EE fully cached and decrypted for ${video.id}');
+              AppLogger.log('✅ VideoPreloader: E2EE prebuffer ready for ${video.id}');
+            }
+          } else if (!isDecryptedReady) {
+            // **FIX: Cache exists but .dec not ready — wait for background decrypt**
+            // Without this, ExoPlayer hits on-the-fly decrypt which is slow → Source error
+            AppLogger.log(
+              '🔐 VideoPreloader: E2EE cache exists but .dec not ready for ${video.id}, '
+              'triggering and waiting for background decrypt...',
+            );
+            unawaited(videoCacheProxy.prefetchFullFile(originalUrl, videoId: video.id));
+            // **IMPORTANT: Keep _e2eeDecryptingVideos alive until controller init completes**
+            if (mounted) {
+              safeSetState(() {
+                _e2eeDecryptingVideos.add(videoId);
+              });
+            }
+
+            // Wait for .dec to become ready (background decrypt)
+            final decReady = await videoCacheProxy.waitForE2eePrebuffer(
+              originalUrl,
+              minBytes: 2 * 1024 * 1024, // 2MB of decrypted data
+              timeout: Duration(seconds: _isLowEndDevice ? 60 : 45),
+            );
+
+            // Don't remove _e2eeDecryptingVideos here — it stays until controller init completes
+
+            if (decReady) {
+              AppLogger.log('✅ VideoPreloader: E2EE .dec ready for ${video.id}');
+            } else {
+              AppLogger.log(
+                '⚠️ VideoPreloader: E2EE .dec not ready for ${video.id} after timeout, '
+                'will use on-the-fly decrypt (may be slow)',
+              );
             }
           } else {
-            AppLogger.log('⚠️ VideoFeed: No E2EE key available for video ${video.id}');
+            AppLogger.log('✅ VideoPreloader: E2EE fully cached and decrypted for ${video.id}');
           }
         } catch (e) {
           AppLogger.log('❌ VideoFeed: E2EE decryption setup failed for ${video.id}: $e');

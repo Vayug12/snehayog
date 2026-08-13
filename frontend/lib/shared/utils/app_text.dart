@@ -320,7 +320,6 @@ class AppText {
 
     // Revenue screen
     'revenue_title': 'Creator Activity',
-    'revenue_sign_in_to_view': 'Please sign in to view your revenue',
     'revenue_creator_earnings': 'Creator Rewards',
     'revenue_gross_revenue': 'Total Engagement Score',
     'revenue_platform_fee': 'Platform Fee ({percent}%)',

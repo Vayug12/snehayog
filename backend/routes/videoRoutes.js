@@ -36,6 +36,8 @@ router.post('/image', verifyToken, uploadController.createImageFeedEntry);
  * Video Retrieval Routes
  */
 router.get('/', feedController.getFeed);
+// **MUST stay above '/:id'** — Express would otherwise match 'following' as an id
+router.get('/following', verifyToken, feedController.getFollowingFeed);
 router.get('/user/:googleId', passiveVerifyToken, feedController.getUserVideos);
 router.get('/saved', verifyToken, interactionController.getSavedVideos);
 router.get('/removed', verifyToken, feedController.getRemovedVideos);

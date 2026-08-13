@@ -5,6 +5,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/features/video/vayu/presentation/screens/vayu_long_form_player_screen.dart';
+import 'package:vayug/features/video/vayu/presentation/widgets/creator_suggestions_rail.dart';
+import 'package:vayug/features/video/vayu/presentation/widgets/vayu_subscribe_gate.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
@@ -12,9 +14,11 @@ import 'package:hugeicons/hugeicons.dart';
 import 'package:vayug/features/profile/core/presentation/screens/search_discovery_screen.dart';
 import 'package:vayug/shared/widgets/vayu_logo.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/auth_sign_in_prompt.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
 
+import 'package:vayug/shared/services/connectivity_service.dart';
 import 'package:vayug/shared/services/local_gallery_service.dart';
 import 'package:vayug/shared/utils/format_utils.dart';
 import 'package:vayug/shared/widgets/interactive_scale_button.dart';
@@ -31,6 +35,9 @@ class VayuScreen extends ConsumerStatefulWidget {
   }
 }
 
+/// Feed slot for the creator rail — after the third video card.
+const int _kRailPosition = 3;
+
 class VayuScreenState extends ConsumerState<VayuScreen> {
   final VideoService _videoService = VideoService();
   final ScrollController _scrollController = ScrollController();
@@ -45,6 +52,12 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
   String? _errorMessage;
   bool _isOfflineMode = false;
   bool? _wasSignedIn;
+
+  // **GATE: the feed is built from subscriptions, so it stays locked until the
+  // user follows kMinSubscriptions creators.**
+  bool _isGateLocked = false;
+  int _followingCount = 0;
+  bool _requiresSignIn = false;
 
   // Banner Ad State
 
@@ -90,84 +103,85 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
       });
     }
 
-    int emptyBatches = 0;
-    const int maxEmptyRetries = 3;
-
     try {
-      while (emptyBatches < maxEmptyRetries) {
-        AppLogger.log(
-            '🎬 VayuScreen: Loading videos - Page: $_currentPage, Cursor: ${_nextCursor ?? "none"}');
-        final result = await _videoService.getVideos(
-          page: _currentPage,
-          limit: 10,
-          videoType: 'vayu',
-          clearSession: refresh,
-          cursor: _nextCursor,
-        );
+      AppLogger.log(
+          '🎬 VayuScreen: Loading subscribed videos - Cursor: ${_nextCursor ?? "none"}');
+      final result = await _videoService.getFollowingVideos(
+        limit: 10,
+        cursor: refresh ? null : _nextCursor,
+        refresh: refresh,
+      );
 
-        if (!mounted) return;
+      if (!mounted) return;
 
-        final dynamic rawVideos = result['videos'];
-        List<VideoModel> newVideos = [];
-
-        if (rawVideos is List) {
-          newVideos = rawVideos.map((v) {
-            if (v is VideoModel) return v;
-            return VideoModel.fromJson(Map<String, dynamic>.from(v));
-          }).toList();
-        }
-
-        final bool hasMore = result['hasMore'] ?? false;
-        final String? nextCursor = result['nextCursor'] as String?;
-
-        AppLogger.log('📦 VayuScreen: Backend returned ${newVideos.length} videos');
-
-        // Filter for vayu type (safety check)
-        final List<VideoModel> longFormVideos =
-            newVideos.where((v) => v.videoType == 'vayu').toList();
-
-        if (longFormVideos.isEmpty && hasMore) {
-          AppLogger.log(
-              '⚠️ VayuScreen: Batch was empty/filtered. Retrying... (Attempt ${emptyBatches + 1})');
-          emptyBatches++;
-          _currentPage++;
-          _nextCursor = nextCursor;
-          continue;
-        }
-
-        if (mounted) {
-          setState(() {
-            if (refresh) {
-              _videos = longFormVideos;
-            } else {
-              final existingIds = _videos.map((v) => v.id).toSet();
-              final uniqueNewVideos = longFormVideos
-                  .where((v) => !existingIds.contains(v.id))
-                  .toList();
-              _videos.addAll(uniqueNewVideos);
-            }
-
-            _hasMore = hasMore;
-            _nextCursor = nextCursor;
-            _isOfflineMode = false;
-            _isLoading = false;
-            _isLoadingMore = false;
-          });
-        }
-
-        return; // Success
-      }
-
-      // If we exit loop without success
-      if (mounted) {
+      // **GATE: an empty feed with a locked gate is not an error state**
+      final gate = result['gate'];
+      if (gate is Map && gate['unlocked'] != true) {
         setState(() {
+          _isGateLocked = true;
+          _followingCount = (gate['followingCount'] as num?)?.toInt() ?? 0;
+          _requiresSignIn = gate['requiresSignIn'] == true;
+          _videos = [];
+          _nextCursor = null;
+          _hasMore = false;
+          _isOfflineMode = false;
           _isLoading = false;
           _isLoadingMore = false;
         });
+        return;
       }
+
+      final dynamic rawVideos = result['videos'];
+      List<VideoModel> newVideos = [];
+
+      if (rawVideos is List) {
+        newVideos = rawVideos.map((v) {
+          if (v is VideoModel) return v;
+          return VideoModel.fromJson(Map<String, dynamic>.from(v));
+        }).toList();
+      }
+
+      AppLogger.log('📦 VayuScreen: Backend returned ${newVideos.length} videos');
+
+      setState(() {
+        if (refresh) {
+          _videos = newVideos;
+        } else {
+          final existingIds = _videos.map((v) => v.id).toSet();
+          final uniqueNewVideos =
+              newVideos.where((v) => !existingIds.contains(v.id)).toList();
+          _videos.addAll(uniqueNewVideos);
+        }
+
+        _isGateLocked = false;
+        _requiresSignIn = false;
+        _hasMore = result['hasMore'] ?? false;
+        _nextCursor = result['nextCursor'] as String?;
+        _isOfflineMode = false;
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
     } catch (e) {
-      AppLogger.log(
-          '❌ VayuScreen: Error loading videos from backend: $e. Falling back to local gallery...');
+      AppLogger.log('❌ VayuScreen: Error loading videos from backend: $e');
+
+      // **Only a genuine connectivity loss justifies the offline gallery.**
+      // A server-side failure must surface as an error, otherwise a broken
+      // backend looks exactly like a broken network.
+      final bool isOnline = await ConnectivityService.hasInternetConnection();
+      if (isOnline) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _isLoadingMore = false;
+            if (_videos.isEmpty) {
+              _errorMessage = 'Could not load your feed.';
+            }
+          });
+        }
+        return;
+      }
+
+      AppLogger.log('📴 VayuScreen: Device is offline. Falling back to local gallery...');
       try {
         // Fallback to local gallery videos if offline
         final localVideos = await localGalleryService.fetchGalleryVideos(
@@ -188,6 +202,9 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
             _videos.addAll(uniqueNewVideos);
           }
 
+          // Offline playback is unrelated to the subscription gate.
+          _isGateLocked = false;
+          _requiresSignIn = false;
           _hasMore = localVideos.length == 10;
           _isOfflineMode = true;
           _isLoading = false;
@@ -200,7 +217,7 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
           setState(() {
             _isLoading = false;
             _isLoadingMore = false;
-            _errorMessage = 'Connection error. Check your internet.';
+            _errorMessage = 'No internet connection.';
           });
         }
       }
@@ -335,6 +352,22 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
   }
 
   List<Widget> _buildSliverBody() {
+    // **GATE takes priority: nothing else is meaningful until it is cleared**
+    if (_isGateLocked) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: true,
+          child: _requiresSignIn
+              ? _buildSignInPrompt()
+              : VayuSubscribeGate(
+                  followingCount: _followingCount,
+                  required: kMinSubscriptions,
+                  onUnlock: () => _loadVideos(refresh: true),
+                ),
+        ),
+      ];
+    }
+
     if (_isLoading && _videos.isEmpty) {
       return [
         SliverList(
@@ -393,24 +426,18 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
                     size: 80),
                 SizedBox(height: AppSpacing.spacing6),
                 Text(
-                  'No long-form videos yet',
-                  style: AppTypography.headlineLarge.copyWith(
-                      color: AppColors.textPrimary,
-                      fontWeight: AppTypography.weightBold),
-                ),
-                SizedBox(height: AppSpacing.spacing2),
-                Text(
-                  'Browse through your personal video collection',
-                  style: AppTypography.bodyMedium.copyWith(
-                    color: AppColors.textSecondary.withValues(alpha: 0.9),
-                  ),
+                  'Nothing new here',
+                  style: AppTypography.headlineLarge,
                 ),
                 SizedBox(height: AppSpacing.spacing6),
                 AppButton(
-                  onPressed: () => _loadVideos(refresh: true),
-                  isLoading: _isLoading,
-                  isDisabled: _isLoading,
-                  label: 'Refresh',
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SearchDiscoveryScreen(),
+                    ),
+                  ),
+                  label: 'Find creators',
                   variant: AppButtonVariant.primary,
                 ),
               ],
@@ -420,15 +447,31 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
       ];
     }
 
-    // Calculate total items: just videos + loader
-    final int totalItems =
-        _videos.length + (_isLoading && _videos.isNotEmpty ? 1 : 0);
+    // **DISCOVERY: one creator rail inside the feed.**
+    // It sits after the third video — far enough in that the user is already
+    // engaged — or at the end of a feed too short to reach that point.
+    // Offline mode has no network to subscribe with, so it is dropped there.
+    final bool showRail = !_isOfflineMode;
+    final int railIndex = _videos.length < _kRailPosition
+        ? _videos.length
+        : _kRailPosition;
+
+    final int totalItems = _videos.length +
+        (showRail ? 1 : 0) +
+        (_isLoading && _videos.isNotEmpty ? 1 : 0);
 
     return [
       SliverList(
         delegate: SliverChildBuilderDelegate(
           (context, index) {
-            if (index >= _videos.length) {
+            if (showRail && index == railIndex) {
+              return const CreatorSuggestionsRail();
+            }
+
+            final int videoIndex =
+                (showRail && index > railIndex) ? index - 1 : index;
+
+            if (videoIndex >= _videos.length) {
               return Padding(
                 padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing8),
                 child: const Center(
@@ -441,13 +484,24 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
             }
             return Padding(
               padding: EdgeInsets.only(bottom: AppSpacing.spacing4),
-              child: _buildVideoCard(index),
+              child: _buildVideoCard(videoIndex),
             );
           },
           childCount: totalItems,
         ),
       ),
     ];
+  }
+
+  /// Signed-out users cannot subscribe, so the gate becomes a sign-in step.
+  /// No copy here — the button alone states the action.
+  Widget _buildSignInPrompt() {
+    return AuthSignInPrompt(
+      icon: Icons.video_library_outlined,
+      onSignedIn: () async {
+        if (mounted) await _loadVideos(refresh: true);
+      },
+    );
   }
 
   Widget _buildVideoCard(int index) {

@@ -42,7 +42,7 @@ snehayog/
 │   ├── services/            # Business logic (18 service dirs/files)
 │   │   ├── adServices/      # Ad system + pluggable AdEngine
 │   │   ├── aiService/       # Pluggable AI engines (HuggingFace, OpenAI)
-│   │   ├── auth/            # Phone verification
+│   │   ├── auth/            # Google verification
 │   │   ├── caching/         # Redis cache layer
 │   │   ├── notificationServices/ # Push + email
 │   │   ├── payoutServices/  # Automated payouts
@@ -276,6 +276,14 @@ snehayog/
 - `radius.dart` - Border radius
 - `elevation.dart` - Shadow/elevation
 - `theme.dart` - Theme assembly
+
+### Flutter UI Spacing Rules
+
+- Do not hard-code layout spacing values such as `8`, `12`, `16`, or `24` in Flutter widgets.
+- Import `core/design/spacing.dart` and use the responsive `AppSpacing` tokens (`spacing1`, `spacing2`, `spacing3`, `spacing4`, etc.) or the `hSpace*`/`vSpace*` helpers.
+- Use the same `AppSpacing` token for shared gutters so titles, action buttons, avatars, and related rows stay aligned.
+- Component-specific dimensions such as icon sizes may remain explicit when they are part of the component’s visual specification; spacing and padding should still use `AppSpacing`.
+- Before finishing a UI change, check that new spacing values have not bypassed the design system.
 
 ### Abstract Interfaces (`core/interfaces/`)
 

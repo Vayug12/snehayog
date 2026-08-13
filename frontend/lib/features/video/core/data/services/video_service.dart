@@ -19,6 +19,10 @@ import 'package:vayug/core/interfaces/i_video_service.dart';
 import 'package:vayug/core/interfaces/i_e2ee_service.dart';
 import 'package:vayug/shared/di/dependency_injection.dart';
 
+/// Creators a user must subscribe to before the Vayu feed unlocks.
+/// Mirrors `MIN_SUBSCRIPTIONS` in backend/controllers/video/videoFeedController.js
+const int kMinSubscriptions = 5;
+
 /// Eliminates code duplication and provides consistent API
 class VideoService implements IVideoService {
   final AuthService _authService = AuthService();
@@ -213,6 +217,71 @@ class VideoService implements IVideoService {
     }
   }
   
+  /// **Feed built only from creators the user subscribes to**
+  ///
+  /// The response always carries a `gate` map
+  /// (`unlocked`, `required`, `followingCount`) so the caller never has to make
+  /// a second call to learn whether the feed is still locked.
+  Future<Map<String, dynamic>> getFollowingVideos({
+    int limit = 10,
+    String? cursor,
+    String videoType = 'vayu',
+    bool refresh = false,
+  }) async {
+    Map<String, dynamic> lockedResult({bool requiresSignIn = false}) => {
+          'videos': <VideoModel>[],
+          'hasMore': false,
+          'nextCursor': null,
+          'gate': {
+            'unlocked': false,
+            'required': kMinSubscriptions,
+            'followingCount': 0,
+            'requiresSignIn': requiresSignIn,
+          },
+        };
+
+    try {
+      final token = await AuthService.getToken();
+      if (token == null || token.isEmpty) {
+        return lockedResult(requiresSignIn: true);
+      }
+
+      String url =
+          '${NetworkHelper.apiBaseUrl}/videos/following?limit=$limit&videoType=$videoType';
+      if (cursor != null && cursor.isNotEmpty) {
+        url += '&cursor=${Uri.encodeComponent(cursor)}';
+      }
+      if (refresh) url += '&refresh=true';
+
+      final response = await httpClientService.get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        timeout: const Duration(seconds: 30),
+      );
+
+      if (response.statusCode == 200) {
+        return await compute(_parseVideosCompute, {
+          'body': response.body,
+          'apiBaseUrl': NetworkHelper.apiBaseUrl,
+          'page': 1,
+        });
+      }
+
+      if (response.statusCode == 401) {
+        AppLogger.log('⚠️ VideoService: Following feed needs a valid session');
+        return lockedResult(requiresSignIn: true);
+      }
+
+      throw Exception('Failed to load subscribed videos: ${response.statusCode}');
+    } catch (e) {
+      AppLogger.log('❌ VideoService: Error in getFollowingVideos: $e');
+      rethrow;
+    }
+  }
+
   /// **Get video by ID - Enhanced with better error handling**
   Future<VideoModel> getVideoById(String id) async {
     try {
@@ -1469,6 +1538,8 @@ class VideoService implements IVideoService {
       'currentPage': responseData['currentPage'] ?? page,
       'totalPages': responseData['totalPages'] ?? 1,
       'nextCursor': responseData['nextCursor'], // **NEW: Cursor for next page**
+      // Only the following feed sends this; null everywhere else.
+      'gate': responseData['gate'],
     };
   }
 }

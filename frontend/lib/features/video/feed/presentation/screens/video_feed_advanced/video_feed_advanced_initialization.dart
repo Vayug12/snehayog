@@ -26,41 +26,44 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
     _activeAdsService = widget.adService ?? ActiveAdsService();
     _quizEngine = widget.quizEngine ?? StandardQuizEngine();
 
-
     _adRefreshSubscription = _adRefreshNotifier.refreshStream.listen((_) {
       refreshAds();
     });
 
-    _connectivitySubscription = ConnectivityService.connectivityStream.listen((results) {
+    _connectivitySubscription =
+        ConnectivityService.connectivityStream.listen((results) {
       _handleConnectivityChange(results);
     });
 
     // **NEW: Shared Pool Disposal Watchdog**
     // Listen for evictions from the global SharedVideoControllerPool.
-    // If a controller is disposed by another screen (e.g. Profile), 
+    // If a controller is disposed by another screen (e.g. Profile),
     // we MUST remove it from our local pool to prevent "used after disposed" errors.
-    _poolDisposalSubscription = SharedVideoControllerPool().disposalStream.listen((videoId) {
+    _poolDisposalSubscription =
+        SharedVideoControllerPool().disposalStream.listen((videoId) {
       if (mounted && _controllerPool.containsKey(videoId)) {
-        AppLogger.log('🧹 VideoFeed: Cleaning up stale controller for $videoId (Evicted from SharedPool)');
-        
+        AppLogger.log(
+            '🧹 VideoFeed: Cleaning up stale controller for $videoId (Evicted from SharedPool)');
+
         // 1. Remove from local state
         _controllerPool.remove(videoId);
         _controllerStates.remove(videoId);
         _preloadedVideos.remove(videoId);
         _loadingVideos.remove(videoId);
         _initializingVideos.remove(videoId);
-        
+
         // 2. Identify the index of this video in our current feed
         int videoIndex = -1;
         try {
           videoIndex = _videos.indexWhere((v) => v.id == videoId);
         } catch (_) {}
 
-        // 3. Proactive Recovery: If this is the currently visible video, 
+        // 3. Proactive Recovery: If this is the currently visible video,
         // immediately trigger re-initialization so it doesn't get stuck on a spinner.
         if (videoIndex != -1 && videoIndex == _currentIndex && mounted) {
-          AppLogger.log('🩹 VideoFeed: PROACTIVE recovery triggered for current video at index $videoIndex');
-          
+          AppLogger.log(
+              '🩹 VideoFeed: PROACTIVE recovery triggered for current video at index $videoIndex');
+
           // Use Future.microtask to allow the UI to react to the "null" controller first
           Future.microtask(() {
             if (mounted && _currentIndex == videoIndex) {
@@ -68,8 +71,6 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
             }
           });
         }
-        
-        
 
         // 4. Trigger UI rebuild to show progress/spinner while healing
         safeSetState(() {});
@@ -77,7 +78,7 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
     });
 
     _loadInitialData();
-    
+
     // **UNBLOCK AD LOADING: Trigger ad loading immediately (non-blocking)**
     // Triggered here at the very start of service initialization to maximize parallelism.
     _loadActiveAds().catchError((e) {
@@ -88,12 +89,12 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
   /// **Handle connectivity changes for the offline banner**
   void _handleConnectivityChange(List<ConnectivityResult> results) {
     final isOffline = ConnectivityService.isOffline(results);
-    
+
     if (isOffline) {
       if (!_hasShownOfflineBanner) {
         _hasShownOfflineBanner = true;
         _showOfflineBannerVN.value = true;
-        
+
         // Hide after 2 seconds
         Timer(const Duration(seconds: 2), () {
           if (mounted) {
@@ -105,20 +106,25 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
       // Reset when back online so it can show again next time it goes offline
       _hasShownOfflineBanner = false;
       _showOfflineBannerVN.value = false;
+      if (_bannerAds.isEmpty) {
+        _retryBannerAdsNow(resetAttempts: true);
+      }
     }
   }
 
   Future<void> _loadInitialData() async {
     if (_isInitialDataLoaded && _videos.isNotEmpty) {
-      AppLogger.log('ℹ️ VideoFeedAdvanced: Initial data already loaded, skipping redundant fetch.');
+      AppLogger.log(
+          'ℹ️ VideoFeedAdvanced: Initial data already loaded, skipping redundant fetch.');
       return;
     }
 
     try {
       AppLogger.log('📥 VideoFeedAdvanced: _loadInitialData() started');
       AppLogger.log('📍 Trace: _loadInitialData called from:');
-      AppLogger.log(StackTrace.current.toString().split('\n').take(5).join('\n'));
-      
+      AppLogger.log(
+          StackTrace.current.toString().split('\n').take(5).join('\n'));
+
       // **OPTIMIZED: Use ValueNotifiers for granular updates**
       _isLoading = true;
       _errorMessage = null; // Clear any previous error
@@ -136,21 +142,26 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
       // Backend filters watched videos for ALL users (authenticated + anonymous via deviceId)
       // Even after app reinstall, backend will filter watched videos correctly
       // **ACCELERATED BOOT SYNC: If we don't have initialVideos, check for in-flight background fetch**
-      if (widget.initialVideos == null && !(_openedFromProfile || _openedFromDeepLink)) {
-        
+      if (widget.initialVideos == null &&
+          !(_openedFromProfile || _openedFromDeepLink)) {
         // Restoration logic removed. Fallback directly to background fetch or fresh load.
 
-        AppLogger.log('⏳ VideoFeedAdvanced: Checking for accelerated boot background fetch...');
-        final bgVideos = await AppInitializationManager.instance.backgroundFetchFuture
+        AppLogger.log(
+            '⏳ VideoFeedAdvanced: Checking for accelerated boot background fetch...');
+        final bgVideos = await AppInitializationManager
+            .instance.backgroundFetchFuture
             .timeout(const Duration(seconds: 8), onTimeout: () => null);
-            
+
         if (bgVideos != null && bgVideos.isNotEmpty) {
-           AppLogger.log('🚀 VideoFeedAdvanced: Consuming background-fetched fresh videos');
-           _videos = List.from(bgVideos);
+          AppLogger.log(
+              '🚀 VideoFeedAdvanced: Consuming background-fetched fresh videos');
+          _videos = List.from(bgVideos);
         } else {
-           AppLogger.log('⚠️ VideoFeedAdvanced: Background fetch unavailable or timed out, fallback to fresh load');
+          AppLogger.log(
+              '⚠️ VideoFeedAdvanced: Background fetch unavailable or timed out, fallback to fresh load');
         }
-      } else if (widget.initialVideos != null && widget.initialVideos!.isNotEmpty) {
+      } else if (widget.initialVideos != null &&
+          widget.initialVideos!.isNotEmpty) {
         _videos = List.from(widget.initialVideos!);
         String? preserveKey;
         if (widget.initialVideoId != null) {
@@ -187,7 +198,9 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
         if (mounted) {
           // **FIX: Synchronize pagination state from manager**
           // Set _hasMore to false for profile feeds to prevent loading global feed videos on scroll
-          _hasMore = _openedFromProfile ? false : AppInitializationManager.instance.hasInitialVideosMore;
+          _hasMore = _openedFromProfile
+              ? false
+              : AppInitializationManager.instance.hasInitialVideosMore;
           _currentPage = 1;
 
           // **FIX: Find correct index AFTER ranking (videos may have been reordered)**
@@ -264,7 +277,7 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
 
       // **FIX: If initialVideoId is provided (deep link), OR if we have a saved video ID (cold start restore), fetch that video first**
       String? targetVideoId = widget.initialVideoId;
-      
+
       // **NEW: Check saved state if not a deep link**
       if (targetVideoId == null && widget.initialVideos == null) {
         try {
@@ -273,18 +286,21 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
           // Only use saved ID if it's recent (less than 12 hours) to avoid restoring very old state
           final savedTimestamp = prefs.getInt(_kSavedStateTimestampKey);
           if (savedId != null && savedTimestamp != null) {
-             final savedTime = DateTime.fromMillisecondsSinceEpoch(savedTimestamp);
-             final hoursSince = DateTime.now().difference(savedTime).inHours;
-             if (hoursSince < 12) {
-               targetVideoId = savedId;
-               AppLogger.log('🔄 Restoring saved state: Video ID $targetVideoId (from $hoursSince hours ago)');
-             }
+            final savedTime =
+                DateTime.fromMillisecondsSinceEpoch(savedTimestamp);
+            final hoursSince = DateTime.now().difference(savedTime).inHours;
+            if (hoursSince < 12) {
+              targetVideoId = savedId;
+              AppLogger.log(
+                  '🔄 Restoring saved state: Video ID $targetVideoId (from $hoursSince hours ago)');
+            }
           }
         } catch (_) {}
       }
 
       // **FIX: If initialVideoId is provided (deep link), fetch that video first**
-      if ((targetVideoId != null || widget.initialVideoId != null) && widget.initialVideos == null) {
+      if ((targetVideoId != null || widget.initialVideoId != null) &&
+          widget.initialVideos == null) {
         try {
           final effectiveTargetId = targetVideoId ?? widget.initialVideoId!;
           final cleanTargetId = effectiveTargetId.trim();
@@ -299,11 +315,13 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
           );
 
           // Load regular videos from API
-          await _loadVideos(page: 1, clearSession: false, forceResetIndex: true);
+          await _loadVideos(
+              page: 1, clearSession: false, forceResetIndex: true);
 
           if (mounted) {
             // **CRITICAL: Only insert if not already present in the list**
-            final bool alreadyPresent = _videos.any((v) => v.id == targetVideo.id);
+            final bool alreadyPresent =
+                _videos.any((v) => v.id == targetVideo.id);
             if (!alreadyPresent) {
               _videos.insert(0, targetVideo);
             } else {
@@ -470,13 +488,16 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
                       bool isPlayingSafe = false;
                       if (_controllerPool.containsKey(videoId)) {
                         try {
-                          isPlayingSafe = _controllerPool[videoId]?.value.isPlaying ?? false;
+                          isPlayingSafe =
+                              _controllerPool[videoId]?.value.isPlaying ??
+                                  false;
                         } catch (_) {
                           _controllerPool.remove(videoId);
                         }
                       }
 
-                      if (_controllerStates[videoId] != true || !isPlayingSafe) {
+                      if (_controllerStates[videoId] != true ||
+                          !isPlayingSafe) {
                         AppLogger.log(
                           '🎬 VideoFeedAdvanced: Second autoplay attempt for deep link video',
                         );
@@ -495,7 +516,10 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
                           );
                           _pauseOtherLocalVideos(videoId);
                           try {
-                            if (!_shouldAutoplayForContext('deep link force play')) return;
+                            if (!_shouldAutoplayForContext(
+                                'deep link force play')) {
+                              return;
+                            }
                             controller.setVolume(1.0);
                             _playWithPolicy(controller, 'deep link force play');
                             _controllerStates[videoId] = true;
@@ -527,7 +551,8 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
           }
 
           // **FALLBACK: Load regular videos and try to find the video in the feed**
-          await _loadVideos(page: 1, clearSession: false, forceResetIndex: true);
+          await _loadVideos(
+              page: 1, clearSession: false, forceResetIndex: true);
           if (mounted) {
             // **OPTIMIZED: Use ValueNotifier for granular update**
             _errorMessage = null;
@@ -575,7 +600,11 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
           );
           // No error but no videos - might be network issue, retry immediately (no delay)
           try {
-            await _loadVideos(page: 1, useCache: false, clearSession: false, forceResetIndex: true);
+            await _loadVideos(
+                page: 1,
+                useCache: false,
+                clearSession: false,
+                forceResetIndex: true);
             if (!mounted) return;
             _verifyAndSetCorrectIndex();
           } catch (retryError) {
@@ -625,23 +654,17 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
 
             _startVideoPreloading();
 
-            // **FIX: Load ads immediately (non-blocking) so custom ads are ready
-            // before AdMob fails. Previously delayed 2s which caused adData=null
-            // race condition when AdMob failed and fell back to custom ads.**
             if (mounted) {
-              _loadActiveAds().catchError((e) {
-                AppLogger.log('⚠️ Error loading ads: $e');
-              });
               _loadFollowingUsers().catchError((e) {
-                AppLogger.log(
-                    '⚠️ Error loading following users: $e');
+                AppLogger.log('⚠️ Error loading following users: $e');
               });
             }
           }
         }
       }
       _isInitialDataLoaded = true;
-      AppLogger.log('✅ VideoFeedAdvanced: _loadInitialData() completed successfully');
+      AppLogger.log(
+          '✅ VideoFeedAdvanced: _loadInitialData() completed successfully');
     } catch (e) {
       AppLogger.log('❌ Error loading initial data: $e');
       if (mounted) {
@@ -818,14 +841,15 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
   Future<void> _loadCurrentUserId() async {
     try {
       final authController = ref.read(googleSignInProvider);
-      
+
       // 1. Try GoogleSignInController first
       if (authController.isSignedIn && authController.userData != null) {
-        final userId = authController.userData!['googleId'] ?? 
-                      authController.userData!['id'];
+        final userId = authController.userData!['googleId'] ??
+            authController.userData!['id'];
         if (userId != null) {
           _currentUserId = userId.toString();
-          AppLogger.log('✅ Loaded current user ID from auth controller: $_currentUserId');
+          AppLogger.log(
+              '✅ Loaded current user ID from auth controller: $_currentUserId');
           return;
         }
       }
@@ -838,7 +862,8 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
         final userId = userDataList['googleId'] ?? userDataList['id'];
         if (userId != null) {
           _currentUserId = userId.toString();
-          AppLogger.log('✅ Loaded current user ID from storage: $_currentUserId');
+          AppLogger.log(
+              '✅ Loaded current user ID from storage: $_currentUserId');
         }
       }
     } catch (e) {
@@ -846,56 +871,50 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
     }
   }
 
-  Future<void> _loadActiveAds() async {
+  Future<void> _loadActiveAds() {
+    final activeLoad = _activeAdsLoadFuture;
+    if (activeLoad != null) return activeLoad;
+
+    final load = _performActiveAdsLoad();
+    _activeAdsLoadFuture = load;
+    return load.whenComplete(() {
+      if (identical(_activeAdsLoadFuture, load)) {
+        _activeAdsLoadFuture = null;
+      }
+    });
+  }
+
+  Future<void> _performActiveAdsLoad() async {
     try {
       AppLogger.log(
           '🎯 VideoFeedAdvanced: Loading fallback ads in background...');
 
       final allAds = await _activeAdsService.fetchActiveAds();
-      final bool wasEmpty = _bannerAds.isEmpty;
+      final incomingBannerAds = allAds['banner'] ?? [];
 
       if (mounted) {
-        // Use safeSetState to ensure the entire UI is aware of loaded ads
-        safeSetState(() {
-          _bannerAds = allAds['banner'] ?? [];
+        if (incomingBannerAds.isNotEmpty) {
+          final wasEmpty = _bannerAds.isEmpty;
+          safeSetState(() {
+            _bannerAds = incomingBannerAds;
+            _adsLoaded = true;
+            if (wasEmpty) {
+              _lockedBannerAdByVideoId.clear();
+            }
+          });
+          _bannerAdRetryTimer?.cancel();
+          _bannerAdRetryTimer = null;
+          _bannerAdRetryAttempt = 0;
+        } else {
+          // Preserve a valid in-memory result if a later request is transiently empty.
           _adsLoaded = true;
-          
-          // **OPTIMIZED: Only clear locked ads if we didn't have any before**
-          // This prevents "ad jumping" for already visible videos when updating list
-          if (wasEmpty && _bannerAds.isNotEmpty) {
-             _lockedBannerAdByVideoId.clear();
+          if (_bannerAds.isEmpty) {
+            _scheduleBannerAdRetry();
           }
-        });
+        }
 
         AppLogger.log('✅ VideoFeedAdvanced: Fallback ads loaded:');
         AppLogger.log('   Banner ads: ${_bannerAds.length}');
-      }
-
-      if (mounted && (_bannerAds.isEmpty)) {
-        AppLogger.log(
-            '⚠️ VideoFeedAdvanced: No banner ads received, retrying in 3s...');
-        Future.delayed(const Duration(seconds: 3), () async {
-          if (!mounted) return;
-          try {
-            final retry = await _activeAdsService.fetchActiveAds();
-            if (!mounted) return;
-            if ((retry['banner'] ?? []).isNotEmpty) {
-              final bool wasEmptyAfterDelay = _bannerAds.isEmpty;
-              // **OPTIMIZED: Use safeSetState to ensure UI rebuilds with new ads**
-              safeSetState(() {
-                _bannerAds = retry['banner']!;
-                _adsLoaded = true;
-                if (wasEmptyAfterDelay) {
-                  _lockedBannerAdByVideoId.clear();
-                }
-              });
-              AppLogger.log(
-                  '✅ VideoFeedAdvanced: Banner ads loaded on retry: ${_bannerAds.length}');
-            }
-          } catch (e) {
-            AppLogger.log('❌ VideoFeedAdvanced: Retry load ads failed: $e');
-          }
-        });
       }
 
       await _carouselAdManager.loadCarouselAds();
@@ -904,10 +923,46 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
     } catch (e) {
       AppLogger.log('❌ Error loading fallback ads: $e');
       if (mounted) {
-        // **OPTIMIZED: Use ValueNotifier for granular update**
         _adsLoaded = true;
+        if (_bannerAds.isEmpty) {
+          _scheduleBannerAdRetry();
+        }
       }
     }
+  }
+
+  void _scheduleBannerAdRetry() {
+    if (!mounted ||
+        _bannerAds.isNotEmpty ||
+        _bannerAdRetryTimer?.isActive == true ||
+        _bannerAdRetryAttempt >= VideoFeedStateFieldsMixin._maxBannerAdRetryAttempts) {
+      return;
+    }
+
+    const delays = <Duration>[
+      Duration(seconds: 2),
+      Duration(seconds: 5),
+      Duration(seconds: 10),
+      Duration(seconds: 20),
+    ];
+    final delay = delays[_bannerAdRetryAttempt];
+    _bannerAdRetryAttempt++;
+    AppLogger.log(
+        '⚠️ VideoFeedAdvanced: No banner ads; retry $_bannerAdRetryAttempt/${VideoFeedStateFieldsMixin._maxBannerAdRetryAttempts} in ${delay.inSeconds}s');
+
+    _bannerAdRetryTimer = Timer(delay, () {
+      _bannerAdRetryTimer = null;
+      if (!mounted || _bannerAds.isNotEmpty) return;
+      _loadActiveAds();
+    });
+  }
+
+  void _retryBannerAdsNow({bool resetAttempts = false}) {
+    if (!mounted || _bannerAds.isNotEmpty) return;
+    _bannerAdRetryTimer?.cancel();
+    _bannerAdRetryTimer = null;
+    if (resetAttempts) _bannerAdRetryAttempt = 0;
+    _loadActiveAds();
   }
 
   Future<void> _loadFollowingUsers() async {
@@ -918,7 +973,8 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
       final uniqueUploaders = _videos
           .map((video) => video.uploader.id.trim())
           .toSet()
-          .where((id) => id.isNotEmpty && id != 'unknown' && id != _currentUserId)
+          .where(
+              (id) => id.isNotEmpty && id != 'unknown' && id != _currentUserId)
           .toList();
 
       if (uniqueUploaders.isEmpty) return;
@@ -930,7 +986,8 @@ extension _VideoFeedInitialization on _VideoFeedAdvancedState {
       // **OPTIMIZED: Single batch API call instead of N individual calls**
       await uProvider.batchCheckFollowStatus(uniqueUploaders);
 
-      AppLogger.log('✅ Batch follow status check complete for ${uniqueUploaders.length} users');
+      AppLogger.log(
+          '✅ Batch follow status check complete for ${uniqueUploaders.length} users');
     } catch (e) {
       AppLogger.log('❌ Error loading following users: $e');
     }

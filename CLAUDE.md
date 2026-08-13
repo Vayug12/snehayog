@@ -1,4 +1,4 @@
-# Vayug (Snehayog) - Video Sharing Platform
+# Vayug - Video Sharing Platform
 
 ## Project Overview
 

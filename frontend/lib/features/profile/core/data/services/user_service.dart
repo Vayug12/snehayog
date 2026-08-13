@@ -455,6 +455,43 @@ class UserService implements IUserService {
     }
   }
 
+  /// Creators the user can subscribe to in order to unlock the Vayu feed.
+  /// The backend already excludes the user and everyone they follow.
+  Future<List<SuggestedCreator>> getSuggestedCreators({
+    int limit = 20,
+    String videoType = 'vayu',
+  }) async {
+    try {
+      final token = (await _authService.getUserData())?['token'];
+      if (token == null) throw Exception('Not authenticated');
+
+      final response = await httpClientService.get(
+        Uri.parse(
+          '${NetworkHelper.usersEndpoint}/suggested-creators?limit=$limit&videoType=$videoType',
+        ),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List<dynamic> creators = data['creators'] ?? [];
+        return creators
+            .map((json) =>
+                SuggestedCreator.fromJson(Map<String, dynamic>.from(json)))
+            .where((c) => c.id.isNotEmpty)
+            .toList();
+      }
+
+      throw Exception('Failed to fetch suggested creators: ${response.statusCode}');
+    } catch (e) {
+      AppLogger.log('❌ UserService: Error fetching suggested creators: $e');
+      rethrow;
+    }
+  }
+
   /// Get list of creators the user is following
   Future<List<Map<String, dynamic>>> getFollowingList() async {
     try {
@@ -479,6 +516,31 @@ class UserService implements IUserService {
       AppLogger.log('❌ UserService: Error fetching following list: $e');
       rethrow;
     }
+  }
+}
+
+/// Creator suggested to a user who has not yet unlocked the Vayu feed
+class SuggestedCreator {
+  final String id; // googleId — accepted by the follow/unfollow endpoints
+  final String name;
+  final String profilePic;
+  final int followerCount;
+
+  const SuggestedCreator({
+    required this.id,
+    required this.name,
+    required this.profilePic,
+    required this.followerCount,
+  });
+
+  factory SuggestedCreator.fromJson(Map<String, dynamic> json) {
+    return SuggestedCreator(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? 'Creator',
+      profilePic: json['profilePic']?.toString() ?? '',
+      followerCount:
+          int.tryParse(json['followerCount']?.toString() ?? '') ?? 0,
+    );
   }
 }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/feed/presentation/screens/video_feed_advanced/widgets/video_aspect_surface.dart';
 import 'package:vayug/core/design/colors.dart';
@@ -94,14 +95,13 @@ class VideoPage extends StatelessWidget {
       return Container(color: Colors.black);
     }
 
-    return Image.network(
-      video.thumbnailUrl,
+    return CachedNetworkImage(
+      imageUrl: video.thumbnailUrl,
       fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => Container(color: Colors.black),
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return Container(color: Colors.black);
-      },
+      memCacheWidth: 1080,
+      maxWidthDiskCache: 1080,
+      placeholder: (context, url) => Container(color: Colors.black),
+      errorWidget: (context, url, error) => Container(color: Colors.black),
     );
   }
 }

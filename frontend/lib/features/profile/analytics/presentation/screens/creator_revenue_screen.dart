@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:vayug/core/design/spacing.dart';
 import 'package:vayug/core/design/radius.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:vayug/core/providers/auth_providers.dart';
 
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
@@ -11,8 +10,8 @@ import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/features/auth/data/services/logout_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
-import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/auth_sign_in_prompt.dart';
 import 'package:vayug/shared/widgets/vayu_bottom_sheet.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
@@ -198,28 +197,14 @@ class _CreatorRevenueScreenState extends ConsumerState<CreatorRevenueScreen> {
     );
   }
 
+  /// No title: the app bar names the screen and the button names the action.
   Widget _buildLoginPrompt() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.lock_outline, size: 64, color: AppColors.textSecondary),
-          AppSpacing.vSpace16,
-          Text(AppText.get('revenue_sign_in_to_view'), textAlign: TextAlign.center),
-          AppSpacing.vSpace24,
-          AppButton(
-            onPressed: () async {
-              final authController = ref.read(googleSignInProvider);
-              final user = await authController.signIn();
-              if (user != null) {
-                await LogoutService.refreshAllState(ref);
-                _loadAllData();
-              }
-            },
-            label: AppText.get('btn_sign_in_google'),
-          ),
-        ],
-      ),
+    return AuthSignInPrompt(
+      onSignedIn: () async {
+        if (!mounted) return;
+        await LogoutService.refreshAllState(ref);
+        _loadAllData();
+      },
     );
   }
 

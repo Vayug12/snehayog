@@ -324,6 +324,32 @@
                 <h2 class="section-title">📱 App Version Distribution</h2>
                 <canvas id="versionChart"></canvas>
             </div>
+            <div class="chart-section">
+                <h2 class="section-title">Feedback By Source</h2>
+                <canvas id="sourceChart"></canvas>
+            </div>
+        </div>
+
+        <div class="data-table-section">
+            <h2 class="section-title">Feedback Source Attribution</h2>
+            <div style="overflow-x: auto;">
+                <table class="behavior-table">
+                    <thead>
+                        <tr>
+                            <th>Source</th>
+                            <th>Installs</th>
+                            <th>Reviews</th>
+                            <th>Avg Rating</th>
+                            <th>5 Star</th>
+                            <th>Low Rating</th>
+                            <th>Latest Activity</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sourceTableBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="data-table-section">
@@ -373,7 +399,7 @@
 
         const API_BASE = detectApiBase();
         let userData = [];
-        let skipChart, interestChart, versionChart;
+        let skipChart, interestChart, versionChart, sourceChart;
 
         async function authorizedFetch(url, options = {}) {
             const key = getAdminKey();
@@ -427,6 +453,7 @@
                 const data = await response.json();
                 renderStats(data);
                 renderCharts(data);
+                renderAttributionTable(data.feedbackAttribution || []);
                 renderUserTable(data.userTable);
                 userData = data.userTable;
             } catch (error) {
@@ -530,6 +557,92 @@
                         legend: { position: 'right', labels: { color: '#ccc' } }
                     }
                 }
+            });
+
+            // Feedback Attribution Chart
+            const sourceCtx = document.getElementById('sourceChart').getContext('2d');
+            const attribution = data.feedbackAttribution || [];
+            const sourceLabels = attribution.length
+                ? attribution.map(s => formatSourceName(s._id))
+                : ['No data yet'];
+            const installValues = attribution.length
+                ? attribution.map(s => s.installCount || 0)
+                : [0];
+            const reviewValues = attribution.length
+                ? attribution.map(s => s.feedbackCount || 0)
+                : [0];
+
+            if (sourceChart) sourceChart.destroy();
+            sourceChart = new Chart(sourceCtx, {
+                type: 'bar',
+                data: {
+                    labels: sourceLabels,
+                    datasets: [
+                        {
+                            label: 'Installs',
+                            data: installValues,
+                            backgroundColor: '#36a2eb',
+                            borderRadius: 8
+                        },
+                        {
+                            label: 'Reviews',
+                            data: reviewValues,
+                            backgroundColor: '#ff6384',
+                            borderRadius: 8
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { labels: { color: '#ccc' } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa', precision: 0 } },
+                        x: { grid: { display: false }, ticks: { color: '#aaa' } }
+                    }
+                }
+            });
+        }
+
+        function formatSourceName(source) {
+            if (!source || source === 'unknown') return 'Unknown';
+            if (source === 'x') return 'X';
+            return String(source)
+                .split(/[-_ ]+/)
+                .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+                .join(' ');
+        }
+
+        function formatRating(value) {
+            const rating = Number(value || 0);
+            return rating ? rating.toFixed(1) : '-';
+        }
+
+        function renderAttributionTable(sources) {
+            const tbody = document.getElementById('sourceTableBody');
+            tbody.innerHTML = '';
+
+            if (!sources.length) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td colspan="7" style="color: #aaa; text-align: center;">No attributed data yet</td>';
+                tbody.appendChild(tr);
+                return;
+            }
+
+            sources.forEach(source => {
+                const installCount = source.installCount || 0;
+                const feedbackCount = source.feedbackCount || 0;
+                const latestActivity = source.latestInstallAt || source.latestFeedbackAt;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><span class="status-badge badge-info">${formatSourceName(source._id)}</span></td>
+                    <td style="font-weight: 600; color: #36a2eb;">${installCount}</td>
+                    <td style="font-weight: 600;">${feedbackCount}</td>
+                    <td>${formatRating(source.avgRating)}</td>
+                    <td>${source.fiveStarCount || 0}</td>
+                    <td>${source.lowRatingCount || 0}</td>
+                    <td>${latestActivity ? new Date(latestActivity).toLocaleDateString() : '-'}</td>
+                `;
+                tbody.appendChild(tr);
             });
         }
 

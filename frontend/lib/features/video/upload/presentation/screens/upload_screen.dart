@@ -6,7 +6,6 @@ import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/core/providers/navigation_providers.dart';
 import 'package:vayug/core/providers/video_upload_providers.dart';
 import 'package:vayug/features/video/upload/presentation/managers/upload_state_manager.dart';
-import 'package:vayug/features/auth/presentation/controllers/google_sign_in_controller.dart';
 import 'dart:io';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:vayug/core/interfaces/i_auth_service.dart';
@@ -18,6 +17,7 @@ import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/auth_sign_in_prompt.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 import 'package:vayug/features/video/upload/presentation/screens/upload_advanced_settings_screen.dart';
 import 'package:vayug/features/video/upload/presentation/screens/series_episodes_screen.dart';
@@ -390,12 +390,12 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
             ),
         ],
       ),
-      body: _buildBody(context, state, isSignedIn, authController),
+      body: _buildBody(context, state, isSignedIn),
     );
   }
 
-  Widget _buildBody(BuildContext context, UploadStateManager state, bool isSignedIn, GoogleSignInController authController) {
-    if (!isSignedIn) return _buildLoginView(authController);
+  Widget _buildBody(BuildContext context, UploadStateManager state, bool isSignedIn) {
+    if (!isSignedIn) return _buildLoginView();
 
     // The user chose not to watch this upload. Show the normal screen with a
     // compact status strip on top rather than holding them on a progress dial.
@@ -569,26 +569,12 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     );
   }
 
-  Widget _buildLoginView(GoogleSignInController authController) {
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.all(AppSpacing.space32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.lock_outline, size: 64, color: AppColors.textTertiary),
-            AppSpacing.vSpace24,
-            Text(AppText.get('upload_login_required'), style: AppTypography.headlineSmall),
-            AppSpacing.vSpace32,
-            AppButton(
-              onPressed: () => authController.signIn(),
-              label: AppText.get('btn_sign_in_google'),
-              isFullWidth: true,
-              isLoading: authController.isLoading,
-            ),
-          ],
-        ),
-      ),
+  /// No title: the button already states the action.
+  Widget _buildLoginView() {
+    return AuthSignInPrompt(
+      onSignedIn: () async {
+        if (mounted) await LogoutService.refreshAllState(ref);
+      },
     );
   }
 

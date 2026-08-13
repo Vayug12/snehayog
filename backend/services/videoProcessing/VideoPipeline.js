@@ -1,5 +1,6 @@
 import Video from '../../models/Video.js';
 import fs from 'fs';
+import { beat } from '../../utils/progressHeartbeat.js';
 
 /**
  * FFmpeg-style Video Processing Engine (The Orchestrator)
@@ -35,7 +36,14 @@ class VideoPipeline {
         console.log(`⏳ Pipeline: Executing [${step.getName()}]...`);
         const stepStart = Date.now();
 
+        // Step boundaries mote-mote heartbeats hain. DownloadSource aur Cleanup
+        // jaise steps andar se koi progress nahi dete, isliye watchdog ke liye
+        // yehi unka ekmatra "zinda hoon" signal hai.
+        beat();
+
         await step.execute(context);
+
+        beat();
 
         const stepSec = (Date.now() - stepStart) / 1000;
         timings.push(`${step.getName()}=${stepSec.toFixed(1)}s`);

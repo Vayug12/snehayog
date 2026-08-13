@@ -6,6 +6,7 @@ import 'package:chewie/chewie.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/presentation/widgets/quiz_overlay.dart';
 import 'package:vayug/features/video/vayu/presentation/widgets/vayu_video_progress_bar.dart';
+import 'package:vayug/core/design/spacing.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -175,15 +176,16 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
               Expanded(
                 child: SingleChildScrollView(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: EdgeInsets.symmetric(horizontal: AppSpacing.spacing4),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         widget.buildAdSection(widget.index),
                         widget.metadataSection,
                         widget.channelInfo,
                         if (widget.activeQuiz != null)
                           Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
                             child: QuizOverlay(
                               quiz: widget.activeQuiz!,
                               onDismiss: widget.onQuizDismiss,

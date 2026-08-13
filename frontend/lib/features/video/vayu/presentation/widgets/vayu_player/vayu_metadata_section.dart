@@ -7,7 +7,7 @@ import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/utils/format_utils.dart';
 import 'package:shimmer/shimmer.dart';
 
-class VayuMetadataSection extends StatelessWidget {
+class VayuMetadataSection extends StatefulWidget {
   final VideoModel video;
   final bool isPortrait;
   final bool isLoading;
@@ -34,8 +34,23 @@ class VayuMetadataSection extends StatelessWidget {
   });
 
   @override
+  State<VayuMetadataSection> createState() => _VayuMetadataSectionState();
+}
+
+class _VayuMetadataSectionState extends State<VayuMetadataSection> {
+  int? _expandedIndex;
+
+  @override
+  void didUpdateWidget(covariant VayuMetadataSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.video.id != widget.video.id) {
+      _expandedIndex = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (isLoading) {
+    if (widget.isLoading) {
       return _buildShimmer(context);
     }
     return Padding(
@@ -44,7 +59,7 @@ class VayuMetadataSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            video.videoName,
+            widget.video.videoName,
             style: AppTypography.bodyLarge.copyWith(
               color: Theme.of(context).brightness == Brightness.dark
                   ? AppColors.textPrimary
@@ -55,21 +70,21 @@ class VayuMetadataSection extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: AppSpacing.spacing1),
           Text(
-            '${FormatUtils.formatViews(video.views)} views • ${FormatUtils.formatTimeAgo(video.uploadedAt)}',
+            '${FormatUtils.formatViews(widget.video.views)} views • ${FormatUtils.formatTimeAgo(widget.video.uploadedAt)}',
             style: AppTypography.bodySmall.copyWith(
               color: AppColors.textTertiary,
-              fontSize: isPortrait ? 11 : 12,
+            fontSize: widget.isPortrait ? 11 : 12,
               fontWeight: FontWeight.w500,
             ),
           ),
-          if (video.tags != null && video.tags!.isNotEmpty) ...[
-            const SizedBox(height: 8),
+          if (widget.video.tags != null && widget.video.tags!.isNotEmpty) ...[
+            SizedBox(height: AppSpacing.spacing2),
             Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: video.tags!
+              spacing: AppSpacing.spacing1,
+              runSpacing: AppSpacing.spacing1,
+              children: widget.video.tags!
                   .map((tag) => Text(
                         '#$tag',
                         style: const TextStyle(
@@ -81,56 +96,65 @@ class VayuMetadataSection extends StatelessWidget {
                   .toList(),
             ),
           ],
-          const SizedBox(height: 12),
-          // ── ACTION BAR (Glassmorphic & Progressive) ──────────
-          const SizedBox(height: 16),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            child: Row(
-              children: [
-                // Primary Tier: Save & Share (Most frequent)
-                _buildActionButton(
-                  context,
-                  icon: Icon(
-                    video.isSaved ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
-                    color: video.isSaved ? AppColors.primary : Colors.white70,
-                    size: 18,
-                  ),
-                  onPressed: onSave,
-                  label: video.isSaved ? 'Saved' : 'Save',
-                ),
-                _buildActionButton(
-                  context,
-                  icon: const Icon(Icons.share_outlined, color: Colors.white70, size: 18),
-                  onPressed: onShare,
-                  label: 'Share',
-                ),
-                
-                // Secondary Tier: Discovery
-                if (video.episodes != null && video.episodes!.isNotEmpty)
+          SizedBox(height: AppSpacing.spacing3),
+          // ── ACTION BAR (Expanding Active Tab) ──────────
+          GestureDetector(
+            onTap: () => setState(() => _expandedIndex = null),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   _buildActionButton(
                     context,
-                    icon: const Icon(Icons.playlist_play_rounded, color: Colors.white70, size: 18),
-                    onPressed: onEpisodes,
-                    label: 'Episodes',
+                    index: 0,
+                    icon: Icon(
+                      widget.video.isSaved ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
+                      color: widget.video.isSaved ? AppColors.primary : Colors.white70,
+                      size: 18,
+                    ),
+                    onPressed: widget.onSave,
+                    label: widget.video.isSaved ? 'Saved' : 'Save',
                   ),
-                  
-                _buildActionButton(
-                  context,
-                  icon: const Icon(Icons.tips_and_updates_outlined, color: Colors.white70, size: 18),
-                  onPressed: onSuggestion,
-                  label: 'Suggest',
-                ),
-
-                if (video.link?.isNotEmpty == true)
+                  SizedBox(width: AppSpacing.spacing2),
                   _buildActionButton(
                     context,
-                    icon: const Icon(Icons.open_in_new_rounded, color: Colors.white70, size: 18),
-                    onPressed: onVisitLink,
-                    label: 'Visit',
+                    index: 1,
+                    icon: const Icon(Icons.share_outlined, color: Colors.white70, size: 18),
+                    onPressed: widget.onShare,
+                    label: 'Share',
                   ),
-              ],
+                  if (widget.video.episodes != null && widget.video.episodes!.isNotEmpty) ...[
+                    SizedBox(width: AppSpacing.spacing2),
+                    _buildActionButton(
+                      context,
+                      index: 2,
+                      icon: const Icon(Icons.playlist_play_rounded, color: Colors.white70, size: 18),
+                      onPressed: widget.onEpisodes,
+                      label: 'Episodes',
+                    ),
+                  ],
+                  SizedBox(width: AppSpacing.spacing2),
+                  _buildActionButton(
+                    context,
+                    index: 3,
+                    icon: const Icon(Icons.tips_and_updates_outlined, color: Colors.white70, size: 18),
+                    onPressed: widget.onSuggestion,
+                    label: 'Suggest',
+                  ),
+                  if (widget.video.link?.isNotEmpty == true) ...[
+                    SizedBox(width: AppSpacing.spacing2),
+                    _buildActionButton(
+                      context,
+                      index: 4,
+                      icon: const Icon(Icons.open_in_new_rounded, color: Colors.white70, size: 18),
+                      onPressed: widget.onVisitLink,
+                      label: 'Visit',
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ],
@@ -152,10 +176,10 @@ class VayuMetadataSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(width: 200, height: 20, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-            const SizedBox(height: 8),
+            SizedBox(height: AppSpacing.spacing2),
             Row(children: [
               Container(width: 60, height: 12, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-              const SizedBox(width: 8),
+              SizedBox(width: AppSpacing.spacing2),
               Container(width: 80, height: 12, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
             ]),
             const SizedBox(height: 16),
@@ -173,29 +197,43 @@ class VayuMetadataSection extends StatelessWidget {
 
   Widget _buildActionButton(
     BuildContext context, {
+    required int index,
     required Widget icon,
     required VoidCallback onPressed,
     required String label,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ClipRRect(
+    final isExpanded = _expandedIndex == index;
+    return ClipRRect(
         borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: onPressed,
+              onTap: () {
+                setState(() {
+                  _expandedIndex = isExpanded ? null : index;
+                });
+                onPressed();
+              },
               borderRadius: BorderRadius.circular(20),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isExpanded ? AppSpacing.spacing3 : AppSpacing.spacing2,
+                  vertical: AppSpacing.spacing2,
+                ),
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
+                  color: isExpanded
+                      ? (isDark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.08))
+                      : (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.1),
+                    color: isExpanded
+                        ? Colors.white.withValues(alpha: 0.2)
+                        : Colors.white.withValues(alpha: 0.1),
                     width: 0.5,
                   ),
                 ),
@@ -203,14 +241,25 @@ class VayuMetadataSection extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     icon,
-                    const SizedBox(width: 6),
-                    Text(
-                      label,
-                      style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeInOut,
+                      child: isExpanded
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(width: AppSpacing.spacing1),
+                                Text(
+                                  label,
+                                  style: AppTypography.bodySmall.copyWith(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ],
                 ),
@@ -218,7 +267,6 @@ class VayuMetadataSection extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 }

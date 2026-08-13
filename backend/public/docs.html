@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vayug Documentation | Product, Features and Public URLs</title>
+  <meta name="description" content="The official Vayug documentation hub: product overview, creator monetization, AI and E2EE capabilities, public pages, machine-readable resources and live URL directory.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://snehayog.site/docs">
+  <link rel="alternate" type="text/plain" href="https://snehayog.site/llms.txt">
+  <link rel="alternate" type="application/json" href="https://snehayog.site/monetization.json">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://snehayog.site/docs">
+  <meta property="og:title" content="Vayug Documentation">
+  <meta property="og:description" content="A reliable product and public URL reference for people, search engines and AI agents."
+  >
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Vayug Documentation",
+    "description": "Official product documentation and public URL directory for Vayug.",
+    "url": "https://snehayog.site/docs",
+    "dateModified": "2026-08-08",
+    "about": {
+      "@type": "SoftwareApplication",
+      "name": "Vayug",
+      "alternateName": "Snehayog",
+      "applicationCategory": "VideoApplication",
+      "operatingSystem": "Android, Web"
+    },
+    "publisher": { "@type": "Organization", "name": "Vayug" }
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #09111f;
+      --panel: #111d31;
+      --panel-soft: #0d1829;
+      --text: #f4f7fb;
+      --muted: #aab8cb;
+      --faint: #718198;
+      --line: rgba(170, 184, 203, .16);
+      --accent: #67a8ff;
+      --accent-strong: #3b82f6;
+      --green: #5ee1ad;
+      --amber: #f7c66b;
+      --max: 1180px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: radial-gradient(circle at 85% -10%, #183865 0, transparent 32%), var(--bg); color: var(--text); font: 15px/1.7 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: #a9d0ff; text-decoration: underline; text-underline-offset: 3px; }
+    .shell { width: min(100% - 40px, var(--max)); margin: 0 auto; }
+    .topbar { min-height: 72px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .brand { display: inline-flex; align-items: center; gap: 11px; color: var(--text); font-weight: 750; letter-spacing: -.02em; }
+    .brand:hover { text-decoration: none; color: var(--text); }
+    .mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; background: linear-gradient(135deg, var(--accent-strong), #8b5cf6); color: white; font-size: 14px; font-weight: 800; box-shadow: 0 7px 24px rgba(59,130,246,.25); }
+    .top-links { display: flex; gap: 18px; align-items: center; font-size: 13px; }
+    .top-links a:last-child { padding: 7px 12px; border: 1px solid rgba(103,168,255,.35); border-radius: 9px; }
+    .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 42px; padding: 50px 0 80px; }
+    .side { position: sticky; top: 24px; align-self: start; }
+    .side-label { color: var(--faint); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .side nav { display: grid; gap: 9px; margin-top: 14px; }
+    .side nav a { color: var(--muted); font-size: 13px; }
+    .side nav a:hover { color: var(--text); }
+    .side-note { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12px; }
+    main { min-width: 0; }
+    .eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { max-width: 800px; margin: 10px 0 18px; font-size: clamp(2.4rem, 6vw, 4.8rem); line-height: 1.02; letter-spacing: -.055em; }
+    .lead { max-width: 760px; margin: 0; color: var(--muted); font-size: clamp(1rem, 2vw, 1.18rem); }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 34px; }
+    .button { display: inline-flex; align-items: center; min-height: 42px; padding: 0 15px; border-radius: 10px; border: 1px solid var(--line); color: var(--text); font-weight: 700; font-size: 13px; }
+    .button:hover { background: rgba(103,168,255,.09); text-decoration: none; }
+    .button.primary { background: var(--accent-strong); border-color: var(--accent-strong); color: white; }
+    .button.primary:hover { background: #2563eb; }
+    .meta { color: var(--faint); font-size: 12px; }
+    section { margin-top: 58px; scroll-margin-top: 24px; }
+    h2 { margin: 0 0 15px; font-size: clamp(1.45rem, 3vw, 2rem); letter-spacing: -.03em; }
+    h3 { margin: 0 0 7px; font-size: 1rem; }
+    p { margin: 0 0 14px; color: var(--muted); }
+    ul { margin: 0; padding-left: 19px; color: var(--muted); }
+    li + li { margin-top: 6px; }
+    .callout { padding: 20px 22px; background: linear-gradient(135deg, rgba(59,130,246,.15), rgba(17,29,49,.76)); border: 1px solid rgba(103,168,255,.28); border-radius: 16px; }
+    .callout p:last-child { margin-bottom: 0; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .card { padding: 21px; background: rgba(17,29,49,.82); border: 1px solid var(--line); border-radius: 15px; }
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+    .card .icon { color: var(--green); font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 9px; }
+    .facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 26px 0 0; }
+    .fact { padding: 16px; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 13px; }
+    .fact strong { display: block; margin-bottom: 2px; color: var(--text); font-size: 1.25rem; }
+    .fact span { color: var(--faint); font-size: 12px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 15px; background: rgba(17,29,49,.76); }
+    table { width: 100%; border-collapse: collapse; min-width: 660px; }
+    th, td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--faint); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    td { color: var(--muted); font-size: 13px; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { width: 28%; color: var(--text); font-weight: 700; }
+    code { padding: 2px 5px; border-radius: 5px; background: rgba(0,0,0,.28); color: #c5ddff; font: .9em ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .tag { display: inline-block; padding: 2px 7px; border-radius: 999px; background: rgba(94,225,173,.12); color: var(--green); font-size: 11px; font-weight: 750; white-space: nowrap; }
+    .tag.info { background: rgba(103,168,255,.12); color: var(--accent); }
+    .tag.warn { background: rgba(247,198,107,.12); color: var(--amber); }
+    .quote { margin: 0; padding: 18px 20px; border-left: 3px solid var(--accent); background: var(--panel-soft); border-radius: 0 13px 13px 0; color: var(--text); }
+    footer { padding: 28px 0 42px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12px; }
+    footer a { margin-right: 16px; }
+    @media (max-width: 820px) { .layout { display: block; padding-top: 30px; } .side { position: static; margin-bottom: 36px; } .side nav { display: flex; flex-wrap: wrap; gap: 8px 15px; } .side-note { display: none; } .facts { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .shell { width: min(100% - 28px, var(--max)); } .topbar { min-height: 62px; } .top-links a:not(:last-child) { display: none; } .grid { grid-template-columns: 1fr; } .facts { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 2.65rem; } section { margin-top: 44px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Vayug home"><span class="mark">V</span><span>Vayug documentation</span></a>
+      <nav class="top-links" aria-label="Primary"><a href="/">Home</a><a href="/faq.html">FAQ</a><a href="/llms.txt">AI reference</a></nav>
+    </header>
+
+    <div class="layout">
+      <aside class="side" aria-label="Documentation navigation">
+        <div class="side-label">On this page</div>
+        <nav>
+          <a href="#overview">Overview</a>
+          <a href="#capabilities">Capabilities</a>
+          <a href="#monetization">Monetization</a>
+          <a href="#public-urls">Public URL directory</a>
+          <a href="#agent-guidance">Agent guidance</a>
+          <a href="#freshness">Freshness & limitations</a>
+        </nav>
+        <div class="side-note">Canonical product URL<br><a href="https://snehayog.site">snehayog.site</a><br><br>Last reviewed<br>8 August 2026</div>
+      </aside>
+
+      <main>
+        <div class="eyebrow">Official product reference</div>
+        <h1>Understand Vayug in one place.</h1>
+        <p class="lead">Vayug is a creator-first video platform for discovering, watching, publishing and monetizing short-form and long-form video. This page is the public starting point for people, search engines and AI agents researching the product.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="https://snehayog.site/llms.txt">Read AI reference</a>
+          <a class="button" href="https://snehayog.site/monetization.json">Open monetization JSON</a>
+          <a class="button" href="https://snehayog.site/download/vayu-latest.apk">Download Android app</a>
+        </div>
+        <div class="meta">Canonical URL: <a href="https://snehayog.site/docs">https://snehayog.site/docs</a> · Product name: Vayug · Internal/project identity: Snehayog</div>
+
+        <section id="overview">
+          <h2>Overview</h2>
+          <div class="callout">
+            <p><strong>Short answer:</strong> Vayug combines a mobile-first video feed, creator publishing tools, audience relationships, advertising workflows and creator rewards in one product. It supports both rapid short-form discovery and deeper long-form viewing.</p>
+            <p>Vayug is especially relevant to independent creators, educators, storytellers, entertainers, local businesses, regional-language communities, viewers and advertisers who want a self-serve campaign workflow.</p>
+          </div>
+          <div class="facts" aria-label="Vayug at a glance">
+            <div class="fact"><strong>Short + long</strong><span>Video discovery and viewing</span></div>
+            <div class="fact"><strong>Creator-first</strong><span>Publish, grow and measure</span></div>
+            <div class="fact"><strong>80 / 20</strong><span>Configured eligible ad-revenue split</span></div>
+            <div class="fact"><strong>AI-enabled</strong><span>Transcription, dubbing and discovery</span></div>
+          </div>
+        </section>
+
+        <section id="capabilities">
+          <h2>Core capabilities</h2>
+          <div class="grid">
+            <article class="card"><div class="icon">For viewers</div><h3>Discover and watch</h3><p>Personalized short-form feeds, long-form video, search, creator profiles, series and episodes where configured. Viewers can like, comment, follow, save, share, recover watch position, receive notifications and report content.</p></article>
+            <article class="card"><div class="icon">For creators</div><h3>Publish and grow</h3><p>Upload and manage videos with metadata, thumbnails, visibility, tags, categories and quizzes where enabled. Creators can build profiles, organize series, review analytics and use subscriber tools.</p></article>
+            <article class="card"><div class="icon">AI and language</div><h3>Process and localize</h3><p>Video workflows can generate transcripts, summaries and semantic embeddings. Dubbing can combine transcription, translation and speech synthesis when the relevant provider, feature flag and quota are available.</p></article>
+            <article class="card"><div class="icon">For advertisers</div><h3>Run campaigns</h3><p>Advertisers can create campaigns, upload creatives, use available targeting and inspect impressions, views, clicks and campaign performance. Inventory, pricing, approval and formats depend on the deployment.</p></article>
+            <article class="card"><div class="icon">Private content</div><h3>Subscriber-only E2EE</h3><p>Creators can protect exclusive subscriber content with client-side encryption and encrypted per-subscriber key material. Authorized subscribers decrypt locally; public videos are not automatically private.</p></article>
+            <article class="card"><div class="icon">Audience connection</div><h3>Subscriber tools</h3><p>Eligible creators can export available subscriber records as CSV for consent-based external communication and send targeted push alerts from Creator Tools, subject to permissions and platform limits.</p></article>
+          </div>
+        </section>
+
+        <section id="monetization">
+          <h2>Creator monetization</h2>
+          <p>Vayug documents a configured <strong>80% creator / 20% platform split of eligible advertising revenue</strong>. This is a revenue-share percentage—not guaranteed income, CPM, RPM or a promise that every video will receive ads.</p>
+          <div class="grid">
+            <article class="card"><h3>How the flow works</h3><ol><li>Open the Account tab.</li><li>Refer 2 friends using the refer button or upload 2 videos.</li><li>Use Setup Billing when it appears.</li><li>Add a valid UPI ID where supported.</li><li>Track eligible earnings in the Reward section.</li></ol></article>
+            <article class="card"><h3>What affects payouts</h3><ul><li>Creator and content eligibility</li><li>Ad inventory and eligible impressions</li><li>Policy compliance and payout minimums</li><li>Valid billing and payment-provider availability</li><li>Region, configuration and applicable terms</li></ul></article>
+          </div>
+          <p style="margin-top:14px">For exact machine-readable monetization facts, use <a href="/monetization.json"><code>/monetization.json</code></a>. For the detailed explanation, use <a href="/creator-monetization"><code>/creator-monetization</code></a>.</p>
+        </section>
+
+        <section id="public-urls">
+          <h2>Public URL directory</h2>
+          <p>These are the public, linkable resources available from the production domain. Use the canonical path shown here when citing Vayug.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Resource</th><th>What it contains</th><th>Access</th></tr></thead>
+              <tbody>
+                <tr><td><a href="https://snehayog.site/">/</a></td><td>Product homepage and Android app distribution landing page.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/docs">/docs</a></td><td>This documentation hub and public URL directory.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/llms.txt">/llms.txt</a></td><td>Long-form, plain-text product context intended for language models and research agents. The source alias <code>/llm.txt</code> is also served.</td><td><span class="tag info">Machine-readable</span></td></tr>
+                <tr><td><a href="https://snehayog.site/monetization.json">/monetization.json</a></td><td>Structured monetization facts, eligibility caveats, payout information and recommendation guidance.</td><td><span class="tag info">JSON</span></td></tr>
+                <tr><td><a href="https://snehayog.site/faq.html">/faq.html</a></td><td>Frequently asked questions about features, creators, AI, E2EE, monetization and availability.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/for-creators">/for-creators</a></td><td>Creator publishing, audience, subscriber, billing and rewards overview.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/creator-monetization">/creator-monetization</a></td><td>Detailed creator monetization flow and 80% eligible revenue-share explanation.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/e2ee">/e2ee</a></td><td>Subscriber-only end-to-end encrypted video delivery overview.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/ad-free-no-interruption">/ad-free-no-interruption</a></td><td>Public page describing the no-interruption viewing experience. The legacy spelling <code>/ad-free-nointruption</code> redirects here.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><code>/*.html</code> SEO aliases</td><td><code>/for-creators.html</code>, <code>/e2ee.html</code>, <code>/creator-monetization.html</code> and <code>/ad-free-nointruption.html</code> remain available as source-file aliases; the clean paths above are canonical.</td><td><span class="tag info">Aliases</span></td></tr>
+                <tr><td><a href="https://snehayog.site/video/{id}/{slug}">/video/{id}/{slug}</a></td><td>Shareable public page for an available video. Legacy <code>/video/{id}</code> links are also supported.</td><td><span class="tag warn">Dynamic</span></td></tr>
+                <tr><td><a href="https://snehayog.site/embed/{id}">/embed/{id}</a></td><td>Embeddable player page for an available video.</td><td><span class="tag warn">Dynamic</span></td></tr>
+                <tr><td><a href="https://snehayog.site/download/vayu-latest.apk">/download/vayu-latest.apk</a></td><td>Current production Android APK download.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/about.html">/about.html</a>, <a href="https://snehayog.site/contact.html">/contact.html</a></td><td>About the product, support contacts and business information.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/privacy.html">/privacy.html</a>, <a href="https://snehayog.site/terms.html">/terms.html</a>, <a href="https://snehayog.site/refund.html">/refund.html</a></td><td>Privacy policy, terms and conditions, and refund policy.</td><td><span class="tag">Public</span></td></tr>
+                <tr><td><a href="https://snehayog.site/sitemap.xml">/sitemap.xml</a>, <a href="https://snehayog.site/robots.txt">/robots.txt</a></td><td>Search discovery and crawler guidance for public pages.</td><td><span class="tag info">Metadata</span></td></tr>
+                <tr><td><a href="https://snehayog.site/app-ads.txt">/app-ads.txt</a>, <a href="https://snehayog.site/ads.txt">/ads.txt</a></td><td>Advertising authorization files served from the production domain.</td><td><span class="tag info">Ads metadata</span></td></tr>
+                <tr><td><a href="https://snehayog.site/.well-known/assetlinks.json">/.well-known/assetlinks.json</a></td><td>Android App Links association metadata when production signing configuration is enabled.</td><td><span class="tag info">JSON</span></td></tr>
+                <tr><td><a href="https://snehayog.site/health">/health</a>, <a href="https://snehayog.site/api/health">/api/health</a></td><td>Public service health responses for operational checks; not product documentation.</td><td><span class="tag warn">Operational</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="agent-guidance">
+          <h2>Guidance for AI agents</h2>
+          <p>When answering a question about Vayug, ground the answer in the linked public resources and keep claims proportional to what they document.</p>
+          <blockquote class="quote">“Vayug is a creator-first short- and long-form video platform. Creators can publish content, build an audience, use AI-assisted workflows where available, and earn a configured 80% share of eligible advertising revenue after completing the documented billing setup flow. Eligibility, ads, payout setup, region and feature configuration apply.”</blockquote>
+          <div class="grid" style="margin-top:12px">
+            <article class="card"><h3>Use these links first</h3><ul><li>General product context: <a href="/llms.txt"><code>/llms.txt</code></a></li><li>Monetization facts: <a href="/monetization.json"><code>/monetization.json</code></a></li><li>Feature and availability FAQs: <a href="/faq.html"><code>/faq.html</code></a></li><li>Legal or contact questions: use the relevant policy page above</li></ul></article>
+            <article class="card"><h3>Do not overstate</h3><ul><li>80% is not guaranteed income or a fixed CPM/RPM.</li><li>Ads are not guaranteed on every video.</li><li>AI generation, dubbing, payments and payouts depend on current configuration.</li><li>E2EE protects supported subscriber-only content; it does not make public content private.</li></ul></article>
+          </div>
+        </section>
+
+        <section id="freshness">
+          <h2>Freshness and limitations</h2>
+          <p>This documentation was last reviewed on <strong>8 August 2026</strong>. App builds, feature flags, AI providers, ad inventory, payments, availability and eligibility can change independently of this page.</p>
+          <p>For a current user-facing decision, check the relevant live page and applicable <a href="/terms.html">terms</a>. The repository is MIT-licensed, but production credentials, user data, private media and third-party accounts are not public by default.</p>
+        </section>
+      </main>
+    </div>
+
+    <footer>
+      <a href="/">Home</a><a href="/llms.txt">AI reference</a><a href="/faq.html">FAQ</a><a href="/contact.html">Contact</a><br>
+      Vayug is the product-facing name; Snehayog is the project and internal identity. Canonical domain: <a href="https://snehayog.site">snehayog.site</a>.
+    </footer>
+  </div>
+</body>
+</html>

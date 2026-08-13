@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:vayug/core/interfaces/i_e2ee_service.dart';
 import 'package:vayug/shared/config/app_config.dart';
 import 'package:vayug/shared/services/http_client_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/exceptions/app_exceptions.dart';
 
 /// Concrete implementation of IE2eeService for Vayug.
 /// Handles RSA key generation, storage, and E2EE key distribution/chunk operations.
@@ -260,6 +262,16 @@ class E2eeServiceImpl implements IE2eeService {
   @override
   Future<String?> fetchEncryptedVideoKey(String videoId) async {
     try {
+      // AuthService clears the JWT on sign-out, but an already-running
+      // preload can still reach this method after that happens.
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token');
+      if (token == null || token.isEmpty) {
+        throw const E2eeVideoAccessException(
+          'Please sign in to watch this encrypted video.',
+          code: 'authentication_required',
+        );
+      }
       AppLogger.log('🔐 E2EE: Fetching encrypted video key for $videoId...');
       final response = await httpClientService.get(
         Uri.parse('${NetworkHelper.apiBaseUrl}/e2ee/video-key/$videoId'),
@@ -268,14 +280,61 @@ class E2eeServiceImpl implements IE2eeService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true && data['hasAccess'] == true) {
-          return data['encryptedSymmetricKey'] as String;
+          final encryptedKey = data['encryptedSymmetricKey'];
+          if (encryptedKey is String && encryptedKey.isNotEmpty) {
+            return encryptedKey;
+          }
+          throw const E2eeVideoAccessException(
+            'The decryption key for this video is unavailable.',
+            code: 'key_unavailable',
+          );
         }
       }
-      return null;
+      final serverMessage = _readErrorMessage(response.body);
+      if (response.statusCode == 401 || response.statusCode == 404) {
+        throw E2eeVideoAccessException(
+          'Please sign in again to watch this encrypted video.',
+          code: 'authentication_required',
+          details: response.statusCode,
+        );
+      }
+      if (response.statusCode == 403) {
+        throw E2eeVideoAccessException(
+          serverMessage ?? 'You do not have access to this encrypted video.',
+          code: 'access_denied',
+          details: response.statusCode,
+        );
+      }
+      throw E2eeVideoAccessException(
+        serverMessage ?? 'The encrypted video is temporarily unavailable.',
+        code: response.statusCode >= 500 ? 'server_error' : 'key_unavailable',
+        details: response.statusCode,
+      );
+    } on E2eeVideoAccessException {
+      rethrow;
     } catch (e) {
       AppLogger.log('❌ E2EE: Error fetching encrypted video key: $e');
-      return null;
+      throw E2eeVideoAccessException(
+        'The encrypted video could not be prepared. Please try again.',
+        code: 'network_error',
+        details: e,
+      );
     }
+  }
+
+  String? _readErrorMessage(String responseBody) {
+    try {
+      final decoded = jsonDecode(responseBody);
+      if (decoded is Map<String, dynamic>) {
+        final message = decoded['error'] ?? decoded['message'];
+        if (message is String && message.trim().isNotEmpty) {
+          return message;
+        }
+      }
+    } catch (_) {
+      // Keep the exception message user-safe when the server response is not JSON.
+    }
+    return null;
   }
 
   @override
@@ -283,14 +342,23 @@ class E2eeServiceImpl implements IE2eeService {
     try {
       final privKeyStr = await _secureStorage.read(key: _privateKeyStorageKey);
       if (privKeyStr == null) {
-        throw Exception('Private key not found on device');
+        throw const E2eeVideoAccessException(
+          'This device does not have the encryption key needed for this video.',
+          code: 'device_key_missing',
+        );
       }
       final privKey = _deserializePrivateKey(privKeyStr);
       final encryptedBytes = base64Decode(encryptedSymmetricKey);
       return _rsaDecrypt(privKey, encryptedBytes);
     } catch (e) {
+      if (e is E2eeVideoAccessException) rethrow;
       AppLogger.log('❌ E2EE: Error decrypting symmetric key: $e');
-      rethrow;
+      throw E2eeVideoAccessException(
+        'This device encryption key does not match the key used for this video. '
+        'Try the original device or contact support.',
+        code: 'device_key_changed',
+        details: e,
+      );
     }
   }
 

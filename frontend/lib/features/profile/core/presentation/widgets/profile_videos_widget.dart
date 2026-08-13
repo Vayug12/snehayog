@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:hugeicons/hugeicons.dart';
 import 'package:provider/provider.dart' as provider;
-import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
 import 'package:vayug/features/video/core/presentation/screens/video_screen.dart';
 import 'package:vayug/features/video/core/presentation/managers/shared_video_controller_pool.dart';
@@ -15,6 +13,7 @@ import 'package:vayug/shared/widgets/episode_grid_widget.dart';
 import 'package:vayug/shared/widgets/unified_video_card.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_dialogs_widget.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
+import 'package:vayug/shared/utils/format_utils.dart';
 
 class ProfileVideosWidget extends StatelessWidget {
   final ProfileStateManager stateManager;
@@ -23,8 +22,10 @@ class ProfileVideosWidget extends StatelessWidget {
   final VoidCallback? onVideoSelection;
   final bool showHeader;
   final bool isSliver;
+  final bool useListLayout;
   final String? filterVideoType;
   final VoidCallback? onReferFriends;
+  final bool hasReferralBillingUnlock;
 
   const ProfileVideosWidget({
     super.key,
@@ -34,8 +35,10 @@ class ProfileVideosWidget extends StatelessWidget {
     this.onVideoSelection,
     this.showHeader = true,
     this.isSliver = false,
+    this.useListLayout = false,
     this.filterVideoType,
     this.onReferFriends,
+    this.hasReferralBillingUnlock = false,
   });
 
   static Widget buildRefreshNotice(
@@ -185,19 +188,21 @@ class ProfileVideosWidget extends StatelessWidget {
   }
 
   Widget _buildConfirmedEmptyState(ProfileStateManager manager) {
-    final canRefer = onReferFriends != null && manager.isOwner;
-    return RepaintBoundary(
+    if (!hasReferralBillingUnlock) {
+      return const SizedBox.shrink();
+    }
+    return const RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 34, 24, 34),
+        padding: EdgeInsets.fromLTRB(24, 34, 24, 34),
         child: Column(
           children: [
-            const Icon(
+            Icon(
               Icons.video_library_outlined,
               size: 40,
               color: AppColors.textTertiary,
             ),
-            const SizedBox(height: 12),
-            const Text(
+            SizedBox(height: 12),
+            Text(
               'You haven\'t uploaded any videos yet.',
               style: TextStyle(
                 color: AppColors.textPrimary,
@@ -206,30 +211,6 @@ class ProfileVideosWidget extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
-            if (canRefer) ...[
-              const SizedBox(height: 6),
-              const Text(
-                'Share Vayug with friends to unlock creator billing.',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onReferFriends,
-                  icon: const HugeIcon(
-                    icon: HugeIcons.strokeRoundedShare01,
-                    color: AppColors.textPrimary,
-                    size: 18,
-                  ),
-                  label: Text(AppText.get('btn_refer_friends')),
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -295,15 +276,6 @@ class ProfileVideosWidget extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Please wait while we get everything ready.',
-                    style: TextStyle(
-                      color: Colors.grey[500],
-                      fontSize: 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
                 ],
               ),
             ),
@@ -349,6 +321,50 @@ class ProfileVideosWidget extends StatelessWidget {
         }
 
         final bool isVayu = filterVideoType?.toLowerCase() == 'vayu';
+
+        if (useListLayout && isVayu) {
+          if (isSliver) {
+            return SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    if (index.isOdd) return const SizedBox(height: 12);
+
+                    final videoIndex = index ~/ 2;
+                    return _buildVideoItem(
+                      context,
+                      manager,
+                      displayVideos,
+                      displayVideos[videoIndex],
+                      videoIndex,
+                    );
+                  },
+                  childCount:
+                      displayVideos.isEmpty ? 0 : displayVideos.length * 2 - 1,
+                ),
+              ),
+            );
+          }
+
+          return RepaintBoundary(
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              itemCount: displayVideos.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) => _buildVideoItem(
+                context,
+                manager,
+                displayVideos,
+                displayVideos[index],
+                index,
+              ),
+            ),
+          );
+        }
+
         final gridDelegate = SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: isVayu ? 2 : 3,
           crossAxisSpacing: 8,
@@ -409,6 +425,19 @@ class ProfileVideosWidget extends StatelessWidget {
     final bool isProcessing = _isVideoProcessing(video);
     final canSelectVideo =
         manager.isSelecting && manager.isOwner && manager.userData != null;
+
+    if (useListLayout && _normalizedVideoType(video) == 'vayu') {
+      return _buildVayuListVideoItem(
+        context,
+        manager,
+        displayVideos,
+        video,
+        isSelected: isSelected,
+        isSeries: isSeries,
+        isProcessing: isProcessing,
+        canSelectVideo: canSelectVideo,
+      );
+    }
 
     return RepaintBoundary(
       child: GestureDetector(
@@ -504,6 +533,273 @@ class ProfileVideosWidget extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildVayuListVideoItem(
+    BuildContext context,
+    ProfileStateManager manager,
+    List<VideoModel> displayVideos,
+    VideoModel video, {
+    required bool isSelected,
+    required bool isSeries,
+    required bool isProcessing,
+    required bool canSelectVideo,
+  }) {
+    final title = video.videoName.trim().isEmpty ? 'Untitled Video' : video.videoName.trim();
+    final hasDescription = video.description?.trim().isNotEmpty == true;
+    final metaText = [
+      '${FormatUtils.formatViews(video.views)} views',
+      '${FormatUtils.formatViews(video.likes)} likes',
+      FormatUtils.formatTimeAgo(video.uploadedAt),
+      if (isSeries && video.episodes?.isNotEmpty == true)
+        '${video.episodes!.length} episodes',
+    ].join(' • ');
+
+    return RepaintBoundary(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _handleVideoTap(context, manager, displayVideos, video, isProcessing, isSeries, canSelectVideo),
+          onLongPress: () => _handleVideoLongPress(manager, video),
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? AppColors.primary.withValues(alpha: 0.12)
+                  : AppColors.backgroundSecondary.withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isSelected
+                    ? AppColors.primary.withValues(alpha: 0.65)
+                    : AppColors.borderPrimary.withValues(alpha: 0.45),
+                width: isSelected ? 1.4 : 1,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        width: 138,
+                        height: 78,
+                        color: AppColors.backgroundPrimary,
+                        child: video.thumbnailUrl.isNotEmpty
+                            ? Image.network(
+                                video.thumbnailUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.play_circle_outline_rounded,
+                                  color: AppColors.textTertiary,
+                                  size: 30,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.play_circle_outline_rounded,
+                                color: AppColors.textTertiary,
+                                size: 30,
+                              ),
+                      ),
+                    ),
+                    if (video.duration.inSeconds > 0)
+                      Positioned(
+                        right: 6,
+                        bottom: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.78),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            FormatUtils.formatDuration(video.duration),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (isProcessing)
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                                height: 1.22,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (manager.isOwner && !manager.isSelecting)
+                            _buildInlineEditButton(context, manager, video),
+                          if (manager.isSelecting && canSelectVideo)
+                            Checkbox(
+                              value: isSelected,
+                              onChanged: (_) => manager.toggleVideoSelection(video.id),
+                              visualDensity: VisualDensity.compact,
+                              side: const BorderSide(color: AppColors.textTertiary),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        metaText,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          height: 1.25,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (hasDescription) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          video.description!.trim(),
+                          style: const TextStyle(
+                            color: AppColors.textTertiary,
+                            fontSize: 12,
+                            height: 1.3,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineEditButton(
+    BuildContext context,
+    ProfileStateManager manager,
+    VideoModel video,
+  ) {
+    return IconButton(
+      onPressed: () async {
+        final result = await Navigator.push<Map<String, dynamic>>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => EditVideoDetails(video: video),
+          ),
+        );
+        if (result != null) {
+          manager.refreshData();
+        }
+      },
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      icon: const Icon(
+        Icons.more_vert_rounded,
+        color: AppColors.textSecondary,
+        size: 20,
+      ),
+      tooltip: 'Edit video',
+    );
+  }
+
+  void _handleVideoTap(
+    BuildContext context,
+    ProfileStateManager manager,
+    List<VideoModel> displayVideos,
+    VideoModel video,
+    bool isProcessing,
+    bool isSeries,
+    bool canSelectVideo,
+  ) {
+    if (isProcessing && !manager.isSelecting) {
+      VayuSnackBar.showInfo(
+        context,
+        'Video is still processing. It will be playable shortly.',
+        duration: const Duration(seconds: 2),
+      );
+      return;
+    }
+
+    if (isSeries &&
+        video.episodes != null &&
+        video.episodes!.isNotEmpty &&
+        !manager.isSelecting) {
+      AppLogger.log('🎬 ProfileVideosWidget: Series detected: ${video.id}. Opening episode list.');
+      _showEpisodeList(context, video);
+      return;
+    }
+
+    if (!manager.isSelecting) {
+      final sharedPool = SharedVideoControllerPool();
+      sharedPool.pauseAllControllers();
+
+      if (_normalizedVideoType(video) == 'vayu') {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VayuLongFormPlayerScreen(
+              video: video,
+              relatedVideos: displayVideos,
+            ),
+          ),
+        );
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VideoScreen(
+              initialVideos: displayVideos,
+              initialVideoId: video.id,
+            ),
+          ),
+        );
+      }
+    } else if (manager.isSelecting && canSelectVideo) {
+      manager.toggleVideoSelection(video.id);
+    }
+  }
+
+  void _handleVideoLongPress(ProfileStateManager manager, VideoModel video) {
+    if (manager.isOwner && manager.userData != null && !manager.isSelecting) {
+      manager.enterSelectionMode();
+      manager.toggleVideoSelection(video.id);
+    }
   }
 
   void _showEpisodeList(BuildContext context, VideoModel video) {

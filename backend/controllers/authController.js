@@ -1,6 +1,7 @@
 import { verifyGoogleToken, generateJWT } from '../utils/verifytoken.js';
 import User from '../models/User.js';
 import RefreshToken from '../models/RefreshToken.js';
+import AnonymousDevice from '../models/AnonymousDevice.js';
 import brevoService from '../services/notificationServices/brevoService.js';
 import { OAuth2Client } from 'google-auth-library';
 
@@ -107,6 +108,18 @@ export const googleSignIn = async (req, res) => {
           console.error('⚠️ AuthController: mergeGuestHistory error:', err.message);
         });
       });
+
+      // **NEW: Merge anonymous device attribution to user**
+      try {
+        const anonymousDevice = await AnonymousDevice.findOne({ deviceId: deviceId.trim() });
+        if (anonymousDevice && anonymousDevice.attribution && anonymousDevice.attribution.source) {
+          anonymousDevice.mergedToUser = user.googleId;
+          await anonymousDevice.save();
+          console.log(`✅ Attribution merged: device ${deviceId.substring(0, 8)}... → user ${user.googleId}`);
+        }
+      } catch (attrErr) {
+        console.error('⚠️ AuthController: attribution merge error:', attrErr.message);
+      }
     }
 
     res.json({

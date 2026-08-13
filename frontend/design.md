@@ -21,10 +21,11 @@ The UI should prioritize whitespace, typography, hierarchy, and subtle animation
 
 1. Less is more.
 2. Every element must have a purpose.
-3. Prefer whitespace over borders.
-4. Avoid visual clutter.
-5. Use smooth motion, never distracting animations.
-6. Everything should feel premium.
+3. Every word must earn its place.
+4. Prefer whitespace over borders.
+5. Avoid visual clutter.
+6. Use smooth motion, never distracting animations.
+7. Everything should feel premium.
 
 ---
 
@@ -167,6 +168,60 @@ Small
 12
 
 Line height should always feel spacious.
+
+---
+
+# Copy
+
+Fewer words, more meaning.
+
+Text is UI. Every extra line is clutter, exactly like an extra border.
+
+Write the shortest version that still works, then cut one more word.
+
+## Limits
+
+Heading
+
+5 words. No full stop.
+
+Body
+
+1 line. A second line only if the user loses something without it.
+
+Button
+
+Verb first. 2 words. "Sign in", never "Sign in to continue".
+
+Helper text
+
+Only for rules the user cannot guess: limits, formats, cost, consequences.
+
+Error
+
+What broke, what to do. 1 line.
+
+## Delete any text that
+
+repeats what the control already says
+
+states the obvious
+
+describes what the user can already see
+
+apologises or over-explains
+
+## Rules
+
+Never stack a heading, a subtitle and a button that all say the same thing.
+
+Never explain a heading with a subtitle. Rewrite the heading instead.
+
+One idea per screen. One line per idea.
+
+An icon and one button is a finished screen, not an unfinished one.
+
+Reference: `lib/shared/widgets/auth_sign_in_prompt.dart` — the button carries the meaning, the copy above it is optional.
 
 ---
 
@@ -338,13 +393,13 @@ No decorative frames.
 
 Every empty state should include:
 
-simple illustration or icon
-
-clear title
-
-one sentence
+simple icon
 
 primary action
+
+Add a title only when the action alone is ambiguous.
+
+Never add a sentence explaining the title.
 
 ---
 
@@ -354,13 +409,17 @@ Prefer skeleton loading.
 
 Avoid full-screen spinners.
 
+Never label a spinner with "Loading...". The spinner already says it.
+
 ---
 
 # Error States
 
-Explain the problem simply.
+One line: what broke.
 
-Offer one clear action.
+One action: how to fix it.
+
+No apologies, no technical detail, no second paragraph.
 
 ---
 
@@ -388,10 +447,6 @@ Page Title
 
 ↓
 
-Optional Description
-
-↓
-
 Primary Content
 
 ↓
@@ -403,6 +458,8 @@ Secondary Content
 Primary CTA
 
 Use generous whitespace between sections.
+
+A description is not a step in this layout. Add one only when the title cannot carry the meaning, and keep it to one line.
 
 ---
 
@@ -417,6 +474,8 @@ Use generous whitespace between sections.
 ✓ Spacious
 
 ✓ Consistent
+
+✓ Few words
 
 ✓ Apple quality
 
@@ -450,6 +509,14 @@ Use generous whitespace between sections.
 
 ✗ Crowded layouts
 
+✗ Helper text that repeats the button
+
+✗ A subtitle under every heading
+
+✗ Paragraphs where a label works
+
+✗ Marketing copy inside the product
+
 ---
 
 # AI Instructions
@@ -461,6 +528,8 @@ Whenever creating a new screen:
 - Do not invent new colors.
 - Follow the typography scale.
 - Keep interfaces minimal.
+- Write the least text that still works: no subtitle where a title is enough, no title where the button is enough.
+- Before shipping a screen, delete every line the UI already communicates.
 - Optimize for readability first.
 - Every screen should look like it belongs in the same product.
 - If unsure, choose the simpler option.

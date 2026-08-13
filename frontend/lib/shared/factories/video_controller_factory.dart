@@ -8,6 +8,7 @@ import 'package:vayug/shared/services/hls_warmup_service.dart';
 import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/di/dependency_injection.dart';
+import 'package:vayug/shared/exceptions/app_exceptions.dart';
 
 /// Factory for creating VideoPlayerController instances with optimized configuration
 class VideoControllerFactory {
@@ -28,38 +29,39 @@ class VideoControllerFactory {
         AppLogger.log(
             '🎬 VideoControllerFactory: Fetching E2EE key for video: ${video.id}');
         final encKey = await e2ee.fetchEncryptedVideoKey(video.id);
-        if (encKey != null) {
-          AppLogger.log(
-              '🎬 VideoControllerFactory: Successfully fetched E2EE key. Decrypting...');
-          final symmetricKey = await e2ee.decryptSymmetricKey(encKey);
-          AppLogger.log(
-              '🎬 VideoControllerFactory: Decrypted symmetric key (size: ${symmetricKey.length} bytes). Registering with proxy...');
-          videoCacheProxy.registerSymmetricKey(video.id, symmetricKey);
-          videoCacheProxy.markUrlAsPlayable(video.videoUrl);
+        if (encKey == null || encKey.isEmpty) {
+          throw const E2eeVideoAccessException(
+            'The decryption key for this video is unavailable.',
+            code: 'key_unavailable',
+          );
+        }
+        AppLogger.log(
+            '🎬 VideoControllerFactory: Successfully fetched E2EE key. Decrypting...');
+        final symmetricKey = await e2ee.decryptSymmetricKey(encKey);
+        AppLogger.log(
+            '🎬 VideoControllerFactory: Decrypted symmetric key (size: ${symmetricKey.length} bytes). Registering with proxy...');
+        videoCacheProxy.registerSymmetricKey(video.id, symmetricKey);
+        videoCacheProxy.markUrlAsPlayable(video.videoUrl);
 
-          // **E2EE PRE-FETCH: Fire-and-forget background download.
-          // ExoPlayer initializes immediately with chunked encoding.
-          // If pre-fetch finishes first → cache hit (instant).
-          // If ExoPlayer requests first → CDN stream (also works).**
-          final isAlreadyCached = await videoCacheProxy.isCached(video.videoUrl);
-          final isDecReady = await videoCacheProxy.isDecryptedReady(video.videoUrl);
+        // **E2EE PRE-FETCH: Fire-and-forget background download.
+        // ExoPlayer initializes immediately with chunked encoding.
+        // If pre-fetch finishes first → cache hit (instant).
+        // If ExoPlayer requests first → CDN stream (also works).**
+        final isAlreadyCached = await videoCacheProxy.isCached(video.videoUrl);
+        final isDecReady = await videoCacheProxy.isDecryptedReady(video.videoUrl);
 
-          if (!isAlreadyCached) {
-            AppLogger.log('🔐 VideoControllerFactory: Background pre-fetching E2EE video ${video.id}...');
-            videoCacheProxy.prefetchFullFile(video.videoUrl, videoId: video.id);
-          } else if (!isDecReady) {
-            // Cache exists but .dec not ready — trigger background decrypt and wait briefly
-            AppLogger.log(
-              '🔐 VideoControllerFactory: Cache exists but .dec not ready for ${video.id}, '
-              'triggering background decrypt...',
-            );
-            videoCacheProxy.prefetchFullFile(video.videoUrl, videoId: video.id);
-          } else {
-            AppLogger.log('🔐 VideoControllerFactory: E2EE fully ready for ${video.id}');
-          }
+        if (!isAlreadyCached) {
+          AppLogger.log('🔐 VideoControllerFactory: Background pre-fetching E2EE video ${video.id}...');
+          videoCacheProxy.prefetchFullFile(video.videoUrl, videoId: video.id);
+        } else if (!isDecReady) {
+          // Cache exists but .dec not ready — trigger background decrypt and wait briefly
+          AppLogger.log(
+            '🔐 VideoControllerFactory: Cache exists but .dec not ready for ${video.id}, '
+            'triggering background decrypt...',
+          );
+          videoCacheProxy.prefetchFullFile(video.videoUrl, videoId: video.id);
         } else {
-          AppLogger.log(
-              '⚠️ VideoControllerFactory: No E2EE key available for video ${video.id}');
+          AppLogger.log('🔐 VideoControllerFactory: E2EE fully ready for ${video.id}');
         }
       } catch (e, stack) {
         AppLogger.log(

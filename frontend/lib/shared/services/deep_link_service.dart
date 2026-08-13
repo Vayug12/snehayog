@@ -87,7 +87,8 @@ class DeepLinkService {
       return;
     }
 
-    // HTTPS links use /video/<id>. The web fallback button uses the custom
+    // HTTPS links use /video/<id>/<slug>; legacy links may omit the slug.
+    // The web fallback button uses the custom
     // scheme snehayog://video/<id>, where `video` is the URI host.
     final isHttpsVideoLink = path.startsWith('/video/');
     final isCustomSchemeVideoLink = uri.scheme == 'snehayog' &&

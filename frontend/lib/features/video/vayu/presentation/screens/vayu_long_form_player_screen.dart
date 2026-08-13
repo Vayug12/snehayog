@@ -49,6 +49,7 @@ import 'package:vayug/features/profile/core/presentation/screens/profile_screen.
 import 'package:vayug/shared/navigation/app_route_observer.dart';
 import 'package:vayug/shared/widgets/tab_scope.dart';
 import 'package:vayug/shared/services/playback_coordinator.dart';
+import 'package:vayug/shared/services/install_attribution_service.dart';
 
 class VayuLongFormPlayerScreen extends ConsumerStatefulWidget {
   final VideoModel video;
@@ -78,14 +79,14 @@ class VayuLongFormPlayerScreen extends ConsumerStatefulWidget {
 
 class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScreen> with WidgetsBindingObserver, RouteAware, VayuPlayerGesturesMixin {
 
+  // The player draws its own subtle protection behind the system bars. The
+  // explicit transparent values cover pre-Android-15 devices; Android 15+
+  // keeps the same result through edge-to-edge mode.
   static const _playerSystemUiOverlayStyle = SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    // The player draws its own subtle protection behind this transparent bar.
-    // This keeps the navigation buttons integrated with the current screen.
     systemNavigationBarColor: Colors.transparent,
-    systemNavigationBarIconBrightness: Brightness.light,
     systemNavigationBarDividerColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarIconBrightness: Brightness.light,
     systemNavigationBarContrastEnforced: false,
   );
 
@@ -927,16 +928,24 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
                 _showSnackBar('Submitting suggestion...');
 
                 try {
+                  final attribution = await InstallAttributionService.instance
+                      .getAttributionPayload();
+                  final payload = <String, dynamic>{
+                    'type': 'suggestion',
+                    'comments': suggestionText,
+                    'userEmail': userEmail,
+                    'userId': userId,
+                    'videoId': video.id,
+                    'rating': 5,
+                  };
+
+                  if (attribution.isNotEmpty) {
+                    payload['attribution'] = attribution;
+                  }
+
                   final response = await _videoService.httpClientService.post(
                     Uri.parse('${NetworkHelper.apiBaseUrl}/feedback/submit'),
-                    body: {
-                      'type': 'suggestion',
-                      'comments': suggestionText,
-                      'userEmail': userEmail,
-                      'userId': userId,
-                      'videoId': video.id,
-                      'rating': 5, // Default rating for suggestions
-                    },
+                    body: payload,
                   );
 
                   if (response.statusCode == 201) {

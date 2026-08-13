@@ -33,6 +33,7 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
     _previousIndex = _currentIndexVN.value;
     _currentIndexVN.value = value;
   }
+
   int _currentPage = 1;
   String? _nextCursor; // **NEW: Cursor for the next page of videos**
 
@@ -99,6 +100,10 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   final ValueNotifier<bool> _adsLoadedVN = ValueNotifier<bool>(false);
   bool get _adsLoaded => _adsLoadedVN.value;
   set _adsLoaded(bool value) => _adsLoadedVN.value = value;
+  Future<void>? _activeAdsLoadFuture;
+  Timer? _bannerAdRetryTimer;
+  int _bannerAdRetryAttempt = 0;
+  static const int _maxBannerAdRetryAttempts = 4;
 
   // Page controller
   late PageController _pageController;
@@ -113,17 +118,17 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   final Map<String, bool> _userPaused = {};
   // **OPTIMIZED: ValueNotifier for user paused state to avoid full rebuilds**
   final Map<String, ValueNotifier<bool>> _userPausedVN = {};
-  
+
   final Map<String, bool> _isBuffering = {};
   final Set<String> _togglingVideos = {};
   final Map<String, ValueNotifier<bool>> _isBufferingVN = {};
   final Map<String, ValueNotifier<bool>> _isSlowConnectionVN = {};
   final Map<String, Timer> _bufferingTimers = {};
-  
+
   // **NEW: Connectivity UI Throttling**
   int _slowConnectionShownCount = 0;
   final int _maxSlowConnectionShows = 2;
-  
+
   // **NEW: Offline Banner Control**
   final ValueNotifier<bool> _showOfflineBannerVN = ValueNotifier<bool>(false);
   bool _hasShownOfflineBanner = false;
@@ -138,9 +143,9 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   // **NEW: Track Error Listeners explicitly for cleanup**
   final Map<String, VoidCallback> _errorListeners = {};
 
-  final ValueNotifier<QuizModel?> _activeQuizVN = ValueNotifier<QuizModel?>(null);
+  final ValueNotifier<QuizModel?> _activeQuizVN =
+      ValueNotifier<QuizModel?>(null);
   late final IQuizEngine _quizEngine;
-
 
   // Resume tracking
   final Map<String, bool> _wasPlayingBeforeNavigation = {};
@@ -152,13 +157,12 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   // **OPTIMIZED: Reduced to 1 for maximum performance**
   // Focus all resources on current video for smoothest playback
   int get _maxConcurrentInitializations => 1;
-  
+
   // **NEW: Adaptive Network State**
   bool _isLowBandwidthMode = false;
   bool _isLowEndDevice = false; // **NEW: Track device capabilities**
   int _consecutiveSmoothPlays = 0;
-  
-  
+
   final Map<String, int> _preloadRetryCount = {};
   Timer? _preloadTimer;
   Timer? _pageChangeTimer;
@@ -169,8 +173,6 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   bool _wasLastScrollFast = false;
 
   // First-frame tracking
-
-
 
   // Disposal subscription
   StreamSubscription<String>? _poolDisposalSubscription;
@@ -193,7 +195,6 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   final ValueNotifier<bool> _hasMoreVN = ValueNotifier<bool>(true);
   bool get _hasMore => _hasMoreVN.value;
   set _hasMore(bool value) => _hasMoreVN.value = value;
-
 
   // **NEW: Video Error Tracking**
   // Stores error messages for videos that failed to load or play
@@ -220,7 +221,8 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
   final Map<String, PageController> _horizontalControllers = {};
 
   // **Long-press ad overlay state**
-  final ValueNotifier<bool> _showLongPressAdOverlayVN = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _showLongPressAdOverlayVN =
+      ValueNotifier<bool>(false);
   Timer? _longPressAdAutoHideTimer;
 
   // **Pause-triggered ad overlay state (no auto-hide — hides when video plays)**
@@ -245,7 +247,6 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
 
   // Earnings cache
 
-
   // Persisted state keys
   String get _kSavedFeedIndexKey => 'video_feed_saved_index';
   String get _kSavedFeedTypeKey => 'video_feed_saved_type';
@@ -269,9 +270,6 @@ mixin VideoFeedStateFieldsMixin on ConsumerState<VideoFeedAdvanced> {
 
   // Background page preload logic
   bool _hasStartedBackgroundPreload = false;
-
-
-
 
   // **STATE RESTORATION: Native OS-managed properties**
   // These are automatically deleted by the OS if the user manually swipes the app away.

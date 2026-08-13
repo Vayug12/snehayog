@@ -149,7 +149,33 @@ class ProfileStateManager extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshData() => loadUserData(infoManager.requestedUserId, forceRefresh: true);
+  /// Refreshes all profile data and completes only after the fresh UI state is ready.
+  /// Initial loading stays progressive, while explicit user refreshes are fully awaited.
+  Future<void> refreshData() async {
+    final userId = infoManager.requestedUserId;
+
+    await Future.wait([
+      infoManager.loadUserData(userId, forceRefresh: true, silent: true),
+      videoManager.loadUserVideos(userId, forceRefresh: true, silent: true),
+    ]);
+
+    final refreshError = infoManager.error ?? videoManager.error;
+    if (refreshError != null) {
+      throw StateError(refreshError);
+    }
+
+    await statsManager.loadEarnings(
+      videoManager.userVideos,
+      forceRefresh: true,
+      silent: true,
+      userData: infoManager.userData,
+    );
+
+    if (isOwner && isSignedIn) {
+      unawaited(notificationManager.fetchActiveNotice());
+      unawaited(statsManager.fetchCreatorAlertStats());
+    }
+  }
 
   Future<void> loadUserVideos(String? userId, {bool forceRefresh = false, bool silent = false, int page = 1}) =>
       videoManager.loadUserVideos(userId, forceRefresh: forceRefresh, silent: silent, page: page);
@@ -219,6 +245,9 @@ class ProfileStateManager extends ChangeNotifier {
   Future<void> ensurePaymentDetailsHydrated() => infoManager.ensurePaymentDetailsHydrated();
 
   Future<void> saveUpiIdQuick(String upiId) => infoManager.saveUpiIdQuick(upiId);
+
+  void setPaymentDetails(Map<String, dynamic>? paymentDetails) =>
+      infoManager.setPaymentDetails(paymentDetails);
 
   void clearError() {
     infoManager.setError(null);

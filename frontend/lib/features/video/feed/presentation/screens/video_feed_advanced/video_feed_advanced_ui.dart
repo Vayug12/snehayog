@@ -123,6 +123,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     final String videoId = index < _videos.length ? _videos[index].id : '';
     final VideoModel? video = index < _videos.length ? _videos[index] : null;
     final String errorLower = error.toLowerCase();
+    if (video != null && _isE2eeAuthenticationError(errorLower)) {
+      return _buildE2eeSignInState(index);
+    }
     if (_isSecureVideoPreparingError(video, error) && video != null) {
       return _buildE2eeDecryptingState(video);
     }
@@ -179,25 +182,16 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                   textAlign: TextAlign.center,
                 ),
                 AppSpacing.vSpace12,
+                // One line only: the retry button and the swipe hint below
+                // already cover what to do next.
                 Text(
                   isStillLoading
-                      ? 'The secure video is taking longer to download. This may happen on slower connections.'
+                      ? 'This is taking longer than usual.'
                       : _getUserFriendlyErrorMessage(error),
                   style: TextStyle(
                     color: AppColors.white,
                     fontSize: AppTypography.fontSizeBase,
                     fontWeight: AppTypography.weightSemiBold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                AppSpacing.vSpace8,
-                Text(
-                  isStillLoading
-                      ? 'Try again in a moment, or swipe up/down to continue watching other videos.'
-                      : 'This content is secured with E2EE. Only authorized devices and active subscribers can decrypt and play this video.',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: AppTypography.fontSizeSM,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -284,19 +278,6 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            if (error.toLowerCase().contains('source')) ...[
-              AppSpacing.vSpace8,
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Text(
-                  'This may happen on slow connections. Try again or check your network.',
-                  style: TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: AppTypography.fontSizeXS),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
             AppSpacing.vSpace16,
             AppButton(
               onPressed: () {
@@ -323,6 +304,39 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
         ),
       ),
     );
+  }
+
+  bool _isE2eeAuthenticationError(String errorLower) {
+    return errorLower.contains('authentication_required') ||
+        errorLower.contains('please sign in again') ||
+        errorLower.contains('please sign in to watch this encrypted video');
+  }
+
+  Widget _buildE2eeSignInState(int index) {
+    return Container(
+      color: AppColors.backgroundPrimary,
+      child: AuthSignInPrompt(
+        icon: Icons.lock_outline_rounded,
+        title: 'Sign in to watch this video',
+        subtitle: 'This end-to-end encrypted video requires an active account.',
+        onSignedIn: () => _retryE2eeVideo(index),
+      ),
+    );
+  }
+
+  Future<void> _retryE2eeVideo(int index) async {
+    if (!mounted || index >= _videos.length) return;
+    final videoId = _videos[index].id;
+    safeSetState(() {
+      _videoErrors.remove(videoId);
+      _e2eeDecryptingVideos.remove(videoId);
+      _preloadRetryCount.remove(videoId);
+      _loadingVideos.add(videoId);
+    });
+    await _preloadVideo(index);
+    if (mounted && index == _currentIndex) {
+      _tryAutoplayCurrentImmediate(index);
+    }
   }
 
   Widget _buildE2eeDecryptingState(VideoModel video) {
@@ -367,9 +381,6 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                             : showProgress
                                 ? 'Downloading secure video'
                                 : 'Preparing secure video';
-                        final statusBody = isDecrypting
-                            ? 'Your video is being unlocked on this device. Playback will start automatically.'
-                            : 'Keeping this private video protected while it gets ready.';
                         return Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -422,16 +433,6 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                               color: AppColors.white,
                               fontSize: 20,
                               fontWeight: AppTypography.weightBold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          AppSpacing.vSpace8,
-                          Text(
-                            statusBody,
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: AppTypography.fontSizeSM,
-                              height: 1.35,
                             ),
                             textAlign: TextAlign.center,
                           ),
@@ -514,16 +515,6 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      AppSpacing.vSpace8,
-                      Text(
-                        'Your private video is being prepared. Playback will start automatically.',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: AppTypography.fontSizeSM,
-                          height: 1.35,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
                       ],
                     ),
                 ],
@@ -553,14 +544,6 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
               fontSize: AppTypography.fontSizeXL,
               fontWeight: AppTypography.weightBold,
             ),
-          ),
-          AppSpacing.vSpace8,
-          Text(
-            'Try refreshing or check back later',
-            style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: AppTypography.fontSizeBase),
-            textAlign: TextAlign.center,
           ),
           AppSpacing.vSpace24,
           AppButton(
@@ -2428,12 +2411,14 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                       ],
                     ),
                     child: ClipOval(
-                      child: Image.network(
-                        imageUrl,
+                      child: CachedNetworkImage(
+                        imageUrl: imageUrl,
                         width: 70,
                         height: 70,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
+                        memCacheWidth: 140,
+                        maxWidthDiskCache: 140,
+                        errorWidget: (context, url, error) {
                           return Container(
                             color: AppColors.borderPrimary,
                             child: const Icon(Icons.ad_units,
@@ -2683,4 +2668,3 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     );
   }
 }
-

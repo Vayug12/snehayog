@@ -40,6 +40,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   bool _hasTrackedView = false; // Prevent duplicate view tracking
   DateTime? _viewStartTime; // Track when ad became visible
   Timer? _viewTrackingTimer; // Timer to check view duration
+  Timer? _imageRetryTimer;
+  int _imageRetryAttempt = 0;
+  static const int _maxImageRetryAttempts = 3;
 
   // Cache image provider per banner to avoid rebuild flicker
   static final Map<String, ImageProvider> _imageProviderCache = {};
@@ -57,7 +60,22 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   @override
   void dispose() {
     _viewTrackingTimer?.cancel();
+    _imageRetryTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant BannerAdWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldAdId = oldWidget.adData['_id'] ?? oldWidget.adData['id'];
+    final newAdId = widget.adData['_id'] ?? widget.adData['id'];
+    final oldImageUrl = _rawImageUrl(oldWidget.adData);
+    final newImageUrl = _rawImageUrl(widget.adData);
+    if (oldAdId != newAdId || oldImageUrl != newImageUrl) {
+      _imageRetryTimer?.cancel();
+      _imageRetryTimer = null;
+      _imageRetryAttempt = 0;
+    }
   }
 
   /// **NEW: Track ad view duration (minimum 4 seconds)**
@@ -140,22 +158,25 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
     return 'https://$u';
   }
 
+  String _rawImageUrl(Map<String, dynamic> adData) {
+    final rawImage = adData['imageUrl'] ??
+        adData['image'] ??
+        adData['bannerImageUrl'] ??
+        adData['mediaUrl'] ??
+        adData['cloudinaryUrl'] ??
+        adData['thumbnail'] ??
+        '';
+    return rawImage is String ? rawImage : rawImage.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     // Resolve image URL from multiple possible keys and ensure absolute URL
-    final dynamic rawImage = widget.adData['imageUrl'] ??
-        widget.adData['image'] ??
-        widget.adData['bannerImageUrl'] ??
-        widget.adData['mediaUrl'] ??
-        widget.adData['cloudinaryUrl'] ??
-        widget.adData['thumbnail'] ??
-        '';
-    final String imageUrl = _ensureAbsoluteUrl(
-        rawImage is String ? rawImage : rawImage?.toString() ?? '');
+    final String imageUrl = _ensureAbsoluteUrl(_rawImageUrl(widget.adData));
 
     // **MODIFIED: Removed text-only fallback to maintain consistent layout**
-    // The widget will now always render the standard image-based layout, 
-    // ensuring elements like the 'Sponsored' label never disappear and 
+    // The widget will now always render the standard image-based layout,
+    // ensuring elements like the 'Sponsored' label never disappear and
     // the layout remains stable even if the image fails or is missing.
 
     // **NEW: Track ad impression when widget is built**
@@ -168,163 +189,168 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
       child: Align(
         alignment: Alignment.topLeft,
         child: Container(
-            width: double.infinity,
-            height: 50, // **REDUCED from 60 for more video space**
-            margin: const EdgeInsets.only(top: 1),
-            // Solid surface so the image, title, CTA, and Sponsored tag read
-            // as one contained card instead of loose elements over the video.
-            decoration: BoxDecoration(
-              color: AppColors.surfacePrimary,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Material(
-              color: Colors.transparent,
+          width: double.infinity,
+          height: 50, // **REDUCED from 60 for more video space**
+          margin: const EdgeInsets.only(top: 1),
+          // Solid surface so the image, title, CTA, and Sponsored tag read
+          // as one contained card instead of loose elements over the video.
+          decoration: BoxDecoration(
+            color: AppColors.surfacePrimary,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius:
+                BorderRadius.circular(12), // Match container rounded corners
+            child: InkWell(
               borderRadius:
                   BorderRadius.circular(12), // Match container rounded corners
-              child: InkWell(
-                borderRadius: BorderRadius.circular(
-                    12), // Match container rounded corners
-                onTap: () => _handleAdClick(context),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12), // Rounded corners
-                  clipBehavior: Clip
-                      .hardEdge, // **FIX: Hard-edge clipping for isolation**
-                  child: Row(
-                    children: [
-                      // 40% space for banner image
-                      Expanded(
-                        flex: 2,
-                        child: SizedBox(
-                          height: 50, // **REDUCED from 60 to match container**
-                          child: imageUrl.isNotEmpty
-                              ? RepaintBoundary(
-                                  // **FIX: Isolate image with RepaintBoundary**
-                                  child: Image(
-                                    image: _getCachedImageProvider(imageUrl),
-                                    fit: BoxFit.cover,
-                                    filterQuality: FilterQuality.low,
-                                    gaplessPlayback:
-                                        true, // **FIX: Gapless image to prevent flicker**
-                                    errorBuilder: (context, error, stackTrace) {
-                                      AppLogger.log(
-                                          '❌ BannerAdWidget: Failed to load image: $imageUrl, Error: $error');
-                                      return Container(
-                                        color: Colors.white10,
-                                        child: const Center(
-                                          child: Icon(Icons.broken_image_outlined, color: Colors.white24, size: 16),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                )
-                              : Container(
-                                  color: Colors.white10,
-                                  width: double.infinity,
-                                  height: double.infinity,
+              onTap: () => _handleAdClick(context),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12), // Rounded corners
+                clipBehavior:
+                    Clip.hardEdge, // **FIX: Hard-edge clipping for isolation**
+                child: Row(
+                  children: [
+                    // 40% space for banner image
+                    Expanded(
+                      flex: 2,
+                      child: SizedBox(
+                        height: 50, // **REDUCED from 60 to match container**
+                        child: imageUrl.isNotEmpty
+                            ? RepaintBoundary(
+                                // **FIX: Isolate image with RepaintBoundary**
+                                child: Image(
+                                  key:
+                                      ValueKey('$imageUrl#$_imageRetryAttempt'),
+                                  image: _getCachedImageProvider(imageUrl),
+                                  fit: BoxFit.cover,
+                                  filterQuality: FilterQuality.low,
+                                  gaplessPlayback:
+                                      true, // **FIX: Gapless image to prevent flicker**
+                                  errorBuilder: (context, error, stackTrace) {
+                                    AppLogger.log(
+                                        '❌ BannerAdWidget: Failed to load image: $imageUrl, Error: $error');
+                                    _scheduleImageRetry(imageUrl);
+                                    return Container(
+                                      color: Colors.white10,
+                                      child: const Center(
+                                        child: Icon(Icons.broken_image_outlined,
+                                            color: Colors.white24, size: 16),
+                                      ),
+                                    );
+                                  },
                                 ),
-                        ),
-                      ),
-
-                      // 60% space for title and CTA
-                      Expanded(
-                        flex: 3,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6), // more compact
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // Ad title
-                              Expanded(
-                                child: Text(
-                                  widget.adData['title'] ?? 'Sponsored Content',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10, // compact text
-                                    fontWeight: FontWeight.w600,
-                                    height: 1.1, // Reduced line height
-                                  ),
-                                  maxLines:
-                                      3, // Increased from 2 to 3 to accommodate more text
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                              )
+                            : Container(
+                                color: Colors.white10,
+                                width: double.infinity,
+                                height: double.infinity,
                               ),
+                      ),
+                    ),
 
-                              const SizedBox(height: 3),
+                    // 60% space for title and CTA
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6), // more compact
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // Ad title
+                            Expanded(
+                              child: Text(
+                                widget.adData['title'] ?? 'Sponsored Content',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10, // compact text
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.1, // Reduced line height
+                                ),
+                                maxLines:
+                                    3, // Increased from 2 to 3 to accommodate more text
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
 
-                              // Call to action button
-                              Row(
-                                children: [
-                                  GestureDetector(
-                                    onTap: () => _handleAdClick(context),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.primary,
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: (() {
-                                        String label = 'Learn More';
-                                        final cta = widget.adData['callToAction'];
-                                        if (cta is Map) {
-                                          label = cta['label']?.toString() ?? 'Learn More';
-                                        } else if (cta is String) {
-                                          label = cta;
-                                        }
-                                        // **FIX: Replace 'Shop Now' with 'Learn More'**
-                                        if (label.toUpperCase() == 'SHOP NOW') {
-                                          label = 'Learn More';
-                                        }
+                            const SizedBox(height: 3),
 
-                                        return Text(
-                                          label,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        );
-                                      })(),
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  // Small "Sponsored" label
-                                  Container(
+                            // Call to action button
+                            Row(
+                              children: [
+                                GestureDetector(
+                                  onTap: () => _handleAdClick(context),
+                                  child: Container(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 2,
+                                      horizontal: 6,
+                                      vertical: 3,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.3),
-                                      borderRadius: BorderRadius.circular(4),
+                                      color: AppColors.primary,
+                                      borderRadius: BorderRadius.circular(6),
                                     ),
-                                    child: const Text(
-                                      'Sponsored',
-                                      style: TextStyle(
-                                        fontSize: 8,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w500,
-                                        letterSpacing: 0.3,
-                                      ),
+                                    child: (() {
+                                      String label = 'Learn More';
+                                      final cta = widget.adData['callToAction'];
+                                      if (cta is Map) {
+                                        label = cta['label']?.toString() ??
+                                            'Learn More';
+                                      } else if (cta is String) {
+                                        label = cta;
+                                      }
+                                      // **FIX: Replace 'Shop Now' with 'Learn More'**
+                                      if (label.toUpperCase() == 'SHOP NOW') {
+                                        label = 'Learn More';
+                                      }
+
+                                      return Text(
+                                        label,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      );
+                                    })(),
+                                  ),
+                                ),
+                                const Spacer(),
+                                // Small "Sponsored" label
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.3),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'Sponsored',
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500,
+                                      letterSpacing: 0.3,
                                     ),
                                   ),
-                                ],
-                              ),
-                            ],
-                          ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
         ),
+      ),
     );
   }
 
@@ -337,7 +363,24 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
     return provider;
   }
 
+  void _scheduleImageRetry(String url) {
+    if (!mounted ||
+        _imageRetryAttempt >= _maxImageRetryAttempts ||
+        _imageRetryTimer?.isActive == true) {
+      return;
+    }
 
+    final delay = Duration(seconds: 1 << _imageRetryAttempt);
+    _imageRetryTimer = Timer(delay, () async {
+      _imageRetryTimer = null;
+      if (!mounted) return;
+
+      final failedProvider = _imageProviderCache.remove(url);
+      await failedProvider?.evict();
+      if (!mounted) return;
+      setState(() => _imageRetryAttempt++);
+    });
+  }
 
   /// Handle ad click directly (for Learn More button)
   void _handleAdClick(BuildContext context) async {

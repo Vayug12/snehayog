@@ -8,6 +8,7 @@ import CreatorPayout from '../models/CreatorPayout.js';
 import AdImpression from '../models/AdImpression.js';
 import Notice from '../models/Notice.js';
 import RemovedVideoRecord from '../models/RemovedVideoRecord.js';
+import AnonymousDevice from '../models/AnonymousDevice.js';
 import { AD_CONFIG } from '../constants/index.js';
 import RecommendationService from '../services/yugFeedServices/recommendationService.js';
 import WatchHistory from '../models/WatchHistory.js';
@@ -186,6 +187,11 @@ router.get('/feedback/export', requireAdminDashboardKey, async (req, res) => {
       'isReplied',
       'adminReply',
       'repliedAt',
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'utm_content',
+      'utm_term',
       'createdAt',
       'updatedAt'
     ];
@@ -210,6 +216,11 @@ router.get('/feedback/export', requireAdminDashboardKey, async (req, res) => {
       item.isReplied,
       item.adminReply || '',
       item.repliedAt ? item.repliedAt.toISOString() : '',
+      item.attribution?.source || '',
+      item.attribution?.medium || '',
+      item.attribution?.campaign || '',
+      item.attribution?.content || '',
+      item.attribution?.term || '',
       item.createdAt ? item.createdAt.toISOString() : '',
       item.updatedAt ? item.updatedAt.toISOString() : ''
     ]);
@@ -671,6 +682,54 @@ router.get('/recommender/stats', requireAdminDashboardKey, async (req, res) => {
   }
 });
 
+/**
+ * Merges feedback attribution and anonymous device attribution data
+ * into a unified format for the admin dashboard.
+ */
+function mergeAttributionData(feedbackAttr, anonymousAttr) {
+  const merged = new Map();
+
+  // Add feedback attribution
+  feedbackAttr.forEach(item => {
+    merged.set(item._id, {
+      _id: item._id,
+      feedbackCount: item.feedbackCount || 0,
+      avgRating: item.avgRating || 0,
+      fiveStarCount: item.fiveStarCount || 0,
+      lowRatingCount: item.lowRatingCount || 0,
+      latestFeedbackAt: item.latestFeedbackAt,
+      installCount: 0,
+      latestInstallAt: null
+    });
+  });
+
+  // Add/merge anonymous device attribution
+  anonymousAttr.forEach(item => {
+    if (merged.has(item._id)) {
+      const existing = merged.get(item._id);
+      existing.installCount = item.installCount || 0;
+      existing.latestInstallAt = item.latestInstallAt;
+    } else {
+      merged.set(item._id, {
+        _id: item._id,
+        feedbackCount: 0,
+        avgRating: 0,
+        fiveStarCount: 0,
+        lowRatingCount: 0,
+        latestFeedbackAt: null,
+        installCount: item.installCount || 0,
+        latestInstallAt: item.latestInstallAt
+      });
+    }
+  });
+
+  return Array.from(merged.values()).sort((a, b) => {
+    const aTotal = (a.feedbackCount || 0) + (a.installCount || 0);
+    const bTotal = (b.feedbackCount || 0) + (b.installCount || 0);
+    return bTotal - aTotal;
+  });
+}
+
 // **NEW: Route to get detailed user behavior metrics**
 router.get('/user-behavior/stats', requireAdminDashboardKey, async (req, res) => {
   try {
@@ -791,6 +850,80 @@ router.get('/user-behavior/stats', requireAdminDashboardKey, async (req, res) =>
       };
     });
 
+    const feedbackAttribution = await Feedback.aggregate([
+      {
+        $match: {
+          ...matchStage,
+          type: { $ne: 'suggestion' }
+        }
+      },
+      {
+        $addFields: {
+          normalizedSource: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: ['$attribution.source', null] },
+                  { $eq: ['$attribution.source', ''] }
+                ]
+              },
+              'unknown',
+              '$attribution.source'
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$normalizedSource',
+          feedbackCount: { $sum: 1 },
+          avgRating: { $avg: '$rating' },
+          fiveStarCount: {
+            $sum: { $cond: [{ $eq: ['$rating', 5] }, 1, 0] }
+          },
+          lowRatingCount: {
+            $sum: { $cond: [{ $lte: ['$rating', 2] }, 1, 0] }
+          },
+          latestFeedbackAt: { $max: '$createdAt' }
+        }
+      },
+      { $sort: { feedbackCount: -1, avgRating: -1 } },
+      { $limit: 25 }
+    ]);
+
+    // 6. Anonymous Device Attribution (installs that haven't signed up yet)
+    const anonymousAttribution = await AnonymousDevice.aggregate([
+      {
+        $addFields: {
+          normalizedSource: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: ['$attribution.source', null] },
+                  { $eq: ['$attribution.source', ''] }
+                ]
+              },
+              'unknown',
+              '$attribution.source'
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$normalizedSource',
+          installCount: { $sum: 1 },
+          latestInstallAt: { $max: '$createdAt' },
+          devices: { $push: '$$ROOT' }
+        }
+      },
+      { $sort: { installCount: -1 } },
+      { $limit: 25 }
+    ]);
+
+    // Merge feedback attribution and anonymous device attribution
+    const mergedAttribution = mergeAttributionData(feedbackAttribution, anonymousAttribution);
+
     res.json({
       success: true,
       metrics: {
@@ -802,6 +935,8 @@ router.get('/user-behavior/stats', requireAdminDashboardKey, async (req, res) =>
       },
       skipDistribution,
       interests: interestStats,
+      feedbackAttribution: mergedAttribution,
+      anonymousAttribution,
       userTable: populatedUserTable
     });
 

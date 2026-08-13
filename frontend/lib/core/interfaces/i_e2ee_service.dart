@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:vayug/shared/exceptions/app_exceptions.dart';
 
 /// Contract for E2EE (End-to-End Encryption) operations.
 ///
@@ -61,7 +62,9 @@ abstract class IE2eeService {
   // ─────────────────────────────────────────────────
 
   /// Fetches the encrypted symmetric key for a specific video.
-  /// Returns null if the user doesn't have access.
+  /// Throws an [E2eeVideoAccessException] when authentication or access is
+  /// missing. A null result is retained only for backwards-compatible
+  /// implementations and should be treated as an unavailable key.
   Future<String?> fetchEncryptedVideoKey(String videoId);
 
   /// Decrypts the symmetric video key using the device's private key.

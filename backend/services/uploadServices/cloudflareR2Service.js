@@ -3,6 +3,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
+import { beat } from '../../utils/progressHeartbeat.js';
 
 class CloudflareR2Service {
   constructor() {
@@ -327,6 +328,10 @@ class CloudflareR2Service {
         await Promise.all(
           batch.map(t => this.uploadFileToR2(t.filePath, t.key, t.contentType))
         );
+        // Encode ke baad ka sabse lamba silent stretch: bade video ke sau-sau
+        // segments upload hote hain aur FFmpeg tick tab tak band ho chuka hota hai.
+        // Har batch pe beat kiye bina watchdog is healthy upload ko hang samajh leta.
+        beat();
       }
       
       if (!playlistKey) {

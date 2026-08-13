@@ -8,8 +8,9 @@ import 'package:vayug/core/design/colors.dart';
 class YugGridTab extends StatelessWidget {
   final ProfileStateManager manager;
   final VoidCallback? onReferFriends;
+  final bool hasReferralBillingUnlock;
 
-  const YugGridTab({super.key, required this.manager, this.onReferFriends});
+  const YugGridTab({super.key, required this.manager, this.onReferFriends, this.hasReferralBillingUnlock = false});
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +37,7 @@ class YugGridTab extends StatelessWidget {
             showHeader: false,
             isSliver: true,
             onReferFriends: onReferFriends,
+            hasReferralBillingUnlock: hasReferralBillingUnlock,
           ),
           if (manager.videoError != null && manager.userVideos.isNotEmpty)
             SliverToBoxAdapter(
