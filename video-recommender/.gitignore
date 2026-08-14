@@ -1,0 +1,19 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Virtualenvs ---
+venv/
+.venv/
+env/
+
+# --- Secrets ---
+.env
+
+# --- Runtime data (downloaded videos, embeddings, metadata) ---
+data/
+
+# --- Model weights ---
+models/

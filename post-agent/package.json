@@ -1,0 +1,16 @@
+{
+  "name": "snehayog-post-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Research-first social post generator for the Snehayog/Vayug project",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "generate": "node generate.js",
+    "auto": "node auto-generate.js",
+    "context": "node src/cli.js context",
+    "test": "node --test"
+  }
+}
