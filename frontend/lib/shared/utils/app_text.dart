@@ -58,6 +58,11 @@ class AppText {
     'btn_refer_friends': '2 Share & Unlock Full Access',
     'btn_sign_in_google': 'Sign In with Google',
 
+    // Video player
+    'video_picture_in_picture': 'Picture in picture',
+    'video_pip_short': 'PiP',
+    'video_pip_unavailable': 'Picture in picture is unavailable on this device',
+
     // Upload screen
     'upload_title': 'Upload & Create',
     'upload_select_media': 'Select Media',

@@ -36,7 +36,7 @@ Options:
   --no-critique       skip the editor pass (halves provider calls, lower quality)
 
 Environment:
-  POST_AGENT_PROJECT_ROOT   project path (defaults to ../snehayog)
+  POST_AGENT_PROJECT_ROOT   project path (auto-detected from the agent location)
   TAVILY_API_KEY            preferred web search provider
   no key                    DuckDuckGo HTML fallback
 `;

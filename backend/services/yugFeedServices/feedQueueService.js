@@ -299,7 +299,7 @@ class FeedQueueService {
 
     if (missingIds.length > 0) {
       const dbDocs = await Video.find({ _id: { $in: missingIds } })
-        .select('videoUrl thumbnailUrl description uploader views likes shares comments duration processingStatus createdAt videoHash videoName tags seriesId episodeNumber videoType aspectRatio quizzes')
+        .select('videoUrl thumbnailUrl description uploader views likes shares comments duration processingStatus createdAt videoHash videoName tags seriesId episodeNumber videoType aspectRatio quizzes link')
         .populate('uploader', 'name profilePic googleId username').lean();
 
       const dbMap = new Map(dbDocs.map(v => [v._id.toString(), v]));

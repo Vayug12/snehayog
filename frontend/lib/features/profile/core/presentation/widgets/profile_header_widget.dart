@@ -374,30 +374,29 @@ class ProfileHeaderWidget extends ConsumerWidget {
           ),
         if (!stateManager.isEditing) ...[
           if (showBillingSetup) const SizedBox(width: 12),
-          if (stateManager.totalVideoCount > 0)
-            Expanded(
-              child: OutlinedButton(
-                onPressed: onReferFriends,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.textSecondary,
-                  side: const BorderSide(color: AppColors.borderPrimary),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+          Expanded(
+            child: OutlinedButton(
+              onPressed: onReferFriends,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.textSecondary,
+                side: const BorderSide(color: AppColors.borderPrimary),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
-                  AppText.get('btn_refer_friends'),
-                  maxLines: 1,
-                  softWrap: false,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+              ),
+              child: Text(
+                AppText.get('btn_refer_friends'),
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
+          ),
         ]
       ],
     );

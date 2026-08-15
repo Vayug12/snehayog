@@ -11,6 +11,12 @@ import RecommendationService from '../services/yugFeedServices/recommendationSer
 import Notice from '../models/Notice.js';
 import Video from '../models/Video.js';
 import { billableMatch } from '../services/adServices/impressionCounting.js';
+import {
+  buildPublishingCreatorStatsPipeline,
+  getUtcMonthKey,
+  paginateCreatorSuggestions,
+  rankCreatorSuggestions,
+} from '../services/creatorDiscoveryService.js';
 
 const router = express.Router();
 
@@ -29,7 +35,8 @@ const IS_FOLLOWING_CACHE_TTL = 30; // 30 seconds
 
 const ACTIVE_CREATORS_CACHE_TTL = 600; // 10 minutes
 
-const getActiveCreatorsCacheKey = (videoType) => `creators:active:${videoType}`;
+const getActiveCreatorsCacheKey = (videoType, now = new Date()) =>
+  `creators:publishing:v3:${videoType}:${getUtcMonthKey(now)}`;
 
 const cacheResponse = async (key, data, ttl) => {
   if (!key || !data) return;
@@ -1189,25 +1196,29 @@ router.get('/subscriber-videos', verifyToken, async (req, res) => {
 });
 
 /**
- * Creators who actually publish the requested feed type.
- * Cached because the distinct scan is far heavier than the follow lookup.
+ * Publishing creators ordered later by feed relevance and upload freshness.
+ * Cached because grouping the video collection is heavier than the follow
+ * lookup. All public publishers remain eligible for pagination.
  */
-const getActiveCreatorIds = async (videoType) => {
-  const cacheKey = getActiveCreatorsCacheKey(videoType);
+const getPublishingCreatorStats = async (videoType, now = new Date()) => {
+  const cacheKey = getActiveCreatorsCacheKey(videoType, now);
   const cached = await getCachedResponse(cacheKey);
   if (Array.isArray(cached)) return cached;
 
-  const ids = await Video.distinct('uploader', {
-    videoType,
-    processingStatus: 'completed',
-    isSubscriberOnly: { $ne: true },
-  });
+  const stats = await Video.aggregate(
+    buildPublishingCreatorStatsPipeline({ videoType, now }),
+  );
 
-  const creatorIds = ids.filter(Boolean).map((id) => id.toString());
-  if (creatorIds.length > 0) {
-    await cacheResponse(cacheKey, creatorIds, ACTIVE_CREATORS_CACHE_TTL);
+  const creatorStats = stats.map((item) => ({
+    id: item._id.toString(),
+    latestUpload: item.latestUpload,
+    monthlyUploadCount: item.monthlyUploadCount || 0,
+    matchingVideoCount: item.matchingVideoCount || 0,
+  }));
+  if (creatorStats.length > 0) {
+    await cacheResponse(cacheKey, creatorStats, ACTIVE_CREATORS_CACHE_TTL);
   }
-  return creatorIds;
+  return creatorStats;
 };
 
 /**
@@ -1230,11 +1241,13 @@ router.get('/suggested-creators', verifyToken, async (req, res) => {
     }
 
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+    const cursor = Math.max(parseInt(req.query.cursor, 10) || 0, 0);
     const videoType = (req.query.videoType || 'vayu').toLowerCase();
 
-    const [followDocs, activeCreatorIds] = await Promise.all([
+    const now = new Date();
+    const [followDocs, publishingCreatorStats] = await Promise.all([
       Follower.find({ follower: userObjectId }).select('following').lean(),
-      getActiveCreatorIds(videoType),
+      getPublishingCreatorStats(videoType, now),
     ]);
 
     const excludedIds = new Set([
@@ -1242,40 +1255,36 @@ router.get('/suggested-creators', verifyToken, async (req, res) => {
       ...followDocs.map((doc) => doc.following?.toString()).filter(Boolean),
     ]);
 
-    const candidateIds = activeCreatorIds.filter((id) => !excludedIds.has(id));
-
-    let creators = [];
-    if (candidateIds.length > 0) {
-      creators = await User.find({ _id: { $in: candidateIds } })
-        .select('googleId name profilePic followerCount')
-        .sort({ followerCount: -1 })
-        .limit(limit)
-        .lean();
-    }
-
-    // Top up with other publishing creators so a new user always has enough
-    // choices to clear the gate, even before the platform has long-form uploads.
-    if (creators.length < limit) {
-      creators.forEach((c) => excludedIds.add(c._id.toString()));
-      const fillers = await User.find({
-        _id: { $nin: Array.from(excludedIds) },
-        'videos.0': { $exists: true },
-      })
-        .select('googleId name profilePic followerCount')
-        .sort({ followerCount: -1 })
-        .limit(limit - creators.length)
-        .lean();
-      creators = creators.concat(fillers);
-    }
+    const candidateIds = publishingCreatorStats
+      .map((item) => item?.id)
+      .filter(Boolean);
+    const creatorUsers = candidateIds.length > 0
+      ? await User.find({ _id: { $in: candidateIds } })
+          .select('googleId name profilePic followerCount createdAt')
+          .lean()
+      : [];
+    const rankedCreators = rankCreatorSuggestions({
+      publishingCreatorStats,
+      creatorUsers,
+      now,
+    });
+    const page = paginateCreatorSuggestions({
+      rankedCreators,
+      excludedIds,
+      cursor,
+      limit,
+    });
 
     res.json({
       success: true,
-      creators: creators.map((c) => ({
+      creators: page.creators.map((c) => ({
         id: c.googleId || c._id.toString(),
         name: c.name || 'Creator',
         profilePic: c.profilePic || '',
         followerCount: c.followerCount || 0,
       })),
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
       followingCount: followDocs.length,
       required: MIN_SUBSCRIPTIONS,
     });

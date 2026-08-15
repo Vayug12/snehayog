@@ -1,0 +1,60 @@
+appId: com.snehayog.app
+name: Core navigation and first launch
+tags:
+  - smoke
+  - navigation
+---
+- launchApp:
+    stopApp: true
+
+# A fresh release install shows five onboarding pages. An existing install
+# starts directly on Yug, so every onboarding interaction is optional.
+- extendedWaitUntil:
+    visible: "Next|Yug"
+    timeout: 60000
+- tapOn:
+    text: "Next"
+    optional: true
+- tapOn:
+    text: "Next"
+    optional: true
+- tapOn:
+    text: "Next"
+    optional: true
+- tapOn:
+    text: "Next"
+    optional: true
+- tapOn:
+    text: "Get Started"
+    optional: true
+
+- extendedWaitUntil:
+    visible:
+      id: "screen_yug"
+    timeout: 60000
+- assertVisible:
+    id: "nav_yug"
+
+- tapOn:
+    id: "nav_vayu"
+- assertVisible:
+    id: "screen_vayu"
+
+- tapOn:
+    id: "nav_upload"
+- assertVisible:
+    id: "screen_upload"
+- assertVisible: "Upload & Create"
+
+- tapOn:
+    id: "nav_subscriptions"
+- assertVisible:
+    id: "screen_subscriptions"
+- assertVisible: "Subscriptions"
+
+- tapOn:
+    id: "nav_account"
+- assertVisible:
+    id: "screen_account"
+- takeScreenshot: "core-navigation-complete"
+

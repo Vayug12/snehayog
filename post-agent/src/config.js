@@ -19,9 +19,44 @@ async function loadDotEnv() {
 
 await loadDotEnv();
 
-export const PROJECT_ROOT = path.resolve(
-  process.env.POST_AGENT_PROJECT_ROOT || path.join(AGENT_ROOT, '..', 'snehayog'),
-);
+// The agent has lived both beside the project (../snehayog) and inside it (..),
+// so the root is discovered instead of hardcoded: walk up from the agent and
+// accept the first candidate that actually carries the context files.
+const ROOT_MARKERS = ['backend/public/llm.txt', 'backend/public/monetization.json'];
+const ROOT_SEARCH_DEPTH = 4;
+
+async function hasMarker(candidate) {
+  for (const marker of ROOT_MARKERS) {
+    try {
+      await fs.access(path.join(candidate, ...marker.split('/')));
+      return true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  return false;
+}
+
+async function resolveProjectRoot() {
+  if (process.env.POST_AGENT_PROJECT_ROOT) {
+    return path.resolve(process.env.POST_AGENT_PROJECT_ROOT);
+  }
+
+  let directory = AGENT_ROOT;
+  for (let depth = 0; depth <= ROOT_SEARCH_DEPTH; depth += 1) {
+    for (const candidate of [directory, path.join(directory, 'snehayog')]) {
+      if (await hasMarker(candidate)) return candidate;
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+
+  // Nothing matched; keep the historical default so context.js reports the path.
+  return path.join(AGENT_ROOT, '..');
+}
+
+export const PROJECT_ROOT = await resolveProjectRoot();
 
 export const OUTPUT_ROOT = path.join(AGENT_ROOT, 'output');
 export const DATA_ROOT = path.join(AGENT_ROOT, '.data');

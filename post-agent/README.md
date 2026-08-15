@@ -98,7 +98,7 @@ Project context comes from `backend/public/llm.txt`, `backend/public/monetizatio
 
 Each post is then reviewed by a second editor pass (`buildCritiquePrompt` in `src/prompt.js`) before it is saved. If that call fails for any reason, the original draft is kept rather than lost.
 
-The project root defaults to `..\snehayog`. If the layout changes:
+The project root is discovered by walking up from the agent directory until a folder containing `backend/public/llm.txt` is found, so the agent works whether it sits inside the project or beside it. To point it somewhere else:
 
 ```powershell
 $env:POST_AGENT_PROJECT_ROOT = "C:\path\to\snehayog"

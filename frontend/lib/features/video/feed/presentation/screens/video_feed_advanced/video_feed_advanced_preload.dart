@@ -984,6 +984,7 @@ extension _VideoFeedPreload on _VideoFeedAdvancedState {
         
         final value = controller.value;
         if (!value.isInitialized) return;
+        if (index == _currentIndex) unawaited(_syncPictureInPictureState());
 
         // **BUFFER WATCHDOG: Ensure we pause if the video is playing but it shouldn't be**
         if (value.isPlaying && _shouldPauseVideo(index, videoId)) {

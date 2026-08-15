@@ -44,6 +44,7 @@ import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:vayug/core/providers/navigation_providers.dart';
 import 'package:vayug/features/video/vayu/presentation/screens/vayu_player_gestures_mixin.dart';
+import 'package:vayug/features/video/core/data/services/picture_in_picture_service.dart';
 import 'package:vayug/shared/widgets/share_options_sheet.dart';
 import 'package:vayug/features/profile/core/presentation/screens/profile_screen.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
@@ -74,11 +75,13 @@ class VayuLongFormPlayerScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<VayuLongFormPlayerScreen> createState() => _VayuLongFormPlayerScreenState();
+  ConsumerState<VayuLongFormPlayerScreen> createState() =>
+      _VayuLongFormPlayerScreenState();
 }
 
-class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScreen> with WidgetsBindingObserver, RouteAware, VayuPlayerGesturesMixin {
-
+class _VayuLongFormPlayerScreenState
+    extends ConsumerState<VayuLongFormPlayerScreen>
+    with WidgetsBindingObserver, RouteAware, VayuPlayerGesturesMixin {
   // The player draws its own subtle protection behind the system bars. The
   // explicit transparent values cover pre-Android-15 devices; Android 15+
   // keeps the same result through edge-to-edge mode.
@@ -90,8 +93,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     systemNavigationBarContrastEnforced: false,
   );
 
-    @override
-  VideoPlayerController? get currentVideoController => _controllers[_currentIndex];
+  @override
+  VideoPlayerController? get currentVideoController =>
+      _controllers[_currentIndex];
 
   // Video Feed State
   final List<VideoModel> _videos = [];
@@ -108,7 +112,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   final VideoService _videoService = VideoService();
 
   // Unified Controller Management
-  final VideoControllerManager _videoControllerManager = VideoControllerManager();
+  final VideoControllerManager _videoControllerManager =
+      VideoControllerManager();
   final SharedVideoControllerPool _controllerPool = SharedVideoControllerPool();
   final PlaybackCoordinator _playbackCoordinator = PlaybackCoordinator();
   late final PlaybackSession _playbackSession = _playbackCoordinator.register(
@@ -120,23 +125,44 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   bool _lifecyclePaused = false;
   ModalRoute<dynamic>? _observedRoute;
 
+  // System picture-in-picture state. The existing controller stays alive while
+  // the Activity shrinks, preserving the stream and current seek position.
+  final PictureInPictureService _pictureInPictureService =
+      PictureInPictureService.instance;
+  late final String _pictureInPictureOwnerId = 'vayu-${identityHashCode(this)}';
+  final GlobalKey _pictureInPictureSourceKey = GlobalKey();
+  StreamSubscription<PictureInPictureModeEvent>?
+      _pictureInPictureModeSubscription;
+  StreamSubscription<PictureInPicturePlaybackEvent>?
+      _pictureInPicturePlaybackSubscription;
+  StreamSubscription<String>? _pictureInPicturePreparationSubscription;
+  bool _isPictureInPictureSupported = false;
+  bool _isInPictureInPicture = false;
+  bool? _lastPictureInPicturePlayingState;
+  double? _lastPictureInPictureAspectRatio;
+
   // Banner Ad State
   late final IAdService _activeAdsService;
   final Map<int, Map<String, dynamic>> _bannerAdsByIndex = {};
   late final IQuizEngine _quizEngine;
-
 
   SharedPreferences? _prefs;
   String? _currentUserId;
 
   bool _isSaving = false;
   double _playbackSpeed = 1.0;
-  final List<double> _playbackSpeedOptions = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
-  
+  final List<double> _playbackSpeedOptions = <double>[
+    0.5,
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+    1.75,
+    2.0
+  ];
+
   bool _wakelockEnabled = false;
   bool _isFullScreenManual = false;
-  final ValueNotifier<bool> _suppressTransientPauseOverlayVN = ValueNotifier<bool>(false);
-  Timer? _orientationSettleTimer;
   // Last orientation for which system chrome (bottom nav + system bars) was
   // applied. Lets didChangeMetrics react to physical rotation exactly once
   // and skip rotations already handled by _toggleFullScreen.
@@ -256,7 +282,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       }
     });
 
-    _poolDisposalSubscription = SharedVideoControllerPool().disposalStream.listen((videoId) {
+    _poolDisposalSubscription =
+        SharedVideoControllerPool().disposalStream.listen((videoId) {
       if (mounted) {
         final index = _videos.indexWhere((v) => v.id == videoId);
         if (index != -1 && _controllers.containsKey(index)) {
@@ -264,7 +291,9 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
           if (oldC != null) {
             final listener = _positionListeners.remove(index);
             if (listener != null) {
-              try { oldC.removeListener(listener); } catch (_) {}
+              try {
+                oldC.removeListener(listener);
+              } catch (_) {}
             }
           }
           setState(() {
@@ -279,6 +308,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     });
 
     isSeekingBufferingVN.addListener(_onSeekingBufferingChanged);
+    unawaited(_initializePictureInPicture());
   }
 
   @override
@@ -299,7 +329,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     _mainController = ref.watch(mainControllerProvider);
     final authController = ref.watch(googleSignInProvider);
     if (authController.isSignedIn && authController.userData != null) {
-      final userId = authController.userData!['googleId'] ?? authController.userData!['id'];
+      final userId = authController.userData!['googleId'] ??
+          authController.userData!['id'];
       if (_currentUserId != userId) {
         setState(() => _currentUserId = userId);
       }
@@ -314,6 +345,11 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
+        if (_isInPictureInPicture) {
+          _lifecyclePaused = false;
+          _playbackCoordinator.setAppLifecycle(true);
+          break;
+        }
         _playbackCoordinator.setAppLifecycle(false);
         _handleAppMovedToBackground();
         break;
@@ -337,19 +373,132 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     // soon as the metrics flip, so the rotation animation lands on the final
     // layout. Button-triggered toggles already set _lastChromeOrientation and
     // are skipped here.
-    final physicalSize = WidgetsBinding.instance.platformDispatcher.implicitView?.physicalSize;
+    final physicalSize =
+        WidgetsBinding.instance.platformDispatcher.implicitView?.physicalSize;
     if (physicalSize == null || physicalSize.isEmpty) return;
-    final orientation = physicalSize.width > physicalSize.height ? Orientation.landscape : Orientation.portrait;
+    final orientation = physicalSize.width > physicalSize.height
+        ? Orientation.landscape
+        : Orientation.portrait;
     if (orientation == _lastChromeOrientation) return;
     _lastChromeOrientation = orientation;
     final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
     if (!isCurrentRoute) return;
     final isLandscape = orientation == Orientation.landscape;
-    _markOrientationTransition();
     _applyPlayerChrome(
       fullscreen: isLandscape || _isFullScreenManual,
       immersive: isLandscape,
     );
+    _syncPictureInPictureState(force: true);
+  }
+
+  Future<void> _initializePictureInPicture() async {
+    _pictureInPictureModeSubscription =
+        _pictureInPictureService.modeChanges.listen((event) {
+      if (event.ownerId == _pictureInPictureOwnerId) {
+        _onPictureInPictureModeChanged(event.isActive);
+      }
+    });
+    _pictureInPicturePlaybackSubscription =
+        _pictureInPictureService.playbackRequests.listen((event) {
+      if (event.ownerId == _pictureInPictureOwnerId) {
+        unawaited(_onPictureInPicturePlaybackRequested(event.shouldPlay));
+      }
+    });
+    _pictureInPicturePreparationSubscription =
+        _pictureInPictureService.preparationRequests.listen((ownerId) {
+      if (ownerId == _pictureInPictureOwnerId) {
+        _preparePictureInPictureSurface();
+      }
+    });
+    final isSupported = await _pictureInPictureService.initialize();
+    if (!mounted) return;
+    setState(() => _isPictureInPictureSupported = isSupported);
+    if (isSupported) _syncPictureInPictureState(force: true);
+  }
+
+  void _preparePictureInPictureSurface() {
+    if (!mounted || _isInPictureInPicture) return;
+    setState(() => _isInPictureInPicture = true);
+    _lifecyclePaused = false;
+    _playbackCoordinator.setAppLifecycle(true);
+  }
+
+  void _onPictureInPictureModeChanged(bool isActive) {
+    if (!mounted) return;
+    setState(() => _isInPictureInPicture = isActive);
+    if (isActive) {
+      _lifecyclePaused = false;
+      _playbackCoordinator.setAppLifecycle(true);
+      _resumeCurrentVideo();
+      return;
+    }
+
+    final isResumed =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    if (isResumed) {
+      _playbackCoordinator.setAppLifecycle(true);
+      _handleAppResumed();
+    } else {
+      _playbackCoordinator.setAppLifecycle(false);
+      _handleAppMovedToBackground();
+    }
+  }
+
+  Future<void> _onPictureInPicturePlaybackRequested(bool shouldPlay) async {
+    final controller = currentVideoController;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (shouldPlay) {
+      onUserPlaybackChanged(true);
+      await _playIfAllowed(_currentIndex, controller);
+    } else {
+      onUserPlaybackChanged(false);
+      await controller.pause();
+    }
+    await _syncPictureInPictureState(force: true);
+  }
+
+  Future<void> _syncPictureInPictureState({bool force = false}) async {
+    if (!_isPictureInPictureSupported) return;
+    final controller = currentVideoController;
+    final isPlaying =
+        controller?.value.isInitialized == true && controller!.value.isPlaying;
+    final aspectRatio =
+        controller == null ? 16 / 9 : _pictureInPictureAspectRatio(controller);
+    if (!force &&
+        _lastPictureInPicturePlayingState == isPlaying &&
+        _lastPictureInPictureAspectRatio == aspectRatio) {
+      return;
+    }
+    _lastPictureInPicturePlayingState = isPlaying;
+    _lastPictureInPictureAspectRatio = aspectRatio;
+    await _pictureInPictureService.update(
+      ownerId: _pictureInPictureOwnerId,
+      aspectRatio: aspectRatio,
+      isPlaying: isPlaying,
+      autoEnterEnabled: isPlaying && !_isInPictureInPicture,
+      sourceRect: _pictureInPictureSourceRect(),
+    );
+  }
+
+  double _pictureInPictureAspectRatio(VideoPlayerController controller) {
+    final ratio = controller.value.aspectRatio;
+    return ratio.isFinite && ratio > 0 ? ratio : 16 / 9;
+  }
+
+  List<double>? _pictureInPictureSourceRect() {
+    final sourceContext = _pictureInPictureSourceKey.currentContext;
+    final renderBox = sourceContext?.findRenderObject();
+    if (sourceContext == null || renderBox is! RenderBox || !renderBox.hasSize) {
+      return null;
+    }
+    final origin = renderBox.localToGlobal(Offset.zero);
+    final pixelRatio = View.of(sourceContext).devicePixelRatio;
+    return <double>[
+      origin.dx * pixelRatio,
+      origin.dy * pixelRatio,
+      (origin.dx + renderBox.size.width) * pixelRatio,
+      (origin.dy + renderBox.size.height) * pixelRatio,
+    ];
   }
 
   void _handleAppMovedToBackground() {
@@ -460,7 +609,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
-    final hasSeenHint = _prefs!.getBool('has_seen_vayu_long_form_scroll_hint') ?? false;
+    final hasSeenHint =
+        _prefs!.getBool('has_seen_vayu_long_form_scroll_hint') ?? false;
     if (mounted) setState(() => _hasSeenScrollHint = hasSeenHint);
     if (!hasSeenHint) _handleFirstTimeScrollHint(_prefs!);
   }
@@ -475,11 +625,15 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     final screenHeight = MediaQuery.sizeOf(context).height;
     final targetOffset = screenHeight * 0.30;
     try {
-      await _pageController.animateTo(targetOffset, duration: const Duration(milliseconds: 800), curve: Curves.easeInOut);
+      await _pageController.animateTo(targetOffset,
+          duration: const Duration(milliseconds: 800), curve: Curves.easeInOut);
       await Future.delayed(const Duration(milliseconds: 150));
       if (!mounted || _currentIndex != 0 || !_pageController.hasClients) return;
-      await _pageController.animateTo(0, duration: const Duration(milliseconds: 800), curve: Curves.easeInOut);
-    } catch (e) { AppLogger.log('Error scroll hint: $e'); }
+      await _pageController.animateTo(0,
+          duration: const Duration(milliseconds: 800), curve: Curves.easeInOut);
+    } catch (e) {
+      AppLogger.log('Error scroll hint: $e');
+    }
     if (!mounted) return;
     setState(() => _showScrollHintOverlay = false);
     await Future.delayed(const Duration(milliseconds: 600));
@@ -491,11 +645,17 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     if (_isLoadingMore || !_hasMore) return;
     setState(() => _isLoadingMore = true);
     try {
-      final response = await _videoService.getVideos(page: _currentPage, videoType: 'vayu', clearSession: false, random: true);
+      final response = await _videoService.getVideos(
+          page: _currentPage,
+          videoType: 'vayu',
+          clearSession: false,
+          random: true);
       List<VideoModel> newVideos = [];
       final List? videosList = response['videos'] ?? response['data'];
       if (videosList != null) {
-        newVideos = videosList.map((v) => VideoModel.fromJson(Map<String, dynamic>.from(v))).toList();
+        newVideos = videosList
+            .map((v) => VideoModel.fromJson(Map<String, dynamic>.from(v)))
+            .toList();
         newVideos.shuffle();
       }
       if (newVideos.isEmpty) {
@@ -504,26 +664,35 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
         final existingIds = _videos.map((v) => v.id).toSet();
         newVideos.removeWhere((v) => existingIds.contains(v.id));
         if (mounted) {
-          setState(() { _videos.addAll(newVideos); _currentPage++; _hasMore = response['hasMore'] as bool? ?? true; });
+          setState(() {
+            _videos.addAll(newVideos);
+            _currentPage++;
+            _hasMore = response['hasMore'] as bool? ?? true;
+          });
           if (_currentIndex + 1 < _videos.length) _preloadNearbyVideos();
         }
       }
-    } catch (e) { AppLogger.log('Error loading more: $e'); }
-    finally { if (mounted) setState(() => _isLoadingMore = false); }
+    } catch (e) {
+      AppLogger.log('Error loading more: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
   }
 
   Future<void> _initializePlayer([int? requestedIndex]) async {
     final index = requestedIndex ?? _currentIndex;
     if (index >= _videos.length) return;
     final videoToPlay = _videos[index];
-    VideoPlayerController? existing = _controllerPool.getController(videoToPlay.id);
+    VideoPlayerController? existing =
+        _controllerPool.getController(videoToPlay.id);
 
     if (existing != null && existing.value.isInitialized) {
       if (mounted) {
         setState(() {
           _controllers[index] = existing;
           _chewieControllers[index]?.dispose();
-          _chewieControllers[index] = _createChewieController(existing, videoToPlay);
+          _chewieControllers[index] =
+              _createChewieController(existing, videoToPlay);
         });
         _setupLateInitialization(index, existing);
       }
@@ -545,10 +714,13 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       VideoModel effectiveVideo = videoToPlay;
       if (selectedLang != 'default') {
         final dubbedUrl = videoToPlay.dubbedUrls?[selectedLang];
-        if (dubbedUrl != null) effectiveVideo = videoToPlay.copyWith(videoUrl: dubbedUrl);
+        if (dubbedUrl != null) {
+          effectiveVideo = videoToPlay.copyWith(videoUrl: dubbedUrl);
+        }
       }
       await _controllerPool.makeRoomForNewController();
-      final newController = await VideoControllerFactory.createController(effectiveVideo);
+      final newController =
+          await VideoControllerFactory.createController(effectiveVideo);
       await newController.initialize().timeout(const Duration(seconds: 15));
       await newController.setPlaybackSpeed(_playbackSpeed);
       // Chewie must never own autoplay: its delayed play callback can fire
@@ -556,29 +728,40 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       await newController.pause();
       if (mounted) {
         final chewie = _createChewieController(newController, effectiveVideo);
-        setState(() { _controllers[index] = newController; _chewieControllers[index] = chewie; });
+        setState(() {
+          _controllers[index] = newController;
+          _chewieControllers[index] = chewie;
+        });
         _playbackCoordinator.attachController(_playbackSession, newController);
         _controllerPool.addController(videoToPlay.id, newController);
         _setupLateInitialization(index, newController);
       } else {
         newController.dispose();
       }
-    } catch (e) { AppLogger.log('Failed to init: $e'); }
+    } catch (e) {
+      AppLogger.log('Failed to init: $e');
+    }
   }
 
-  ChewieController _createChewieController(VideoPlayerController controller, VideoModel video) {
+  ChewieController _createChewieController(
+      VideoPlayerController controller, VideoModel video) {
     return ChewieController(
       videoPlayerController: controller,
       aspectRatio: 16 / 9,
       autoPlay: false,
       showControls: false,
       customControls: const SizedBox.shrink(),
-      materialProgressColors: ChewieProgressColors(playedColor: AppColors.primary, handleColor: AppColors.primary, backgroundColor: AppColors.borderPrimary, bufferedColor: AppColors.textTertiary),
+      materialProgressColors: ChewieProgressColors(
+          playedColor: AppColors.primary,
+          handleColor: AppColors.primary,
+          backgroundColor: AppColors.borderPrimary,
+          bufferedColor: AppColors.textTertiary),
       placeholder: video.thumbnailUrl.isNotEmpty
           ? CachedNetworkImage(
               imageUrl: video.thumbnailUrl,
               fit: BoxFit.cover,
-              errorWidget: (context, url, error) => Container(color: AppColors.backgroundPrimary),
+              errorWidget: (context, url, error) =>
+                  Container(color: AppColors.backgroundPrimary),
             )
           : Container(color: AppColors.backgroundPrimary),
     );
@@ -599,10 +782,13 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     if (previousPositionListener != null) {
       controller.removeListener(previousPositionListener);
     }
-    void positionListener() => _handleControllerPositionChanged(index, controller);
+    void positionListener() =>
+        _handleControllerPositionChanged(index, controller);
     _positionListeners[index] = positionListener;
     controller.addListener(positionListener);
-    if (_errorListeners.containsKey(index)) controller.removeListener(_errorListeners[index]!);
+    if (_errorListeners.containsKey(index)) {
+      controller.removeListener(_errorListeners[index]!);
+    }
     _errorListeners[index] = () => _handleVideoError(index, controller);
     controller.addListener(_errorListeners[index]!);
     if (!_isCurrentPlaybackTarget(index, controller)) {
@@ -610,7 +796,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       return;
     }
 
-    final didApplySharedPosition = await _applyInitialSharePosition(index, controller);
+    final didApplySharedPosition =
+        await _applyInitialSharePosition(index, controller);
     if (!_isCurrentPlaybackTarget(index, controller)) {
       await controller.pause();
       return;
@@ -625,7 +812,11 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
     if (!await _playIfAllowed(index, controller)) return;
     if (showControls) startHideControlsTimer(MediaQuery.orientationOf(context));
-    try { brightnessValue = await ScreenBrightness().application; final vol = await FlutterVolumeController.getVolume(); if (vol != null) volumeValue = vol; } catch (_) {}
+    try {
+      brightnessValue = await ScreenBrightness().application;
+      final vol = await FlutterVolumeController.getVolume();
+      if (vol != null) volumeValue = vol;
+    } catch (_) {}
   }
 
   void _handleControllerPositionChanged(
@@ -641,6 +832,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     if (isSeekingBufferingVN.value && controller.value.isPlaying) {
       isSeekingBufferingVN.value = false;
     }
+    unawaited(_syncPictureInPictureState());
     _onPositionChanged();
   }
 
@@ -649,7 +841,10 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     VideoPlayerController controller,
   ) async {
     final initialPosition = widget.initialPosition;
-    if (index != 0 || initialPosition == null || _hasAppliedInitialSharePosition || !_isCurrentPlaybackTarget(index, controller)) {
+    if (index != 0 ||
+        initialPosition == null ||
+        _hasAppliedInitialSharePosition ||
+        !_isCurrentPlaybackTarget(index, controller)) {
       return false;
     }
 
@@ -681,11 +876,14 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     final currentPos = controller.value.position;
     final lastPos = _lastKnownPositions[_currentIndex] ?? Duration.zero;
     if (currentPos < lastPos && lastPos.inSeconds > 1) {
-      _stopViewTracking(_currentIndex); _startViewTracking(_currentIndex);
+      _stopViewTracking(_currentIndex);
+      _startViewTracking(_currentIndex);
     }
     _lastKnownPositions[_currentIndex] = currentPos;
     _pauseAtSharedSectionEnd(controller, currentPos);
-    if (controller.value.isPlaying && currentPos.inSeconds % 5 == 0) _savePlaybackPosition(_currentIndex);
+    if (controller.value.isPlaying && currentPos.inSeconds % 5 == 0) {
+      _savePlaybackPosition(_currentIndex);
+    }
     _checkAndTriggerQuiz(controller);
   }
 
@@ -722,13 +920,16 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
   @override
   void dispose() {
+    _pictureInPictureModeSubscription?.cancel();
+    _pictureInPicturePlaybackSubscription?.cancel();
+    _pictureInPicturePreparationSubscription?.cancel();
+    unawaited(_pictureInPictureService.release(_pictureInPictureOwnerId));
     _playbackCoordinator.release(_playbackSession);
     _disableWakelock();
     appRouteObserver.unsubscribe(this);
     _seekingBufferingTimeout?.cancel();
     isSeekingBufferingVN.removeListener(_onSeekingBufferingChanged);
     disposeGestures();
-    _suppressTransientPauseOverlayVN.dispose();
     _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _savePlaybackPosition(_currentIndex);
@@ -747,39 +948,50 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       } catch (_) {}
     });
     _chewieControllers.forEach((index, c) => c?.dispose());
-    controlsTimer?.cancel(); overlayTimer?.cancel(); _orientationSettleTimer?.cancel(); _seekingBufferingTimeout?.cancel();
-    _stopViewTracking(_currentIndex); _poolDisposalSubscription?.cancel();
+    controlsTimer?.cancel();
+    overlayTimer?.cancel();
+    _seekingBufferingTimeout?.cancel();
+    _stopViewTracking(_currentIndex);
+    _poolDisposalSubscription?.cancel();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    Future.microtask(() { if (context.mounted) ref.read(mainControllerProvider).setBottomNavVisibility(true); });
+    Future.microtask(() {
+      if (context.mounted) {
+        ref.read(mainControllerProvider).setBottomNavVisibility(true);
+      }
+    });
     super.dispose();
   }
 
   void _startViewTracking(int index) {
     if (index < 0 || index >= _videos.length) return;
     final video = _videos[index];
-    _viewTracker.startViewTracking(video.id, videoUploaderId: video.uploader.id, videoHash: video.videoHash);
+    _viewTracker.startViewTracking(video.id,
+        videoUploaderId: video.uploader.id, videoHash: video.videoHash);
     _viewUITimers[index]?.cancel();
     _viewUITimers[index] = Timer(const Duration(seconds: 3), () {
       if (mounted && _currentIndex == index) {
-        setState(() { _videos[index] = _videos[index].copyWith(views: _videos[index].views + 1); });
+        setState(() {
+          _videos[index] =
+              _videos[index].copyWith(views: _videos[index].views + 1);
+        });
       }
     });
   }
 
   void _stopViewTracking(int index) {
     if (index < 0 || index >= _videos.length) return;
-    _viewUITimers[index]?.cancel(); _viewUITimers.remove(index);
+    _viewUITimers[index]?.cancel();
+    _viewUITimers.remove(index);
     _viewTracker.stopViewTracking(_videos[index].id);
   }
-
-
 
   void _savePlaybackPosition(int index) async {
     final controller = _controllers[index];
     if (controller != null && controller.value.isInitialized) {
       _prefs ??= await SharedPreferences.getInstance();
-      await _prefs!.setInt('video_pos_${_videos[index].id}', controller.value.position.inSeconds);
+      await _prefs!.setInt('video_pos_${_videos[index].id}',
+          controller.value.position.inSeconds);
     }
   }
 
@@ -807,14 +1019,12 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     }
   }
 
-
-
-  void _showSnackBar(String message, {Duration? duration, VayuSnackBarType type = VayuSnackBarType.info}) {
+  void _showSnackBar(String message,
+      {Duration? duration, VayuSnackBarType type = VayuSnackBarType.info}) {
     if (!mounted) return;
-    VayuSnackBar.show(context, message, duration: duration ?? const Duration(seconds: 3), type: type);
+    VayuSnackBar.show(context, message,
+        duration: duration ?? const Duration(seconds: 3), type: type);
   }
-
-
 
   void _showEpisodeList(BuildContext context, VideoModel video) {
     if (video.episodes == null || video.episodes!.isEmpty) return;
@@ -835,40 +1045,53 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
             return ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Container(
-                width: 100, height: 56,
+                width: 100,
+                height: 56,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  image: ep['thumbnailUrl'] != null 
-                    ? DecorationImage(image: CachedNetworkImageProvider(ep['thumbnailUrl']), fit: BoxFit.cover) 
-                    : null,
+                  image: ep['thumbnailUrl'] != null
+                      ? DecorationImage(
+                          image: CachedNetworkImageProvider(ep['thumbnailUrl']),
+                          fit: BoxFit.cover)
+                      : null,
                   color: AppColors.textTertiary.withValues(alpha: 0.05),
                 ),
-                child: isCurrent 
-                  ? Container(
-                      decoration: BoxDecoration(color: AppColors.overlayDark, borderRadius: BorderRadius.circular(16)),
-                      child: const Icon(Icons.play_circle_fill_rounded, color: AppColors.primary, size: 28)
-                    ) 
+                child: isCurrent
+                    ? Container(
+                        decoration: BoxDecoration(
+                            color: AppColors.overlayDark,
+                            borderRadius: BorderRadius.circular(16)),
+                        child: const Icon(Icons.play_circle_fill_rounded,
+                            color: AppColors.primary, size: 28))
+                    : null,
+              ),
+              title: Text(ep['videoName'] ?? 'Episode ${index + 1}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.bodyMedium.copyWith(
+                      fontWeight:
+                          isCurrent ? FontWeight.bold : FontWeight.normal,
+                      color: isCurrent
+                          ? AppColors.primary
+                          : AppColors.textPrimary)),
+              subtitle: ep['duration'] != null
+                  ? Text(
+                      _formatDuration(
+                          Duration(seconds: (ep['duration'] as num).toInt())),
+                      style: AppTypography.bodySmall
+                          .copyWith(color: AppColors.textTertiary))
                   : null,
-              ),
-              title: Text(
-                ep['videoName'] ?? 'Episode ${index + 1}', 
-                maxLines: 2, 
-                overflow: TextOverflow.ellipsis, 
-                style: AppTypography.bodyMedium.copyWith(
-                  fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal, 
-                  color: isCurrent ? AppColors.primary : AppColors.textPrimary
-                )
-              ),
-              subtitle: ep['duration'] != null 
-                ? Text(_formatDuration(Duration(seconds: (ep['duration'] as num).toInt())), style: AppTypography.bodySmall.copyWith(color: AppColors.textTertiary)) 
-                : null,
               onTap: () {
                 Navigator.pop(context);
                 if (!isCurrent) {
                   final epId = ep['id'] ?? ep['_id'];
                   if (epId != null) {
                     final targetIndex = _videos.indexWhere((v) => v.id == epId);
-                    if (targetIndex != -1) _pageController.animateToPage(targetIndex, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+                    if (targetIndex != -1) {
+                      _pageController.animateToPage(targetIndex,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut);
+                    }
                   }
                 }
               },
@@ -878,8 +1101,6 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       },
     );
   }
-
-
 
   void _showShareOptions(VideoModel video) {
     ShareOptionsSheet.show(
@@ -893,73 +1114,81 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     final TextEditingController controller = TextEditingController();
     final authState = ref.read(googleSignInProvider);
     final userEmail = authState.userData?['email'] ?? 'anonymous@vayug.com';
-    final userId = authState.userData?['googleId'] ?? authState.userData?['id'] ?? 'anonymous';
+    final userId = authState.userData?['googleId'] ??
+        authState.userData?['id'] ??
+        'anonymous';
 
     VayuBottomSheet.show<void>(
-      context: context, 
+      context: context,
       title: 'Share Suggestion',
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Did you face any problem while watching this video? share with us', style: AppTypography.bodyMedium.copyWith(color: AppColors.textSecondary)),
+            Text(
+                'Did you face any problem while watching this video? share with us',
+                style: AppTypography.bodyMedium
+                    .copyWith(color: AppColors.textSecondary)),
             const SizedBox(height: 16),
             TextField(
-              controller: controller, 
-              maxLines: 4, 
-              decoration: InputDecoration(
-                hintText: 'Type here...', 
-                filled: true, 
-                fillColor: AppColors.backgroundSecondary, 
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))
-              )
-            ),
+                controller: controller,
+                maxLines: 4,
+                decoration: InputDecoration(
+                    hintText: 'Type here...',
+                    filled: true,
+                    fillColor: AppColors.backgroundSecondary,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)))),
             const SizedBox(height: 20),
             AppButton(
-              onPressed: () async {
-                final suggestionText = controller.text.trim();
-                if (suggestionText.isEmpty) {
-                  _showSnackBar('Please type something', type: VayuSnackBarType.error);
-                  return;
-                }
-                
-                Navigator.pop(context);
-                _showSnackBar('Submitting suggestion...');
-
-                try {
-                  final attribution = await InstallAttributionService.instance
-                      .getAttributionPayload();
-                  final payload = <String, dynamic>{
-                    'type': 'suggestion',
-                    'comments': suggestionText,
-                    'userEmail': userEmail,
-                    'userId': userId,
-                    'videoId': video.id,
-                    'rating': 5,
-                  };
-
-                  if (attribution.isNotEmpty) {
-                    payload['attribution'] = attribution;
+                onPressed: () async {
+                  final suggestionText = controller.text.trim();
+                  if (suggestionText.isEmpty) {
+                    _showSnackBar('Please type something',
+                        type: VayuSnackBarType.error);
+                    return;
                   }
 
-                  final response = await _videoService.httpClientService.post(
-                    Uri.parse('${NetworkHelper.apiBaseUrl}/feedback/submit'),
-                    body: payload,
-                  );
+                  Navigator.pop(context);
+                  _showSnackBar('Submitting suggestion...');
 
-                  if (response.statusCode == 201) {
-                    _showSnackBar('Suggestion shared! Thank you.', type: VayuSnackBarType.success);
-                  } else {
-                    _showSnackBar('Failed to share suggestion', type: VayuSnackBarType.error);
+                  try {
+                    final attribution = await InstallAttributionService.instance
+                        .getAttributionPayload();
+                    final payload = <String, dynamic>{
+                      'type': 'suggestion',
+                      'comments': suggestionText,
+                      'userEmail': userEmail,
+                      'userId': userId,
+                      'videoId': video.id,
+                      'rating': 5,
+                    };
+
+                    if (attribution.isNotEmpty) {
+                      payload['attribution'] = attribution;
+                    }
+
+                    final response = await _videoService.httpClientService.post(
+                      Uri.parse('${NetworkHelper.apiBaseUrl}/feedback/submit'),
+                      body: payload,
+                    );
+
+                    if (response.statusCode == 201) {
+                      _showSnackBar('Suggestion shared! Thank you.',
+                          type: VayuSnackBarType.success);
+                    } else {
+                      _showSnackBar('Failed to share suggestion',
+                          type: VayuSnackBarType.error);
+                    }
+                  } catch (e) {
+                    AppLogger.error('Error submitting suggestion', e);
+                    _showSnackBar('Network error. Try again later.',
+                        type: VayuSnackBarType.error);
                   }
-                } catch (e) {
-                  AppLogger.error('Error submitting suggestion', e);
-                  _showSnackBar('Network error. Try again later.', type: VayuSnackBarType.error);
-                }
-              }, 
-              label: 'Share Suggestion'
-            ),
+                },
+                label: 'Share Suggestion'),
           ],
         ),
       ),
@@ -968,11 +1197,21 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
   Future<void> _openInExternalPlayer(VideoModel video) async {
     if (Theme.of(context).platform == TargetPlatform.android) {
-      final intent = AndroidIntent(action: 'action_view', data: video.videoUrl, type: 'video/*', flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK]);
-      try { await intent.launch(); } catch (e) { _showSnackBar('No external player found', type: VayuSnackBarType.error); }
+      final intent = AndroidIntent(
+          action: 'action_view',
+          data: video.videoUrl,
+          type: 'video/*',
+          flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK]);
+      try {
+        await intent.launch();
+      } catch (e) {
+        _showSnackBar('No external player found', type: VayuSnackBarType.error);
+      }
     } else {
       final url = Uri.parse(video.videoUrl);
-      if (await canLaunchUrl(url)) { await launchUrl(url, mode: LaunchMode.externalApplication); }
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      }
     }
   }
 
@@ -981,11 +1220,18 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     final index = requestedIndex ?? _currentIndex;
     final video = _videos[index];
     try {
-      setState(() => _isSaving = true); HapticFeedback.lightImpact();
+      setState(() => _isSaving = true);
+      HapticFeedback.lightImpact();
       final isSaved = await _videoService.toggleSave(video.id);
-      setState(() { video.isSaved = isSaved; _isSaving = false; });
-      _showSnackBar(isSaved ? 'Saved' : 'Removed', type: isSaved ? VayuSnackBarType.success : VayuSnackBarType.info);
-    } catch (e) { setState(() => _isSaving = false); }
+      setState(() {
+        video.isSaved = isSaved;
+        _isSaving = false;
+      });
+      _showSnackBar(isSaved ? 'Saved' : 'Removed',
+          type: isSaved ? VayuSnackBarType.success : VayuSnackBarType.info);
+    } catch (e) {
+      setState(() => _isSaving = false);
+    }
   }
 
   Future<void> _setPlaybackSpeed(double speed) async {
@@ -999,8 +1245,19 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     }
   }
 
-  void _nextVideo() { if (_currentIndex < _videos.length - 1) _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }
-  void _previousVideo() { if (_currentIndex > 0) _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }
+  void _nextVideo() {
+    if (_currentIndex < _videos.length - 1) {
+      _pageController.nextPage(
+          duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+    }
+  }
+
+  void _previousVideo() {
+    if (_currentIndex > 0) {
+      _pageController.previousPage(
+          duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+    }
+  }
 
   /// Applies system bars + app bottom nav for the target mode in one place,
   /// BEFORE a rotation starts, so the OS rotation animation lands directly on
@@ -1015,14 +1272,6 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     }
   }
 
-  void _markOrientationTransition() {
-    _orientationSettleTimer?.cancel();
-    _suppressTransientPauseOverlayVN.value = true;
-    _orientationSettleTimer = Timer(const Duration(milliseconds: 450), () {
-      if (mounted) _suppressTransientPauseOverlayVN.value = false;
-    });
-  }
-
   Timer? _seekingBufferingTimeout;
   void _onSeekingBufferingChanged() {
     _seekingBufferingTimeout?.cancel();
@@ -1034,7 +1283,8 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   }
 
   void _toggleFullScreen() {
-    final isPortrait = MediaQuery.orientationOf(context) == Orientation.portrait;
+    final isPortrait =
+        MediaQuery.orientationOf(context) == Orientation.portrait;
     final controller = _controllers[_currentIndex];
 
     // Capture exact position before orientation change
@@ -1045,16 +1295,15 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     final aspectRatio = controller?.value.aspectRatio ?? 1.0;
     if (aspectRatio < 1.0) {
       // Vertical video: manual fullscreen, no rotation involved.
-      _markOrientationTransition();
       setState(() => _isFullScreenManual = !_isFullScreenManual);
       _applyPlayerChrome(fullscreen: _isFullScreenManual, immersive: false);
       showControlsVN.value = true;
       startHideControlsTimer(Orientation.portrait);
     } else {
       final goingLandscape = isPortrait;
-      _markOrientationTransition();
       _isFullScreenManual = false;
-      _lastChromeOrientation = goingLandscape ? Orientation.landscape : Orientation.portrait;
+      _lastChromeOrientation =
+          goingLandscape ? Orientation.landscape : Orientation.portrait;
       _applyPlayerChrome(fullscreen: goingLandscape, immersive: goingLandscape);
       // ValueNotifier update — no setState here. The orientation change itself
       // drives the single rebuild; an extra setState now would paint an
@@ -1063,35 +1312,88 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       SystemChrome.setPreferredOrientations(goingLandscape
           ? [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
           : [DeviceOrientation.portraitUp]);
-      startHideControlsTimer(goingLandscape ? Orientation.landscape : Orientation.portrait);
+      startHideControlsTimer(
+          goingLandscape ? Orientation.landscape : Orientation.portrait);
     }
   }
 
   Future<void> _showMoreOptions() async {
-    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     VayuBottomSheet.show<void>(
-      context: context, title: 'More Options',
+      context: context,
+      title: 'More Options',
       maxWidth: isLandscape ? 380.0 : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(dense: true, leading: const Icon(Icons.speed_rounded), title: const Text('Playback Speed'), trailing: Text('${_playbackSpeed}x'), onTap: () { Navigator.pop(context); _showPlaybackSpeedOptions(); }),
-          if (_currentIndex < _videos.length) ListTile(dense: true, leading: const Icon(Icons.language_rounded), title: const Text('Audio Language'), onTap: () { Navigator.pop(context); _showLanguageSelector(context, _videos[_currentIndex]); }),
-          ListTile(dense: true, leading: Icon(isControlsLockedVN.value ? Icons.lock_rounded : Icons.lock_open_rounded), title: Text(isControlsLockedVN.value ? 'Unlock' : 'Lock'), onTap: () { Navigator.pop(context); isControlsLockedVN.value = !isControlsLockedVN.value; }),
-          ListTile(dense: true, leading: const Icon(Icons.report_problem_rounded), title: const Text('Report'), onTap: () { Navigator.pop(context); _openReportDialog(); }),
+          ListTile(
+              dense: true,
+              leading: const Icon(Icons.speed_rounded),
+              title: const Text('Playback Speed'),
+              trailing: Text('${_playbackSpeed}x'),
+              onTap: () {
+                Navigator.pop(context);
+                _showPlaybackSpeedOptions();
+              }),
+          if (_currentIndex < _videos.length)
+            ListTile(
+                dense: true,
+                leading: const Icon(Icons.language_rounded),
+                title: const Text('Audio Language'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showLanguageSelector(context, _videos[_currentIndex]);
+                }),
+          ListTile(
+              dense: true,
+              leading: Icon(isControlsLockedVN.value
+                  ? Icons.lock_rounded
+                  : Icons.lock_open_rounded),
+              title: Text(isControlsLockedVN.value ? 'Unlock' : 'Lock'),
+              onTap: () {
+                Navigator.pop(context);
+                isControlsLockedVN.value = !isControlsLockedVN.value;
+              }),
+          ListTile(
+              dense: true,
+              leading: const Icon(Icons.report_problem_rounded),
+              title: const Text('Report'),
+              onTap: () {
+                Navigator.pop(context);
+                _openReportDialog();
+              }),
         ],
       ),
     );
   }
 
   void _openReportDialog() {
-    VayuBottomSheet.show(context: context, title: 'Report', child: ReportDialogWidget(targetType: 'video', targetId: _videos[_currentIndex].id));
+    VayuBottomSheet.show(
+        context: context,
+        title: 'Report',
+        child: ReportDialogWidget(
+            targetType: 'video', targetId: _videos[_currentIndex].id));
   }
 
   Future<void> _showPlaybackSpeedOptions() async {
     VayuBottomSheet.show<void>(
-      context: context, title: 'Speed',
-      child: Column(mainAxisSize: MainAxisSize.min, children: _playbackSpeedOptions.map((s) => ListTile(title: Text('${s}x', style: AppTypography.bodyMedium.copyWith(color: s == _playbackSpeed ? AppColors.primary : AppColors.textPrimary)), onTap: () { Navigator.pop(context); _setPlaybackSpeed(s); })).toList()),
+      context: context,
+      title: 'Speed',
+      child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _playbackSpeedOptions
+              .map((s) => ListTile(
+                  title: Text('${s}x',
+                      style: AppTypography.bodyMedium.copyWith(
+                          color: s == _playbackSpeed
+                              ? AppColors.primary
+                              : AppColors.textPrimary)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _setPlaybackSpeed(s);
+                  }))
+              .toList()),
     );
   }
 
@@ -1102,25 +1404,46 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     // Stop this player's own controllers before switching the active index.
     // This covers a controller that finished buffering after the previous swipe.
     _pauseAllPlayback();
-    _reprimeWindowIfNeeded(index); _stopViewTracking(_currentIndex);
+    _reprimeWindowIfNeeded(index);
+    _stopViewTracking(_currentIndex);
     setState(() {
       _currentIndex = index;
       _activeQuiz = null;
     });
-    ref.read(mainControllerProvider).updateCurrentVideoIndex(index, tabIndex: 1);
-    _startViewTracking(index); _preloadNearbyVideos(); _initializePlayer(index); _loadBannerAd(index);
+    ref
+        .read(mainControllerProvider)
+        .updateCurrentVideoIndex(index, tabIndex: 1);
+    _startViewTracking(index);
+    _preloadNearbyVideos();
+    _initializePlayer(index);
+    _loadBannerAd(index);
     if (_videos.length - index < 3) _loadMoreVideos();
   }
 
   void _reprimeWindowIfNeeded(int current) {
-    final keys = _controllers.keys.where((i) => (i - current).abs() > 1).toList();
-    for (final i in keys) { _savePlaybackPosition(i); _controllerPool.disposeController(_videos[i].id); _controllers.remove(i); _chewieControllers.remove(i)?.dispose(); }
+    final keys =
+        _controllers.keys.where((i) => (i - current).abs() > 1).toList();
+    for (final i in keys) {
+      _savePlaybackPosition(i);
+      _controllerPool.disposeController(_videos[i].id);
+      _controllers.remove(i);
+      _chewieControllers.remove(i)?.dispose();
+    }
   }
 
   void _validateAndRestoreControllers() {
     if (_videos.isEmpty || !mounted) return;
-    final indices = {_currentIndex, if (_currentIndex + 1 < _videos.length) _currentIndex + 1, if (_currentIndex - 1 >= 0) _currentIndex - 1};
-    for (final idx in indices) { if (!_controllers.containsKey(idx) || SharedVideoControllerPool().isControllerDisposed(_controllers[idx])) _initializePlayer(idx); }
+    final indices = {
+      _currentIndex,
+      if (_currentIndex + 1 < _videos.length) _currentIndex + 1,
+      if (_currentIndex - 1 >= 0) _currentIndex - 1
+    };
+    for (final idx in indices) {
+      if (!_controllers.containsKey(idx) ||
+          SharedVideoControllerPool().isControllerDisposed(_controllers[idx])) {
+        _initializePlayer(idx);
+      }
+    }
   }
 
   void _preloadNearbyVideos() {
@@ -1129,8 +1452,13 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
   }
 
   Future<void> _preloadVideo(int index) async {
-    if (index < 0 || index >= _videos.length || _controllers.containsKey(index) || _preloadingIndices.contains(index)) return;
-    
+    if (index < 0 ||
+        index >= _videos.length ||
+        _controllers.containsKey(index) ||
+        _preloadingIndices.contains(index)) {
+      return;
+    }
+
     _preloadingIndices.add(index);
     try {
       final c = await VideoControllerFactory.createController(_videos[index]);
@@ -1144,12 +1472,25 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
     }
   }
 
-  void _enableWakelock() { if (!_wakelockEnabled) { WakelockPlus.enable(); _wakelockEnabled = true; } }
-  void _disableWakelock() { if (_wakelockEnabled) { WakelockPlus.disable(); _wakelockEnabled = false; } }
+  void _enableWakelock() {
+    if (!_wakelockEnabled) {
+      WakelockPlus.enable();
+      _wakelockEnabled = true;
+    }
+  }
+
+  void _disableWakelock() {
+    if (_wakelockEnabled) {
+      WakelockPlus.disable();
+      _wakelockEnabled = false;
+    }
+  }
 
   String _formatDuration(Duration d) {
     String two(int n) => n.toString().padLeft(2, '0');
-    return d.inHours > 0 ? '${d.inHours}:${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}' : '${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}';
+    return d.inHours > 0
+        ? '${d.inHours}:${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}'
+        : '${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}';
   }
 
   Future<void> _loadBannerAd(int index) async {
@@ -1158,75 +1499,123 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       final ads = await _activeAdsService.fetchActiveAds();
       final List? banner = ads['banner'] as List?;
       if (mounted && banner != null && banner.isNotEmpty) {
-        setState(() => _bannerAdsByIndex[index] = Map<String, dynamic>.from(banner[index % banner.length]));
+        setState(() => _bannerAdsByIndex[index] =
+            Map<String, dynamic>.from(banner[index % banner.length]));
       }
     } catch (_) {}
   }
 
-  void _onLocalSmartDubTap(VideoModel video, [String targetLang = 'hindi']) async {
+  void _onLocalSmartDubTap(VideoModel video,
+      [String targetLang = 'hindi']) async {
     setState(() => _isDubbingProgressVisible = true);
-    final resultVN = _getOrCreateNotifier<DubbingResult>(_dubbingResultsVN, video.id, const DubbingResult(status: DubbingStatus.checking));
+    final resultVN = _getOrCreateNotifier<DubbingResult>(_dubbingResultsVN,
+        video.id, const DubbingResult(status: DubbingStatus.checking));
     _dubbingSubscriptions[video.id]?.cancel();
-    _dubbingSubscriptions[video.id] = _dubbingService.dubVideo(video.id, video.videoUrl, targetLang: targetLang).listen((r) {
+    _dubbingSubscriptions[video.id] = _dubbingService
+        .dubVideo(video.id, video.videoUrl, targetLang: targetLang)
+        .listen((r) {
       if (!mounted) return;
       resultVN.value = r;
       if (r.status == DubbingStatus.completed && r.dubbedUrl != null) {
         final vIdx = _videos.indexWhere((v) => v.id == video.id);
         if (vIdx != -1) {
-          final dubbed = Map<String, String>.from(_videos[vIdx].dubbedUrls ?? {});
+          final dubbed =
+              Map<String, String>.from(_videos[vIdx].dubbedUrls ?? {});
           dubbed[r.language ?? targetLang] = r.dubbedUrl!;
-          setState(() { _videos[vIdx] = _videos[vIdx].copyWith(dubbedUrls: dubbed); if (vIdx == _currentIndex) { _selectedAudioLanguage[video.id] = r.language ?? targetLang; _controllerPool.disposeController(video.id); _initializePlayer(_currentIndex); } });
+          setState(() {
+            _videos[vIdx] = _videos[vIdx].copyWith(dubbedUrls: dubbed);
+            if (vIdx == _currentIndex) {
+              _selectedAudioLanguage[video.id] = r.language ?? targetLang;
+              _controllerPool.disposeController(video.id);
+              _initializePlayer(_currentIndex);
+            }
+          });
         }
       }
     });
   }
 
-  ValueNotifier<T> _getOrCreateNotifier<T>(Map<String, ValueNotifier<T>> map, String key, T initial) {
+  ValueNotifier<T> _getOrCreateNotifier<T>(
+      Map<String, ValueNotifier<T>> map, String key, T initial) {
     return map.putIfAbsent(key, () => ValueNotifier<T>(initial));
   }
 
   void _showLanguageSelector(BuildContext context, VideoModel video) {
     VayuBottomSheet.show<void>(
-      context: context, title: 'Audio',
+      context: context,
+      title: 'Audio',
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         _buildLanguageOption(context, video, 'Default', 'default'),
-        _buildLanguageOption(context, video, 'English', 'english', available: video.dubbedUrls?.containsKey('english') ?? false),
-        _buildLanguageOption(context, video, 'Hindi', 'hindi', available: video.dubbedUrls?.containsKey('hindi') ?? false),
+        _buildLanguageOption(context, video, 'English', 'english',
+            available: video.dubbedUrls?.containsKey('english') ?? false),
+        _buildLanguageOption(context, video, 'Hindi', 'hindi',
+            available: video.dubbedUrls?.containsKey('hindi') ?? false),
       ]),
     );
   }
 
-  Widget _buildLanguageOption(BuildContext context, VideoModel video, String title, String code, {bool available = true}) {
+  Widget _buildLanguageOption(
+      BuildContext context, VideoModel video, String title, String code,
+      {bool available = true}) {
     final selected = _selectedAudioLanguage[video.id] ?? 'default';
     return ListTile(
-      title: Text(title, style: AppTypography.bodyMedium.copyWith(color: selected == code ? AppColors.primary : AppColors.textPrimary)),
-      trailing: selected == code ? const Icon(Icons.check, color: AppColors.primary) : (!available ? const Icon(Icons.psychology_outlined, size: 16) : null),
-      onTap: () { Navigator.pop(context); if (available || code == 'default') { _handleLanguageSelection(video, code); } else { _onLocalSmartDubTap(video, code); } },
+      title: Text(title,
+          style: AppTypography.bodyMedium.copyWith(
+              color: selected == code
+                  ? AppColors.primary
+                  : AppColors.textPrimary)),
+      trailing: selected == code
+          ? const Icon(Icons.check, color: AppColors.primary)
+          : (!available
+              ? const Icon(Icons.psychology_outlined, size: 16)
+              : null),
+      onTap: () {
+        Navigator.pop(context);
+        if (available || code == 'default') {
+          _handleLanguageSelection(video, code);
+        } else {
+          _onLocalSmartDubTap(video, code);
+        }
+      },
     );
   }
 
   void _handleLanguageSelection(VideoModel video, String code) {
     if (_selectedAudioLanguage[video.id] == code) return;
     _controllerPool.disposeController(video.id);
-    setState(() { _selectedAudioLanguage[video.id] = code; _initializePlayer(_currentIndex); });
+    setState(() {
+      _selectedAudioLanguage[video.id] = code;
+      _initializePlayer(_currentIndex);
+    });
   }
 
   void _showCancelDubbingDialog(String videoId) {
-    VayuBottomSheet.show(context: context, title: 'Cancel Dubbing?', child: Column(mainAxisSize: MainAxisSize.min, children: [
-      const Text('Aap dubbing cancel karna chahte hain?'),
-      const SizedBox(height: 20),
-      Row(children: [
-        Expanded(child: AppButton(onPressed: () => Navigator.pop(context), label: 'Nahi', variant: AppButtonVariant.secondary)),
-        const SizedBox(width: 12),
-        Expanded(child: AppButton(onPressed: () {
-          Navigator.pop(context);
-          final video = _videos.firstWhere((v) => v.id == videoId);
-          _dubbingService.cancelDubbing(videoId, video.videoUrl);
-          _dubbingSubscriptions[videoId]?.cancel();
-          _dubbingResultsVN[videoId]?.value = const DubbingResult(status: DubbingStatus.idle);
-        }, label: 'Haan')),
-      ]),
-    ]));
+    VayuBottomSheet.show(
+        context: context,
+        title: 'Cancel Dubbing?',
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Aap dubbing cancel karna chahte hain?'),
+          const SizedBox(height: 20),
+          Row(children: [
+            Expanded(
+                child: AppButton(
+                    onPressed: () => Navigator.pop(context),
+                    label: 'Nahi',
+                    variant: AppButtonVariant.secondary)),
+            const SizedBox(width: 12),
+            Expanded(
+                child: AppButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      final video = _videos.firstWhere((v) => v.id == videoId);
+                      _dubbingService.cancelDubbing(videoId, video.videoUrl);
+                      _dubbingSubscriptions[videoId]?.cancel();
+                      _dubbingResultsVN[videoId]?.value =
+                          const DubbingResult(status: DubbingStatus.idle);
+                    },
+                    label: 'Haan')),
+          ]),
+        ]));
   }
 
   Widget _buildScrubbingOverlay() {
@@ -1244,26 +1633,30 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
                     ? Icons.keyboard_double_arrow_right_rounded
                     : Icons.keyboard_double_arrow_left_rounded;
                 return Align(
-                  alignment: forward ? Alignment.centerRight : Alignment.centerLeft,
+                  alignment:
+                      forward ? Alignment.centerRight : Alignment.centerLeft,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: AppColors.surfaceSecondary.withValues(alpha: 0.68),
+                        color:
+                            AppColors.surfaceSecondary.withValues(alpha: 0.68),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
                           color: AppColors.borderPrimary.withValues(alpha: 0.5),
                         ),
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(icon, color: AppColors.textPrimary, size: 18),
+                                Icon(icon,
+                                    color: AppColors.textPrimary, size: 18),
                                 const SizedBox(width: 4),
                                 Text(
                                   '${seconds}s',
@@ -1313,11 +1706,14 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
           extendBody: true,
           extendBodyBehindAppBar: true,
           backgroundColor: AppColors.backgroundPrimary,
-          body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+          body: Center(
+              child: CircularProgressIndicator(color: AppColors.primary)),
         ),
       );
     }
-    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    if (_isInPictureInPicture) return _buildPictureInPicturePlayer();
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     final navigationBarInset = MediaQuery.viewPaddingOf(context).bottom;
     // Bottom nav visibility is applied BEFORE rotations start (see
     // _applyPlayerChrome) so the rotation animation lands on the final layout.
@@ -1328,15 +1724,20 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       child: PopScope(
         canPop: !isLandscape,
         onPopInvokedWithResult: (didPop, result) {
-          if (!didPop && isLandscape) { _toggleFullScreen(); }
-          else if (didPop) { ref.read(mainControllerProvider).setBottomNavVisibility(true); }
+          if (!didPop && isLandscape) {
+            _toggleFullScreen();
+          } else if (didPop) {
+            ref.read(mainControllerProvider).setBottomNavVisibility(true);
+          }
         },
         child: Scaffold(
           backgroundColor: AppColors.backgroundPrimary,
           body: Stack(children: [
             PageView.builder(
               controller: _pageController,
-              physics: isScrollingLocked ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
+              physics: isScrollingLocked
+                  ? const NeverScrollableScrollPhysics()
+                  : const BouncingScrollPhysics(),
               scrollDirection: Axis.vertical,
               onPageChanged: _onPageChanged,
               itemCount: _videos.length,
@@ -1369,7 +1770,25 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
                   ),
                 ),
               ),
-            if (!_hasSeenScrollHint) Positioned(bottom: isLandscape ? 80 : 140, left: 0, right: 0, child: IgnorePointer(child: AnimatedOpacity(opacity: _showScrollHintOverlay ? 1.0 : 0.0, duration: const Duration(milliseconds: 500), child: Center(child: Container(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12), decoration: BoxDecoration(color: AppColors.overlayDark, borderRadius: BorderRadius.circular(30)), child: Text('Swipe up to watch more', style: AppTypography.titleLarge.copyWith(color: AppColors.textPrimary))))))),
+            if (!_hasSeenScrollHint)
+              Positioned(
+                  bottom: isLandscape ? 80 : 140,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                      child: AnimatedOpacity(
+                          opacity: _showScrollHintOverlay ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 500),
+                          child: Center(
+                              child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 24, vertical: 12),
+                                  decoration: BoxDecoration(
+                                      color: AppColors.overlayDark,
+                                      borderRadius: BorderRadius.circular(30)),
+                                  child: Text('Swipe up to watch more',
+                                      style: AppTypography.titleLarge.copyWith(
+                                          color: AppColors.textPrimary))))))),
           ]),
         ),
       ),
@@ -1378,36 +1797,116 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
 
   Widget _buildFeedItem(int index) {
     final v = _videos[index];
-    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     final isPortrait = !isLandscape;
 
     return SafeArea(
-      top: isPortrait, bottom: false, left: false, right: false,
-      child: VayuFeedItem(
-      key: ValueKey(v.id),
-      index: index, video: v, controller: _controllers[index], chewie: _chewieControllers[index], isCurrent: index == _currentIndex, isFullScreenManual: _isFullScreenManual, suppressTransientPauseOverlayVN: _suppressTransientPauseOverlayVN, showControlsVN: showControlsVN, isControlsLockedVN: isControlsLockedVN, showScrubbingOverlayVN: showScrubbingOverlayVN, isSeekingBufferingVN: isSeekingBufferingVN,
-      onToggleFullScreen: _toggleFullScreen, onOpenExternalPlayer: () => _openInExternalPlayer(v), onHandleTap: () => handleTap(MediaQuery.orientationOf(context)), onDoubleTapToSeek: (details) => handleDoubleTapToSeek(details, MediaQuery.sizeOf(context), MediaQuery.orientationOf(context)), onHorizontalDragEnd: handleHorizontalDragEnd, onVerticalDragUpdate: (dy, lp) => handleVerticalDragUpdate(dy, lp, MediaQuery.sizeOf(context)), onVerticalDragEnd: () {}, onUnifiedHorizontalDrag: handleUnifiedHorizontalDrag,
-      onScrollingLock: (l) => isScrollingLockedVN.value = l, onShowSnackBar: _showSnackBar, buildAdSection: _buildAdSection, buildVideoInfo: (_) => const SizedBox.shrink(), buildChannelRow: (_) => const SizedBox.shrink(), buildScrubbingOverlay: _buildScrubbingOverlay, buildCustomControls: (_) => const SizedBox.shrink(), buildDubbingProgress: (_) => const SizedBox.shrink(), formatDuration: _formatDuration, onQuizDismiss: () => setState(() => _activeQuiz = null), activeQuiz: index == _currentIndex ? _activeQuiz : null,
-      onResumeAfterSeek: () async {
-        final controller = _controllers[index];
-        if (controller != null) await _playIfAllowed(index, controller);
-      },
-      metadataSection: VayuMetadataSection(video: v, isPortrait: isPortrait, isLoading: _controllers[index] == null || !_controllers[index]!.value.isInitialized, onShare: () => _showShareOptions(v), onSave: () => _handleToggleSave(index), onVisitLink: () async { final enrichedUrl = UrlUtils.enrichUrl(_sanitizeUrl(v.link!), medium: 'long_form_player', campaign: 'creator_visit'); final u = Uri.parse(enrichedUrl); if (await canLaunchUrl(u)) launchUrl(u, mode: LaunchMode.externalApplication); }, onMoreOptions: _showMoreOptions, onEpisodes: () => _showEpisodeList(context, v), onSuggestion: () => _showShareSuggestionBottomSheet(v), onShowError: (m) => _showSnackBar(m, type: VayuSnackBarType.error)),
-      channelInfo: VayuChannelInfo(
-        video: v,
-        isPortrait: isPortrait,
-        onProfileTap: () => _openUploaderProfile(v),
-      ),
-      playerOverlay: VayuPlayerOverlay(controller: _controllers[index], showControlsVN: showControlsVN, isControlsLockedVN: isControlsLockedVN, isPortrait: isPortrait, isFullScreenManual: _isFullScreenManual, onTogglePlay: togglePlay, onMoreOptions: _showMoreOptions, onNext: _nextVideo, onPrevious: _previousVideo),
-      dubbingOverlay: _buildDubbingOverlay(index),
-    ));
+        top: isPortrait,
+        bottom: false,
+        left: false,
+        right: false,
+        child: VayuFeedItem(
+          key: ValueKey(v.id),
+          index: index,
+          video: v,
+          controller: _controllers[index],
+          chewie: _chewieControllers[index],
+          isCurrent: index == _currentIndex,
+          isFullScreenManual: _isFullScreenManual,
+          showControlsVN: showControlsVN,
+          isControlsLockedVN: isControlsLockedVN,
+          showScrubbingOverlayVN: showScrubbingOverlayVN,
+          isSeekingBufferingVN: isSeekingBufferingVN,
+          onToggleFullScreen: _toggleFullScreen,
+          pictureInPictureSourceKey:
+              index == _currentIndex ? _pictureInPictureSourceKey : null,
+          onOpenExternalPlayer: () => _openInExternalPlayer(v),
+          onHandleTap: () => handleTap(MediaQuery.orientationOf(context)),
+          onDoubleTapToSeek: (details) => handleDoubleTapToSeek(details,
+              MediaQuery.sizeOf(context), MediaQuery.orientationOf(context)),
+          onHorizontalDragEnd: handleHorizontalDragEnd,
+          onVerticalDragUpdate: (dy, lp) =>
+              handleVerticalDragUpdate(dy, lp, MediaQuery.sizeOf(context)),
+          onVerticalDragEnd: () {},
+          onUnifiedHorizontalDrag: handleUnifiedHorizontalDrag,
+          onScrollingLock: (l) => isScrollingLockedVN.value = l,
+          onShowSnackBar: _showSnackBar,
+          buildAdSection: _buildAdSection,
+          buildVideoInfo: (_) => const SizedBox.shrink(),
+          buildChannelRow: (_) => const SizedBox.shrink(),
+          buildScrubbingOverlay: _buildScrubbingOverlay,
+          buildCustomControls: (_) => const SizedBox.shrink(),
+          buildDubbingProgress: (_) => const SizedBox.shrink(),
+          formatDuration: _formatDuration,
+          onQuizDismiss: () => setState(() => _activeQuiz = null),
+          activeQuiz: index == _currentIndex ? _activeQuiz : null,
+          onResumeAfterSeek: () async {
+            final controller = _controllers[index];
+            if (controller != null) await _playIfAllowed(index, controller);
+          },
+          metadataSection: VayuMetadataSection(
+              video: v,
+              isPortrait: isPortrait,
+              isLoading: _controllers[index] == null ||
+                  !_controllers[index]!.value.isInitialized,
+              onShare: () => _showShareOptions(v),
+              onSave: () => _handleToggleSave(index),
+              onVisitLink: () async {
+                final enrichedUrl = UrlUtils.enrichUrl(_sanitizeUrl(v.link!),
+                    medium: 'long_form_player', campaign: 'creator_visit');
+                final u = Uri.parse(enrichedUrl);
+                if (await canLaunchUrl(u)) {
+                  launchUrl(u, mode: LaunchMode.externalApplication);
+                }
+              },
+              onMoreOptions: _showMoreOptions,
+              onEpisodes: () => _showEpisodeList(context, v),
+              onSuggestion: () => _showShareSuggestionBottomSheet(v),
+              onShowError: (m) =>
+                  _showSnackBar(m, type: VayuSnackBarType.error)),
+          channelInfo: VayuChannelInfo(
+            video: v,
+            isPortrait: isPortrait,
+            onProfileTap: () => _openUploaderProfile(v),
+          ),
+          playerOverlay: VayuPlayerOverlay(
+              controller: _controllers[index],
+              showControlsVN: showControlsVN,
+              isControlsLockedVN: isControlsLockedVN,
+              isPortrait: isPortrait,
+              isFullScreenManual: _isFullScreenManual,
+              onTogglePlay: togglePlay,
+              onMoreOptions: _showMoreOptions,
+              onNext: _nextVideo,
+              onPrevious: _previousVideo),
+          dubbingOverlay: _buildDubbingOverlay(index),
+        ));
+  }
+
+  Widget _buildPictureInPicturePlayer() {
+    final controller = currentVideoController;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: controller != null && controller.value.isInitialized
+          ? Center(
+              child: AspectRatio(
+                  aspectRatio: _pictureInPictureAspectRatio(controller),
+                  child: VideoPlayer(controller)))
+          : const ColoredBox(color: Colors.black),
+    );
   }
 
   Widget _buildDubbingOverlay(int index) {
     if (!_isDubbingProgressVisible) return const SizedBox.shrink();
     return ValueListenableBuilder<DubbingResult>(
-      valueListenable: _getOrCreateNotifier(_dubbingResultsVN, _videos[index].id, const DubbingResult(status: DubbingStatus.idle)),
-      builder: (context, r, _) => VayuDubbingStatusOverlay(result: r, isVisible: _isDubbingProgressVisible, onCancel: () => _showCancelDubbingDialog(_videos[index].id), onHide: () => setState(() => _isDubbingProgressVisible = false)),
+      valueListenable: _getOrCreateNotifier(_dubbingResultsVN,
+          _videos[index].id, const DubbingResult(status: DubbingStatus.idle)),
+      builder: (context, r, _) => VayuDubbingStatusOverlay(
+          result: r,
+          isVisible: _isDubbingProgressVisible,
+          onCancel: () => _showCancelDubbingDialog(_videos[index].id),
+          onHide: () => setState(() => _isDubbingProgressVisible = false)),
     );
   }
 
@@ -1418,7 +1917,7 @@ class _VayuLongFormPlayerScreenState extends ConsumerState<VayuLongFormPlayerScr
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: BannerAdSection(
         adData: {
-          ...ad, 
+          ...ad,
           'creatorId': _videos[index].uploader.id,
           'videoId': _videos[index].id,
         },

@@ -1,0 +1,114 @@
+name: Mobile AI QA
+
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  schedule:
+    # 02:00 India Standard Time every day.
+    - cron: '30 20 * * *'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to test; empty means the latest release'
+        required: false
+        type: string
+      suite:
+        description: 'Maestro tag to run'
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - regression
+
+concurrency:
+  group: mobile-ai-qa
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  models: read
+
+env:
+  MAESTRO_VERSION: '2.7.0'
+  MOBILE_QA_MODEL: ${{ vars.MOBILE_QA_MODEL || 'openai/gpt-4o' }}
+
+jobs:
+  android-release-qa:
+    name: Android release journeys
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout test definitions
+        uses: actions/checkout@v4
+
+      - name: Download release APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name || '' }}
+        run: |
+          mkdir -p qa-apk
+          if [[ -z "$RELEASE_TAG" ]]; then
+            RELEASE_TAG="$(gh release view --json tagName --jq '.tagName')"
+          fi
+          printf '%s' "$RELEASE_TAG" > qa-apk/release-tag.txt
+          gh release download "$RELEASE_TAG" --pattern '*.apk' --dir qa-apk --clobber
+
+      - name: Set up Java for Maestro
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install pinned Maestro CLI
+        env:
+          MAESTRO_VERSION: ${{ env.MAESTRO_VERSION }}
+        run: |
+          curl -Ls 'https://get.maestro.mobile.dev' | bash
+          "$HOME/.maestro/bin/maestro" --version
+
+      - name: Enable Android emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Maestro journeys on release APK
+        id: maestro
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          MAESTRO_TAGS: ${{ inputs.suite || 'smoke' }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash scripts/mobile-qa/run-maestro.sh
+
+      - name: AI triage and deduplicated GitHub issues
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          QA_EXECUTION_STATUS: ${{ steps.maestro.outcome }}
+        run: node scripts/mobile-qa/triage-results.mjs
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-qa-evidence-${{ github.run_id }}
+          path: qa-results
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Mark failed mobile journey
+        if: always() && steps.maestro.outcome != 'success'
+        run: exit 1

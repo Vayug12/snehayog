@@ -5,6 +5,7 @@ import { AD_CONFIG } from '../../constants/index.js';
 import AdImpression from '../../models/AdImpression.js';
 import View from '../../models/View.js';
 import { billableMatch } from './impressionCounting.js';
+import { getUtcMonthRange } from '../creatorDiscoveryService.js';
 
 /**
  * Unified service for calculating creator revenue and engagement metrics.
@@ -46,8 +47,7 @@ class RevenueService {
       const videoIds = userVideos.map(v => v._id);
 
       // 3. Define Date Range (UTC)
-      const startDate = new Date(Date.UTC(year, month, 1));
-      const endDate = new Date(Date.UTC(year, month + 1, 1));
+      const { startDate, endDate } = getUtcMonthRange(month, year);
 
       // 4. Query Ad Impressions (Hybrid Lookup for creatorId)
       // Use raw collection to allow searching for Google ID strings in creatorId

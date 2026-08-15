@@ -583,10 +583,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       padding: EdgeInsets.symmetric(horizontal: AppSpacing.space24, vertical: AppSpacing.spacing10),
       child: Column(
         children: [
-          Text(AppText.get('upload_choose_what_create'),
-              style: AppTypography.headlineLarge.copyWith(fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center),
-          AppSpacing.vSpace48,
+
           _buildChoiceCard(
             icon: Icons.video_library,
             title: AppText.get('upload_video'),

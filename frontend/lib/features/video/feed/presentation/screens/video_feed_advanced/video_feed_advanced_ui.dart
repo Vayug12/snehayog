@@ -1,6 +1,23 @@
 part of '../video_feed_advanced.dart';
 
 extension _VideoFeedUI on _VideoFeedAdvancedState {
+  Widget _buildYugPictureInPicturePlayer() {
+    final controller = _currentPictureInPictureController;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      // Intentionally video-only: feed overlays and settings have no useful
+      // role inside the small system PiP surface.
+      body: controller != null && controller.value.isInitialized
+          ? Center(
+              child: AspectRatio(
+                aspectRatio: _pictureInPictureAspectRatio(controller),
+                child: VideoPlayer(controller),
+              ),
+            )
+          : const ColoredBox(color: Colors.black),
+    );
+  }
+
   double get _primaryActionHitTargetSize {
     const minTouchTarget = AppSpacing.minTouchTarget;
     const primaryContainer = AppConstants.primaryActionButtonContainerSize;
@@ -166,14 +183,20 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                     ),
                   ),
                   child: Icon(
-                    isStillLoading ? Icons.hourglass_top_rounded : Icons.lock_outline_rounded,
-                    color: isStillLoading ? AppColors.primary : const Color(0xFFFBBF24),
+                    isStillLoading
+                        ? Icons.hourglass_top_rounded
+                        : Icons.lock_outline_rounded,
+                    color: isStillLoading
+                        ? AppColors.primary
+                        : const Color(0xFFFBBF24),
                     size: 56,
                   ),
                 ),
                 AppSpacing.vSpace24,
                 Text(
-                  isStillLoading ? 'Video Still Loading' : 'End-to-End Encrypted',
+                  isStillLoading
+                      ? 'Video Still Loading'
+                      : 'End-to-End Encrypted',
                   style: const TextStyle(
                     color: AppColors.white,
                     fontSize: 20,
@@ -197,11 +220,13 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                 ),
                 AppSpacing.vSpace32,
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -353,7 +378,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
           // Blurred thumbnail background
           if (video.thumbnailUrl.isNotEmpty)
             ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20, tileMode: TileMode.clamp),
+              imageFilter: ImageFilter.blur(
+                  sigmaX: 20, sigmaY: 20, tileMode: TileMode.clamp),
               child: CachedNetworkImage(
                 imageUrl: video.thumbnailUrl,
                 fit: BoxFit.cover,
@@ -373,9 +399,10 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                     ValueListenableBuilder<E2eeDownloadProgress>(
                       valueListenable: progressNotifier,
                       builder: (context, progress, _) {
-                        final showProgress =
-                            progress.downloadedBytes > 0 && !progress.isComplete;
-                        final isDecrypting = progress.isComplete || !isDownloading;
+                        final showProgress = progress.downloadedBytes > 0 &&
+                            !progress.isComplete;
+                        final isDecrypting =
+                            progress.isComplete || !isDownloading;
                         final statusTitle = isDecrypting
                             ? 'Decrypting secure video'
                             : showProgress
@@ -384,101 +411,111 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                         return Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                          // Circular progress or shield icon
-                          if (showProgress && !isDecrypting)
-                            SizedBox(
-                              width: 64,
-                              height: 64,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  CircularProgressIndicator(
-                                    strokeWidth: 3,
-                                    value: progress.fraction > 0 ? progress.fraction.clamp(0.0, 1.0) : null,
-                                    color: AppColors.primary,
-                                    backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                                  ),
-                                  const Icon(
-                                    Icons.enhanced_encryption_rounded,
-                                    color: AppColors.primary,
-                                    size: 24,
-                                  ),
-                                ],
+                            // Circular progress or shield icon
+                            if (showProgress && !isDecrypting)
+                              SizedBox(
+                                width: 64,
+                                height: 64,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      value: progress.fraction > 0
+                                          ? progress.fraction.clamp(0.0, 1.0)
+                                          : null,
+                                      color: AppColors.primary,
+                                      backgroundColor: AppColors.primary
+                                          .withValues(alpha: 0.15),
+                                    ),
+                                    const Icon(
+                                      Icons.enhanced_encryption_rounded,
+                                      color: AppColors.primary,
+                                      size: 24,
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
+                              SizedBox(
+                                width: 64,
+                                height: 64,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      color: AppColors.primary,
+                                      backgroundColor: AppColors.primary
+                                          .withValues(alpha: 0.15),
+                                    ),
+                                    const Icon(
+                                      Icons.lock_open_rounded,
+                                      color: AppColors.primary,
+                                      size: 24,
+                                    ),
+                                  ],
+                                ),
                               ),
-                            )
-                          else
-                            SizedBox(
-                              width: 64,
-                              height: 64,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  CircularProgressIndicator(
-                                    strokeWidth: 3,
-                                    color: AppColors.primary,
-                                    backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                                  ),
-                                  const Icon(
-                                    Icons.lock_open_rounded,
-                                    color: AppColors.primary,
-                                    size: 24,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          AppSpacing.vSpace24,
-                          Text(
-                            statusTitle,
-                            style: const TextStyle(
-                              color: AppColors.white,
-                              fontSize: 20,
-                              fontWeight: AppTypography.weightBold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          if (showProgress && !isDecrypting) ...[
-                            AppSpacing.vSpace16,
+                            AppSpacing.vSpace24,
                             Text(
-                              '${progress.downloadedFormatted}${progress.totalFormatted != null ? ' / ${progress.totalFormatted}' : ''}',
-                              style: TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: AppTypography.fontSizeSM,
+                              statusTitle,
+                              style: const TextStyle(
+                                color: AppColors.white,
+                                fontSize: 20,
+                                fontWeight: AppTypography.weightBold,
                               ),
+                              textAlign: TextAlign.center,
                             ),
-                            if (progress.estimatedTimeFormatted != null) ...[
-                              AppSpacing.vSpace4,
+                            if (showProgress && !isDecrypting) ...[
+                              AppSpacing.vSpace16,
                               Text(
-                                'Estimated: ${progress.estimatedTimeFormatted}',
+                                '${progress.downloadedFormatted}${progress.totalFormatted != null ? ' / ${progress.totalFormatted}' : ''}',
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: AppTypography.fontSizeSM,
+                                ),
+                              ),
+                              if (progress.estimatedTimeFormatted != null) ...[
+                                AppSpacing.vSpace4,
+                                Text(
+                                  'Estimated: ${progress.estimatedTimeFormatted}',
+                                  style: TextStyle(
+                                    color: AppColors.textTertiary,
+                                    fontSize: AppTypography.fontSizeXS,
+                                  ),
+                                ),
+                              ],
+                              AppSpacing.vSpace12,
+                              // Progress bar
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 24),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(2),
+                                  child: LinearProgressIndicator(
+                                    value: progress.fraction > 0
+                                        ? progress.fraction.clamp(0.0, 1.0)
+                                        : null,
+                                    minHeight: 3,
+                                    backgroundColor:
+                                        Colors.white.withValues(alpha: 0.1),
+                                    valueColor:
+                                        const AlwaysStoppedAnimation<Color>(
+                                            AppColors.primary),
+                                  ),
+                                ),
+                              ),
+                            ] else ...[
+                              AppSpacing.vSpace16,
+                              Text(
+                                'Please keep this screen open',
                                 style: TextStyle(
                                   color: AppColors.textTertiary,
                                   fontSize: AppTypography.fontSizeXS,
                                 ),
                               ),
                             ],
-                            AppSpacing.vSpace12,
-                            // Progress bar
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 24),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(2),
-                                child: LinearProgressIndicator(
-                                  value: progress.fraction > 0 ? progress.fraction.clamp(0.0, 1.0) : null,
-                                  minHeight: 3,
-                                  backgroundColor: Colors.white.withValues(alpha: 0.1),
-                                  valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-                                ),
-                              ),
-                            ),
-                          ] else ...[
-                            AppSpacing.vSpace16,
-                            Text(
-                              'Please keep this screen open',
-                              style: TextStyle(
-                                color: AppColors.textTertiary,
-                                fontSize: AppTypography.fontSizeXS,
-                              ),
-                            ),
-                          ],
                           ],
                         );
                       },
@@ -487,34 +524,34 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                     Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                      const SizedBox(
-                        width: 64,
-                        height: 64,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              strokeWidth: 3,
-                              color: AppColors.primary,
-                            ),
-                            Icon(
-                              Icons.enhanced_encryption_rounded,
-                              color: AppColors.primary,
-                              size: 24,
-                            ),
-                          ],
+                        const SizedBox(
+                          width: 64,
+                          height: 64,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                strokeWidth: 3,
+                                color: AppColors.primary,
+                              ),
+                              Icon(
+                                Icons.enhanced_encryption_rounded,
+                                color: AppColors.primary,
+                                size: 24,
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      AppSpacing.vSpace24,
-                      const Text(
-                        'Preparing secure video',
-                        style: TextStyle(
-                          color: AppColors.white,
-                          fontSize: 20,
-                          fontWeight: AppTypography.weightBold,
+                        AppSpacing.vSpace24,
+                        const Text(
+                          'Preparing secure video',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: 20,
+                            fontWeight: AppTypography.weightBold,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
-                        textAlign: TextAlign.center,
-                      ),
                       ],
                     ),
                 ],
@@ -628,7 +665,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
         return _buildVideoItem(
           lastVideo,
           lastController,
-          videoIndex == _currentIndex, // **FIX: Allow buffer item to be active**
+          videoIndex ==
+              _currentIndex, // **FIX: Allow buffer item to be active**
           lastVideoIndex,
         );
       }
@@ -719,7 +757,10 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
       child: Stack(
         children: [
           PageView(
-            controller: _horizontalControllers.putIfAbsent(videoId, () => PageController(initialPage: _currentHorizontalPage[videoId]!.value)),
+            controller: _horizontalControllers.putIfAbsent(
+                videoId,
+                () => PageController(
+                    initialPage: _currentHorizontalPage[videoId]!.value)),
             onPageChanged: (page) {
               _currentHorizontalPage[videoId]!.value = page;
               if (page == 1) {
@@ -762,8 +803,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     final String videoId = video.id;
     // **REACTIVE RECOVERY: Validity is now handled by VideoAspectSurface**
     // We just need to know if we should show the player or a spinner/error.
-    bool controllerUsable = SharedVideoControllerPool().isControllerValid(controller);
-    
+    bool controllerUsable =
+        SharedVideoControllerPool().isControllerValid(controller);
+
     if (!controllerUsable && controller != null) {
       // If we have a controller but it's invalid (disposed), clear it for this build
       controller = null;
@@ -821,7 +863,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
 
       // **FINAL SAFETY: Ensure controller is paused if we show error**
       try {
-        if (controller != null && controllerUsable && controller.value.isPlaying) {
+        if (controller != null &&
+            controllerUsable &&
+            controller.value.isPlaying) {
           controller.pause();
         }
       } catch (_) {}
@@ -836,11 +880,13 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
           RepaintBoundary(
             child: video.thumbnailUrl.isNotEmpty
                 ? ImageFiltered(
-                    imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28, tileMode: TileMode.clamp),
+                    imageFilter: ImageFilter.blur(
+                        sigmaX: 28, sigmaY: 28, tileMode: TileMode.clamp),
                     child: CachedNetworkImage(
                       imageUrl: video.thumbnailUrl,
                       fit: BoxFit.cover,
-                      memCacheWidth: 180, // Low-res cache — background doesn't need quality
+                      memCacheWidth:
+                          180, // Low-res cache — background doesn't need quality
                       width: double.infinity,
                       height: double.infinity,
                     ),
@@ -852,284 +898,298 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
           // **VIDEO + ALL OVERLAYS on top**
           RepaintBoundary(
             child: Stack(
-          children: [
-            // **THUMBNAIL LAYER: Hides once video starts playing**
-            ValueListenableBuilder<VideoPlayerValue>(
-              valueListenable: (controller != null && controllerUsable) 
-                ? controller 
-                : ValueNotifier(const VideoPlayerValue.uninitialized()),
-              builder: (context, value, child) {
-                // Hide thumbnail if video is initialized AND has started playing or rendering
-                final bool hideThumbnail = value.isInitialized && 
-                    (value.isPlaying || value.position > Duration.zero);
-                
-                return AnimatedOpacity(
-                  opacity: hideThumbnail ? 0.0 : 1.0,
-                  duration: const Duration(milliseconds: 300),
-                  child: video.aspectRatio < 1.0 
-                      ? SizedBox.expand(
-                          child: _buildVideoThumbnail(video),
-                        )
-                      : Align(
-                          alignment: Alignment.center,
-                          child: AspectRatio(
-                            aspectRatio: video.aspectRatio,
-                            child: _buildVideoThumbnail(video),
-                          ),
-                        ),
-                );
-              },
-            ),
+              children: [
+                // **THUMBNAIL LAYER: Hides once video starts playing**
+                ValueListenableBuilder<VideoPlayerValue>(
+                  valueListenable: (controller != null && controllerUsable)
+                      ? controller
+                      : ValueNotifier(const VideoPlayerValue.uninitialized()),
+                  builder: (context, value, child) {
+                    // Hide thumbnail if video is initialized AND has started playing or rendering
+                    final bool hideThumbnail = value.isInitialized &&
+                        (value.isPlaying || value.position > Duration.zero);
 
-            // **FEEDBACK: Show spinner while loading, identical to Vayu player**
-            if (controller == null || !controllerUsable)
-              Align(
-                alignment: Alignment.center,
-                child: AspectRatio(
-                  aspectRatio: video.aspectRatio,
-                  child: const Center(
-                    child: CircularProgressIndicator(
-                      color: AppColors.primary,
-                      strokeWidth: 2,
-                    ),
-                  ),
-                ),
-              ),
-
-            // **SIMPLIFIED: Mount VideoPlayer directly when controller is ready.**
-
-            if (controller != null && controllerUsable)
-              Positioned.fill(
-                child: _buildVideoPlayer(controller, isActive, index, video),
-              ),
-
-            // **NEW: Black semi-transparent overlay when paused**
-            Positioned.fill(
-              child: ValueListenableBuilder<bool>(
-                valueListenable: _getOrCreateNotifier<bool>(_userPausedVN, videoId, false),
-                builder: (context, isUserPaused, _) {
-                  return IgnorePointer(
-                    child: AnimatedOpacity(
-                      opacity: isUserPaused ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 250),
-                      curve: Curves.easeInOut,
-                      child: Container(
-                        color: Colors.black.withValues(alpha: 0.4),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () => _togglePlayPause(index),
-                onDoubleTap: () => _handleDoubleTapLike(video),
-                onLongPress: () => _showLongPressAd(index),
-                child: const SizedBox.expand(),
-              ),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                // **OPTIMIZED: Use ValueListenableBuilder for granular updates - avoid setState**
-                child: ValueListenableBuilder<bool>(
-                  valueListenable:
-                      _getOrCreateNotifier<bool>(_userPausedVN, videoId, false),
-                  builder: (context, isUserPaused, _) {
-                    return Opacity(
-                      opacity: isUserPaused ? 1.0 : 0.0,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppColors.backgroundSecondary
-                                .withValues(alpha: 0.7),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                                color: AppColors.white.withValues(alpha: 0.5),
-                                width: 2),
-                          ),
-                          child: const Icon(
-                            Icons.play_arrow,
-                            color: AppColors.white,
-                            size: 36,
-                          ),
-                        ),
-                      ),
+                    return AnimatedOpacity(
+                      opacity: hideThumbnail ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: video.aspectRatio < 1.0
+                          ? SizedBox.expand(
+                              child: _buildVideoThumbnail(video),
+                            )
+                          : Align(
+                              alignment: Alignment.center,
+                              child: AspectRatio(
+                                aspectRatio: video.aspectRatio,
+                                child: _buildVideoThumbnail(video),
+                              ),
+                            ),
                     );
                   },
                 ),
-              ),
-            ),
 
-            Positioned.fill(
-              child: IgnorePointer(
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: _getOrCreateNotifier<bool>(
-                      _isBufferingVN, videoId, false),
-                  builder: (context, isBuffering, _) {
-                    // **OPTIMIZED: Listen to userPausedVN too for correct visibility**
-                    return ValueListenableBuilder<bool>(
-                        valueListenable: _getOrCreateNotifier<bool>(
-                            _userPausedVN, videoId, false),
-                        builder: (context, isUserPaused, _) {
-                          final show = isBuffering && !isUserPaused;
-                          return Opacity(
-                            opacity: show ? 1.0 : 0.0,
-                            child: Stack(
-                              children: [
-                                const Center(
-                                  child: CircularProgressIndicator(
-                                      color: AppColors.primary,
-                                      strokeWidth: 2),
-                                ),
-                                // **NEW: Slow Internet message**
-                                ValueListenableBuilder<bool>(
-                                  valueListenable: _getOrCreateNotifier<bool>(
-                                      _isSlowConnectionVN, videoId, false),
-                                  builder: (context, isSlow, _) {
-                                    if (!isSlow) return const SizedBox.shrink();
-                                    return Positioned(
-                                      top: 100,
-                                      left: 0,
-                                      right: 0,
-                                      child: Center(
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            // **MANUAL RELOAD: User requested immediate fix**
-                                            AppLogger.log(
-                                                '🔄 User manually reloaded video $videoId');
-                                            // Reset states
-                                            _isSlowConnectionVN[videoId]
-                                                ?.value = false;
-                                            _isBufferingVN[videoId]?.value =
-                                                false;
-                                            _videoErrors.remove(videoId);
-                                            // Trigger reload
-                                            _preloadVideo(index);
-                                          },
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 16,
-                                              vertical: 10,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: AppColors
-                                                  .backgroundSecondary
-                                                  .withValues(alpha: 0.8),
-                                              borderRadius:
-                                                  BorderRadius.circular(
-                                                      AppRadius.xl),
-                                              border: Border.all(
-                                                  color: AppColors.white
-                                                      .withValues(alpha: 0.1)),
-                                            ),
-                                            child: index < _videos.length
-                                                ? Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.refresh_rounded,
-                                                        color: AppColors.white,
-                                                        size: 18,
-                                                      ),
-                                                      AppSpacing.hSpace8,
-                                                      Text(
-                                                        'Trouble playing? Tap to Reload',
-                                                        style: TextStyle(
-                                                          color: AppColors.white
-                                                              .withValues(
-                                                                  alpha: 0.9),
-                                                          fontSize:
-                                                              AppTypography
-                                                                  .fontSizeSM,
-                                                          fontWeight:
-                                                              AppTypography
-                                                                  .weightSemiBold,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  )
-                                                : const SizedBox.shrink(),
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
+                // **FEEDBACK: Show spinner while loading, identical to Vayu player**
+                if (controller == null || !controllerUsable)
+                  Align(
+                    alignment: Alignment.center,
+                    child: AspectRatio(
+                      aspectRatio: video.aspectRatio,
+                      child: const Center(
+                        child: CircularProgressIndicator(
+                          color: AppColors.primary,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // **SIMPLIFIED: Mount VideoPlayer directly when controller is ready.**
+
+                if (controller != null && controllerUsable)
+                  Positioned.fill(
+                    child:
+                        _buildVideoPlayer(controller, isActive, index, video),
+                  ),
+
+                // **NEW: Black semi-transparent overlay when paused**
+                Positioned.fill(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _getOrCreateNotifier<bool>(
+                        _userPausedVN, videoId, false),
+                    builder: (context, isUserPaused, _) {
+                      return IgnorePointer(
+                        child: AnimatedOpacity(
+                          opacity: isUserPaused ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                          child: Container(
+                            color: Colors.black.withValues(alpha: 0.4),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: () => _togglePlayPause(index),
+                    onDoubleTap: () => _handleDoubleTapLike(video),
+                    onLongPress: () => _showLongPressAd(index),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    // **OPTIMIZED: Use ValueListenableBuilder for granular updates - avoid setState**
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: _getOrCreateNotifier<bool>(
+                          _userPausedVN, videoId, false),
+                      builder: (context, isUserPaused, _) {
+                        return Opacity(
+                          opacity: isUserPaused ? 1.0 : 0.0,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppColors.backgroundSecondary
+                                    .withValues(alpha: 0.7),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                    color:
+                                        AppColors.white.withValues(alpha: 0.5),
+                                    width: 2),
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow,
+                                color: AppColors.white,
+                                size: 36,
+                              ),
                             ),
-                          );
-                        });
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: _getOrCreateNotifier<bool>(
+                          _isBufferingVN, videoId, false),
+                      builder: (context, isBuffering, _) {
+                        // **OPTIMIZED: Listen to userPausedVN too for correct visibility**
+                        return ValueListenableBuilder<bool>(
+                            valueListenable: _getOrCreateNotifier<bool>(
+                                _userPausedVN, videoId, false),
+                            builder: (context, isUserPaused, _) {
+                              final show = isBuffering && !isUserPaused;
+                              return Opacity(
+                                opacity: show ? 1.0 : 0.0,
+                                child: Stack(
+                                  children: [
+                                    const Center(
+                                      child: CircularProgressIndicator(
+                                          color: AppColors.primary,
+                                          strokeWidth: 2),
+                                    ),
+                                    // **NEW: Slow Internet message**
+                                    ValueListenableBuilder<bool>(
+                                      valueListenable:
+                                          _getOrCreateNotifier<bool>(
+                                              _isSlowConnectionVN,
+                                              videoId,
+                                              false),
+                                      builder: (context, isSlow, _) {
+                                        if (!isSlow) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return Positioned(
+                                          top: 100,
+                                          left: 0,
+                                          right: 0,
+                                          child: Center(
+                                            child: GestureDetector(
+                                              onTap: () {
+                                                // **MANUAL RELOAD: User requested immediate fix**
+                                                AppLogger.log(
+                                                    '🔄 User manually reloaded video $videoId');
+                                                // Reset states
+                                                _isSlowConnectionVN[videoId]
+                                                    ?.value = false;
+                                                _isBufferingVN[videoId]?.value =
+                                                    false;
+                                                _videoErrors.remove(videoId);
+                                                // Trigger reload
+                                                _preloadVideo(index);
+                                              },
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 16,
+                                                  vertical: 10,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors
+                                                      .backgroundSecondary
+                                                      .withValues(alpha: 0.8),
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          AppRadius.xl),
+                                                  border: Border.all(
+                                                      color: AppColors.white
+                                                          .withValues(
+                                                              alpha: 0.1)),
+                                                ),
+                                                child: index < _videos.length
+                                                    ? Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          const Icon(
+                                                            Icons
+                                                                .refresh_rounded,
+                                                            color:
+                                                                AppColors.white,
+                                                            size: 18,
+                                                          ),
+                                                          AppSpacing.hSpace8,
+                                                          Text(
+                                                            'Trouble playing? Tap to Reload',
+                                                            style: TextStyle(
+                                                              color: AppColors
+                                                                  .white
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.9),
+                                                              fontSize:
+                                                                  AppTypography
+                                                                      .fontSizeSM,
+                                                              fontWeight:
+                                                                  AppTypography
+                                                                      .weightSemiBold,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      )
+                                                    : const SizedBox.shrink(),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              );
+                            });
+                      },
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: _buildVideoOverlay(video, index, controller),
+                ),
+                if (controller != null &&
+                    isActive &&
+                    (() {
+                      try {
+                        return controller?.value.isInitialized ?? false;
+                      } catch (_) {
+                        return false;
+                      }
+                    }()))
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: _buildVideoProgressBar(controller),
+                  ),
+                if (_showHeartAnimation[videoId]?.value == true)
+                  _buildHeartAnimation(index),
+                _buildTopGradientOverlay(),
+                ValueListenableBuilder<List<Map<String, dynamic>>>(
+                  valueListenable: _bannerAdsVN,
+                  builder: (context, bannerAds, _) {
+                    return Positioned(
+                      top: MediaQuery.of(context).padding.top + 4,
+                      left: 8,
+                      right: 8,
+                      child: _buildBannerAd(video, index),
+                    );
                   },
                 ),
-              ),
-            ),
-            Positioned.fill(
-              child: _buildVideoOverlay(video, index, controller),
-            ),
-            if (controller != null &&
-                isActive &&
-                (() {
-                  try {
-                    return controller?.value.isInitialized ?? false;
-                  } catch (_) {
-                    return false;
-                  }
-                }()))
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _buildVideoProgressBar(controller),
-              ),
-            if (_showHeartAnimation[videoId]?.value == true)
-              _buildHeartAnimation(index),
-            _buildTopGradientOverlay(),
-            ValueListenableBuilder<List<Map<String, dynamic>>>(
-              valueListenable: _bannerAdsVN,
-              builder: (context, bannerAds, _) {
-                return Positioned(
-                  top: MediaQuery.of(context).padding.top + 4,
-                  left: 8,
-                  right: 8,
-                  child: _buildBannerAd(video, index),
-                );
-              },
-            ),
-            Positioned.fill(
-              child: ValueListenableBuilder<bool>(
-                valueListenable: _showLongPressAdOverlayVN,
-                builder: (context, showOverlay, _) {
-                  if (!showOverlay || index != _currentIndex) {
-                    return const SizedBox.shrink();
-                  }
-                  return _buildLongPressAdContent(index);
-                },
-              ),
-            ),
+                Positioned.fill(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _showLongPressAdOverlayVN,
+                    builder: (context, showOverlay, _) {
+                      if (!showOverlay || index != _currentIndex) {
+                        return const SizedBox.shrink();
+                      }
+                      return _buildLongPressAdContent(index);
+                    },
+                  ),
+                ),
 
-            // **PAUSE AD: Attached per-video so it scrolls with the video**
-            Positioned.fill(
-              child: ValueListenableBuilder<bool>(
-                valueListenable: _getOrCreateNotifier<bool>(_showPauseAdOverlayPerVideoVN, videoId, false),
-                builder: (context, showOverlay, _) {
-                  if (!showOverlay) {
-                    return const SizedBox.shrink();
-                  }
-                  return _buildLongPressAdContent(index, isPauseAd: true);
-                },
-              ),
+                // **PAUSE AD: Attached per-video so it scrolls with the video**
+                Positioned.fill(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _getOrCreateNotifier<bool>(
+                        _showPauseAdOverlayPerVideoVN, videoId, false),
+                    builder: (context, showOverlay, _) {
+                      if (!showOverlay) {
+                        return const SizedBox.shrink();
+                      }
+                      return _buildLongPressAdContent(index, isPauseAd: true);
+                    },
+                  ),
+                ),
+
+                // Quiz Overlay is now handled inside _buildVideoOverlay for proper bottom alignment
+              ],
             ),
-
-            // Quiz Overlay is now handled inside _buildVideoOverlay for proper bottom alignment
-
-          ],
-        ),
-      ), // closes inner RepaintBoundary (video + overlays)
+          ), // closes inner RepaintBoundary (video + overlays)
         ], // closes ambient Stack children
       ), // closes outer RepaintBoundary
     );
@@ -1209,7 +1269,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
 
   Widget _buildBannerAd(VideoModel video, int index) {
     // **DEBUG: Track ad state**
-    AppLogger.log('📺 UI: _buildBannerAd calling for video $index. AdsLoaded: $_adsLoaded, BannerAds: ${_bannerAds.length}');
+    AppLogger.log(
+        '📺 UI: _buildBannerAd calling for video $index. AdsLoaded: $_adsLoaded, BannerAds: ${_bannerAds.length}');
 
     // **FIXED: Prepare custom ad data for fallback (even when AdMob is configured)**
     Map<String, dynamic>? adData;
@@ -1306,8 +1367,10 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
           final video = _videos[index];
           final adId = adData['_id'] ?? adData['id'];
           final userData = await _authService.getUserData();
-          
-          if (adId != null && userData != null && userData['id'] != video.uploader.id) {
+
+          if (adId != null &&
+              userData != null &&
+              userData['id'] != video.uploader.id) {
             try {
               await _adImpressionService.trackAdClick(
                 videoId: video.id,
@@ -1323,9 +1386,12 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
       },
       onImpression: () async {
         // **PERFORMANCE FIX: Only track impression for the CURRENTLY ACTIVE video**
-        // PageView builds adjacent items (index-1, index+1), but we shouldn't track them 
+        // PageView builds adjacent items (index-1, index+1), but we shouldn't track them
         // until the user actually scrolls to them and they become the primary focus.
-        if (index == _currentIndex && _isScreenVisible && index < _videos.length && adData != null) {
+        if (index == _currentIndex &&
+            _isScreenVisible &&
+            index < _videos.length &&
+            adData != null) {
           final video = _videos[index];
           final adId = adData['_id'] ?? adData['id'];
           final userData = await _authService.getUserData();
@@ -1395,9 +1461,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
       if (!controller.value.isInitialized) {
         return const Center(
           child: CircularProgressIndicator(
-          color: AppColors.primary,
-          strokeWidth: 2,
-        ),
+            color: AppColors.primary,
+            strokeWidth: 2,
+          ),
         );
       }
     } catch (_) {
@@ -1410,14 +1476,17 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     }
 
     final String langCode = _selectedAudioLanguage[video.id] ?? 'default';
-    
-    return RepaintBoundary(
-      key: ValueKey('player_${video.id}_${langCode}_${controller.hashCode}'),
-      child: Hero(
-        tag: 'video_player_${video.id}_$langCode',
-        child: _buildVideoWithCorrectAspectRatio(
-          controller,
-          video,
+
+    return KeyedSubtree(
+      key: isActive ? _pictureInPictureSourceKey : null,
+      child: RepaintBoundary(
+        key: ValueKey('player_${video.id}_${langCode}_${controller.hashCode}'),
+        child: Hero(
+          tag: 'video_player_${video.id}_$langCode',
+          child: _buildVideoWithCorrectAspectRatio(
+            controller,
+            video,
+          ),
         ),
       ),
     );
@@ -1437,7 +1506,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
         final double detectedRatio = _getDetectedAspectRatio(controller);
         double modelAspectRatio = detectedRatio > 0
             ? detectedRatio
-            : (currentVideo.aspectRatio > 0 ? currentVideo.aspectRatio : 9 / 16);
+            : (currentVideo.aspectRatio > 0
+                ? currentVideo.aspectRatio
+                : 9 / 16);
 
         // final Size videoSize = controller.value.size; // Unused
         // final int rotation = controller.value.rotationCorrection; // Unused
@@ -1567,7 +1638,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
       fit: BoxFit.cover,
       fadeInDuration: Duration.zero, // **ZERO-BLINK: Remove fade-in delay**
       fadeOutDuration: Duration.zero,
-      placeholder: (context, url) => Container(color: AppColors.backgroundPrimary),
+      placeholder: (context, url) =>
+          Container(color: AppColors.backgroundPrimary),
       errorWidget: (context, url, error) => Container(
         color: AppColors.backgroundPrimary,
         child: const Icon(
@@ -1628,7 +1700,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                 child: ValueListenableBuilder<QuizModel?>(
                   valueListenable: _activeQuizVN,
                   builder: (context, activeQuiz, _) {
-                    final bool isQuizVisible = activeQuiz != null && index == _currentIndex;
+                    final bool isQuizVisible =
+                        activeQuiz != null && index == _currentIndex;
                     return AnimatedOpacity(
                       duration: const Duration(milliseconds: 250),
                       opacity: isQuizVisible ? 0.0 : 1.0,
@@ -1638,167 +1711,198 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                           padding: const EdgeInsets.fromLTRB(
                               12, 8, 12, 4), // **FIX: Tighter bottom padding**
                           child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => _navigateToCreatorProfile(video),
-                        child: Row(
-                          children: [
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () => _navigateToCreatorProfile(video),
-                              child: Container(
-                                width: AppConstants.avatarRadius * 2,
-                                height: AppConstants.avatarRadius * 2,
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: AppColors.textSecondary,
-                                ),
-                                child: video.uploader.profilePic.isNotEmpty
-                                    ? ClipOval(
-                                        child: CachedNetworkImage(
-                                          imageUrl: video.uploader.profilePic,
-                                          fit: BoxFit.cover,
-                                          placeholder: (context, url) =>
-                                              Container(
-                                            color: AppColors.borderPrimary,
-                                            child: Center(
-                                              child: Text(
-                                                video.uploader.name.isNotEmpty
-                                                    ? video.uploader.name[0]
-                                                        .toUpperCase()
-                                                    : 'U',
-                                                style: TextStyle(
-                                                  color: AppColors.white,
-                                                  fontWeight:
-                                                      AppTypography.weightBold,
-                                                  fontSize:
-                                                      AppTypography.fontSizeXS,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          errorWidget: (context, url, error) =>
-                                              Container(
-                                            color: AppColors.borderPrimary,
-                                            child: Center(
-                                              child: Text(
-                                                video.uploader.name.isNotEmpty
-                                                    ? video.uploader.name[0]
-                                                        .toUpperCase()
-                                                    : 'U',
-                                                style: TextStyle(
-                                                  color: AppColors.white,
-                                                  fontWeight:
-                                                      AppTypography.weightBold,
-                                                  fontSize:
-                                                      AppTypography.fontSizeXS,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _navigateToCreatorProfile(video),
+                                child: Row(
+                                  children: [
+                                    GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () =>
+                                          _navigateToCreatorProfile(video),
+                                      child: Container(
+                                        width: AppConstants.avatarRadius * 2,
+                                        height: AppConstants.avatarRadius * 2,
+                                        decoration: const BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: AppColors.textSecondary,
                                         ),
-                                      )
-                                    : Center(
+                                        child: video
+                                                .uploader.profilePic.isNotEmpty
+                                            ? ClipOval(
+                                                child: CachedNetworkImage(
+                                                  imageUrl:
+                                                      video.uploader.profilePic,
+                                                  fit: BoxFit.cover,
+                                                  placeholder: (context, url) =>
+                                                      Container(
+                                                    color:
+                                                        AppColors.borderPrimary,
+                                                    child: Center(
+                                                      child: Text(
+                                                        video.uploader.name
+                                                                .isNotEmpty
+                                                            ? video.uploader
+                                                                .name[0]
+                                                                .toUpperCase()
+                                                            : 'U',
+                                                        style: TextStyle(
+                                                          color:
+                                                              AppColors.white,
+                                                          fontWeight:
+                                                              AppTypography
+                                                                  .weightBold,
+                                                          fontSize:
+                                                              AppTypography
+                                                                  .fontSizeXS,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  errorWidget:
+                                                      (context, url, error) =>
+                                                          Container(
+                                                    color:
+                                                        AppColors.borderPrimary,
+                                                    child: Center(
+                                                      child: Text(
+                                                        video.uploader.name
+                                                                .isNotEmpty
+                                                            ? video.uploader
+                                                                .name[0]
+                                                                .toUpperCase()
+                                                            : 'U',
+                                                        style: TextStyle(
+                                                          color:
+                                                              AppColors.white,
+                                                          fontWeight:
+                                                              AppTypography
+                                                                  .weightBold,
+                                                          fontSize:
+                                                              AppTypography
+                                                                  .fontSizeXS,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            : Center(
+                                                child: Text(
+                                                  video.uploader.name.isNotEmpty
+                                                      ? video.uploader.name[0]
+                                                          .toUpperCase()
+                                                      : 'U',
+                                                  style: TextStyle(
+                                                    color: AppColors.white,
+                                                    fontWeight: AppTypography
+                                                        .weightBold,
+                                                    fontSize: AppTypography
+                                                        .fontSizeXS,
+                                                  ),
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                    AppSpacing.hSpace4 /* closest */,
+                                    Flexible(
+                                      fit: FlexFit.tight,
+                                      child: GestureDetector(
+                                        onTap: () =>
+                                            _navigateToCreatorProfile(video),
                                         child: Text(
-                                          video.uploader.name.isNotEmpty
-                                              ? video.uploader.name[0]
-                                                  .toUpperCase()
-                                              : 'U',
+                                          video.uploader.name,
                                           style: TextStyle(
                                             color: AppColors.white,
-                                            fontWeight:
-                                                AppTypography.weightBold,
-                                            fontSize: AppTypography.fontSizeXS,
+                                            fontSize: AppTypography
+                                                .fontSizeBase, // Increased from 12
+                                            fontWeight: AppTypography
+                                                .weightSemiBold, // Bold
                                           ),
-                                        ),
-                                      ),
-                              ),
-                            ),
-                            AppSpacing.hSpace4 /* closest */,
-                            Flexible(
-                              fit: FlexFit.tight,
-                              child: GestureDetector(
-                                onTap: () => _navigateToCreatorProfile(video),
-                                child: Text(
-                                  video.uploader.name,
-                                  style: TextStyle(
-                                    color: AppColors.white,
-                                    fontSize: AppTypography
-                                        .fontSizeBase, // Increased from 12
-                                    fontWeight:
-                                        AppTypography.weightSemiBold, // Bold
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            AppSpacing.hSpace4 /* closest */,
-                            Consumer(
-                              builder: (context, ref, _) {
-                                final bool isFollowing = ref.watch(userProvider)
-                                    .isFollowingUser(video.uploader.id);
-                                return ConstrainedBox(
-                                  constraints: const BoxConstraints(maxWidth: 110),
-                                  child: GestureDetector(
-                                    onTap: () => _handleFollow(video),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: isFollowing
-                                            ? AppColors.backgroundTertiary
-                                            : AppColors.backgroundSecondary
-                                                .withValues(alpha: 0.7),
-                                        borderRadius: BorderRadius.circular(
-                                            AppRadius.pill),
-                                      ),
-                                      child: Text(
-                                        isFollowing ? 'Subscribed' : 'Subscribe',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: AppColors.white,
-                                          fontSize: AppTypography.fontSizeSM,
-                                          fontWeight: AppTypography.weightBold,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                     ),
+                                    AppSpacing.hSpace4 /* closest */,
+                                    Consumer(
+                                      builder: (context, ref, _) {
+                                        final bool isFollowing = ref
+                                            .watch(userProvider)
+                                            .isFollowingUser(video.uploader.id);
+                                        return ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                              maxWidth: 110),
+                                          child: GestureDetector(
+                                            onTap: () => _handleFollow(video),
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 6),
+                                              decoration: BoxDecoration(
+                                                color: isFollowing
+                                                    ? AppColors
+                                                        .backgroundTertiary
+                                                    : AppColors
+                                                        .backgroundSecondary
+                                                        .withValues(alpha: 0.7),
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                        AppRadius.pill),
+                                              ),
+                                              child: Text(
+                                                isFollowing
+                                                    ? 'Subscribed'
+                                                    : 'Subscribe',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: AppColors.white,
+                                                  fontSize:
+                                                      AppTypography.fontSizeSM,
+                                                  fontWeight:
+                                                      AppTypography.weightBold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _showVideoDetailsBottomSheet(
+                                    context, video),
+                                child: Text(
+                                  video.videoName,
+                                  style: TextStyle(
+                                    color: AppColors.white,
+                                    fontSize: AppTypography
+                                        .fontSizeSM, // Slightly increased
+                                    fontWeight:
+                                        AppTypography.weightRegular, // Lighter
                                   ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => _showVideoDetailsBottomSheet(context, video),
-                        child: Text(
-                          video.videoName,
-                          style: TextStyle(
-                            color: AppColors.white,
-                            fontSize:
-                                AppTypography.fontSizeSM, // Slightly increased
-                            fontWeight: AppTypography.weightRegular, // Lighter
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              AppSpacing.vSpace4,
+                              // Visit Now moved to Positioned stack for visibility control
+                            ],
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      AppSpacing.vSpace4,
-                      // Visit Now moved to Positioned stack for visibility control
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
-            );
-          },
-        ),
-      ),
               Positioned(
                 right: 12,
                 bottom:
@@ -1839,11 +1943,13 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                   bottom: bottomPadding + 16,
                 ),
                 child: SizedBox(
-                  width: (_screenWidth ?? MediaQuery.of(context).size.width) * 0.75,
+                  width: (_screenWidth ?? MediaQuery.of(context).size.width) *
+                      0.75,
                   child: AppButton(
                     label: 'Visit Now',
                     onPressed: () => _handleVisitNow(video),
-                    icon: const Icon(Icons.open_in_new, size: 14, color: AppColors.white),
+                    icon: const Icon(Icons.open_in_new,
+                        size: 14, color: AppColors.white),
                     variant: AppButtonVariant.secondary,
                     size: AppButtonSize.small,
                   ),
@@ -1862,7 +1968,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
         }
 
         // Get or create the force-show notifier for this video
-        final forceShowNotifier = _forceShowOverlayVN[video.id] ??= ValueNotifier<bool>(false);
+        final forceShowNotifier =
+            _forceShowOverlayVN[video.id] ??= ValueNotifier<bool>(false);
 
         // **CRASH-PROOF: Don't listen to disposed controllers. If disposed, trigger a re-fetch.**
         if (SharedVideoControllerPool().isControllerDisposed(controller)) {
@@ -1879,7 +1986,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
         return ValueListenableBuilder<QuizModel?>(
           valueListenable: _activeQuizVN,
           builder: (context, activeQuiz, _) {
-            final bool isQuizVisible = activeQuiz != null && index == _currentIndex;
+            final bool isQuizVisible =
+                activeQuiz != null && index == _currentIndex;
 
             return ValueListenableBuilder<bool>(
               valueListenable: forceShowNotifier,
@@ -1908,8 +2016,10 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
 
                       // If quiz is visible, only hide overlay when video is playing.
                       // If video is paused, we want all the action buttons to appear!
-                      final bool hideOverlayForQuiz = isQuizVisible && isPlaying;
-                      final bool shouldShow = (forceShow || !isPlaying) && !hideOverlayForQuiz;
+                      final bool hideOverlayForQuiz =
+                          isQuizVisible && isPlaying;
+                      final bool shouldShow =
+                          (forceShow || !isPlaying) && !hideOverlayForQuiz;
 
                       Widget contentWithVisibility = AnimatedOpacity(
                         opacity: shouldShow ? 1.0 : 0.0,
@@ -1923,9 +2033,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
 
                       // Compact state when video is paused (to prevent overlapping the vertical actions bar on the right side)
                       final bool isCompact = !isPlaying;
-                      
-                      final double targetBottom = isQuizVisible 
-                          ? bottomPadding + (isCompact ? 10.0 : 20.0) 
+
+                      final double targetBottom = isQuizVisible
+                          ? bottomPadding + (isCompact ? 10.0 : 20.0)
                           : bottomPadding + 16.0;
 
                       final double targetRight = isCompact ? 80.0 : 16.0;
@@ -1943,13 +2053,15 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                             bottom: targetBottom,
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch, // Matches both widths perfectly!
+                              crossAxisAlignment: CrossAxisAlignment
+                                  .stretch, // Matches both widths perfectly!
                               children: [
                                 if (video.link?.isNotEmpty == true)
                                   AppButton(
                                     label: 'Visit Now',
                                     onPressed: () => _handleVisitNow(video),
-                                    icon: const Icon(Icons.open_in_new, size: 14, color: AppColors.white),
+                                    icon: const Icon(Icons.open_in_new,
+                                        size: 14, color: AppColors.white),
                                     variant: AppButtonVariant.secondary,
                                     size: AppButtonSize.small,
                                   ),
@@ -1962,7 +2074,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                                     onBack: () {
                                       final String videoId = video.id;
                                       _quizEngine.removeLastHistory(videoId);
-                                      final history = _quizEngine.getHistory(videoId);
+                                      final history =
+                                          _quizEngine.getHistory(videoId);
                                       if (history.isNotEmpty) {
                                         _activeQuizVN.value = history.last;
                                       } else {
@@ -1970,7 +2083,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                                       }
                                     },
                                     onAnswered: (int answerIndex) {
-                                      _quizEngine.submitAnswer(video.id, activeQuiz, answerIndex);
+                                      _quizEngine.submitAnswer(
+                                          video.id, activeQuiz, answerIndex);
                                     },
                                   ),
                                 ],
@@ -2094,7 +2208,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
       valueListenable: resultVN,
       builder: (context, result, _) {
         final bool isDubbed = result.isDone && result.dubbedUrl != null;
-        final bool isProcessing = result.status != DubbingStatus.idle && !result.isDone;
+        final bool isProcessing =
+            result.status != DubbingStatus.idle && !result.isDone;
 
         IconData icon = Icons.multitrack_audio_rounded;
         Color iconColor = AppColors.white;
@@ -2133,9 +2248,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     final iconSize = isPrimary
         ? AppConstants.primaryActionButtonSize
         : AppConstants.secondaryActionButtonSize;
-    final hitTargetSize = isPrimary
-        ? _primaryActionHitTargetSize
-        : _secondaryActionHitTargetSize;
+    final hitTargetSize =
+        isPrimary ? _primaryActionHitTargetSize : _secondaryActionHitTargetSize;
 
     return GestureDetector(
       onTap: onTap,
@@ -2305,7 +2419,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     final carouselAd = _carouselAdManager.getCarouselAdForIndex(index);
     if (carouselAd == null || carouselAd.slides.isEmpty) return;
     final videoId = _videos[index].id;
-    _getOrCreateNotifier<bool>(_showPauseAdOverlayPerVideoVN, videoId, false).value = true;
+    _getOrCreateNotifier<bool>(_showPauseAdOverlayPerVideoVN, videoId, false)
+        .value = true;
   }
 
   void _hidePauseAdOverlay({String? videoId}) {
@@ -2331,109 +2446,110 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
     final imageUrl = slide.thumbnailUrl ?? slide.mediaUrl;
 
     return Stack(
-        children: [
-          // Circular ad image - slightly left, vertically centered, with popup animation
-          Positioned(
-            left: 40,
-            top: 0,
-            bottom: 0,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.0, end: 1.0),
-                duration: const Duration(milliseconds: 350),
-                curve: Curves.elasticOut,
-                builder: (context, value, child) {
-                  return Transform.scale(
-                    scale: value,
-                    child: Opacity(
-                      opacity: value.clamp(0.0, 1.0),
-                      child: child,
-                    ),
-                  );
+      children: [
+        // Circular ad image - slightly left, vertically centered, with popup animation
+        Positioned(
+          left: 40,
+          top: 0,
+          bottom: 0,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.elasticOut,
+              builder: (context, value, child) {
+                return Transform.scale(
+                  scale: value,
+                  child: Opacity(
+                    opacity: value.clamp(0.0, 1.0),
+                    child: child,
+                  ),
+                );
+              },
+              child: GestureDetector(
+                onTap: () async {
+                  _hideLongPressAdOverlay();
+                  _hidePauseAdOverlay();
+
+                  // **NEW: Track popup ad click**
+                  if (index < _videos.length) {
+                    final video = _videos[index];
+                    final userData = await _authService.getUserData();
+                    if (userData != null &&
+                        userData['id'] != video.uploader.id) {
+                      try {
+                        await _adImpressionService.trackCarouselAdClick(
+                          videoId: video.id,
+                          adId: carouselAd.id,
+                          userId: userData['id'],
+                        );
+                      } catch (e) {
+                        AppLogger.log('❌ Error tracking popup ad click: $e');
+                      }
+                    }
+                  }
+
+                  // Prioritize external navigation if URL is available
+                  if (carouselAd.callToActionUrl.isNotEmpty) {
+                    AppLogger.log(
+                        '🔗 LongPressOverlay: Launching URL: ${carouselAd.callToActionUrl}');
+                    _launchExternalUrl(carouselAd.callToActionUrl);
+                    return;
+                  }
+
+                  // Fallback: Transition to carousel ad page (Existing logic)
+                  if (_videos.isNotEmpty && index < _videos.length) {
+                    final videoId = _videos[index].id;
+                    AppLogger.log(
+                        '🖱️ LongPressOverlay: Tapped for video $videoId (Fallback to feed)');
+
+                    if (_carouselAdManager.getTotalCarouselAds() > 0) {
+                      if (_currentHorizontalPage.containsKey(videoId)) {
+                        _currentHorizontalPage[videoId]!.value = 1;
+                      }
+                    }
+                  }
                 },
-                child: GestureDetector(
-                  onTap: () async {
-                    _hideLongPressAdOverlay();
-                    _hidePauseAdOverlay();
-
-                    // **NEW: Track popup ad click**
-                    if (index < _videos.length) {
-                      final video = _videos[index];
-                      final userData = await _authService.getUserData();
-                      if (userData != null && userData['id'] != video.uploader.id) {
-                        try {
-                          await _adImpressionService.trackCarouselAdClick(
-                            videoId: video.id,
-                            adId: carouselAd.id,
-                            userId: userData['id'],
-                          );
-                        } catch (e) {
-                          AppLogger.log('❌ Error tracking popup ad click: $e');
-                        }
-                      }
-                    }
-
-                    // Prioritize external navigation if URL is available
-                    if (carouselAd.callToActionUrl.isNotEmpty) {
-                      AppLogger.log(
-                          '🔗 LongPressOverlay: Launching URL: ${carouselAd.callToActionUrl}');
-                      _launchExternalUrl(carouselAd.callToActionUrl);
-                      return;
-                    }
-
-                    // Fallback: Transition to carousel ad page (Existing logic)
-                    if (_videos.isNotEmpty && index < _videos.length) {
-                      final videoId = _videos[index].id;
-                      AppLogger.log(
-                          '🖱️ LongPressOverlay: Tapped for video $videoId (Fallback to feed)');
-
-                      if (_carouselAdManager.getTotalCarouselAds() > 0) {
-                        if (_currentHorizontalPage.containsKey(videoId)) {
-                          _currentHorizontalPage[videoId]!.value = 1;
-                        }
-                      }
-                    }
-                  },
-                  child: Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.white, width: 2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.backgroundPrimary
-                              .withValues(alpha: 0.5),
-                          blurRadius: 10,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: ClipOval(
-                      child: CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        width: 70,
-                        height: 70,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 140,
-                        maxWidthDiskCache: 140,
-                        errorWidget: (context, url, error) {
-                          return Container(
-                            color: AppColors.borderPrimary,
-                            child: const Icon(Icons.ad_units,
-                                color: AppColors.white, size: 30),
-                          );
-                        },
+                child: Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.white, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            AppColors.backgroundPrimary.withValues(alpha: 0.5),
+                        blurRadius: 10,
+                        spreadRadius: 2,
                       ),
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      width: 70,
+                      height: 70,
+                      fit: BoxFit.cover,
+                      memCacheWidth: 140,
+                      maxWidthDiskCache: 140,
+                      errorWidget: (context, url, error) {
+                        return Container(
+                          color: AppColors.borderPrimary,
+                          child: const Icon(Icons.ad_units,
+                              color: AppColors.white, size: 30),
+                        );
+                      },
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ],
-      );
+        ),
+      ],
+    );
   }
 
   /// **OFFLINE INDICATOR: Shows when device has no internet connection**
@@ -2483,7 +2599,7 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
 
   void _showEpisodeList(BuildContext context, VideoModel video) {
     if (video.episodes == null || video.episodes!.isEmpty) return;
-    
+
     VayuBottomSheet.show(
       context: context,
       title: 'Episodes',
@@ -2502,15 +2618,14 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                 curve: Curves.easeInOut,
               );
             } else {
-              _showSnackBar('Episode is not in current feed. Scrolling to find it...');
+              _showSnackBar(
+                  'Episode is not in current feed. Scrolling to find it...');
             }
           }
         },
       ),
     );
   }
-
-
 
   String _formatUploadDate(DateTime date) {
     final now = DateTime.now();
@@ -2547,7 +2662,8 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
               variant: AppButtonVariant.secondary,
               onPressed: () async {
                 Navigator.of(context).pop();
-                final result = await Navigator.of(context).push<Map<String, dynamic>>(
+                final result =
+                    await Navigator.of(context).push<Map<String, dynamic>>(
                   MaterialPageRoute(
                     builder: (context) => EditVideoDetails(video: video),
                   ),
@@ -2563,9 +2679,10 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                         tags: result['tags'],
                         quizzes: result['quizzes'],
                         seriesId: result['seriesId'],
-                        episodes: result['episodes'] != null 
-                          ? List<Map<String, dynamic>>.from(result['episodes']) 
-                          : null,
+                        episodes: result['episodes'] != null
+                            ? List<Map<String, dynamic>>.from(
+                                result['episodes'])
+                            : null,
                       );
                     }
                   });
@@ -2584,22 +2701,26 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
             Wrap(
               spacing: 8,
               runSpacing: 4,
-              children: video.tags!.map((tag) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-                ),
-                child: Text(
-                  '#$tag',
-                  style: TextStyle(
-                    color: AppColors.primary,
-                    fontSize: AppTypography.fontSizeXS,
-                    fontWeight: AppTypography.weightMedium,
-                  ),
-                ),
-              )).toList(),
+              children: video.tags!
+                  .map((tag) => Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.2)),
+                        ),
+                        child: Text(
+                          '#$tag',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: AppTypography.fontSizeXS,
+                            fontWeight: AppTypography.weightMedium,
+                          ),
+                        ),
+                      ))
+                  .toList(),
             ),
             AppSpacing.vSpace16,
             const Divider(),

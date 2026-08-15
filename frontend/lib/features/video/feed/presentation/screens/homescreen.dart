@@ -102,7 +102,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
       // Navigate to video tab ONLY if user is still on upload tab (index 2)
       final mainController = ref.read(mainControllerProvider);
       if (mainController.currentIndex == 2) {
-        AppLogger.log('🔄 MainScreen: Still on upload tab, navigating to video tab');
+        AppLogger.log(
+            '🔄 MainScreen: Still on upload tab, navigating to video tab');
         mainController.changeIndex(0);
       }
     } catch (e) {
@@ -224,7 +225,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
     // **NEW: Initialize session expiration callback**
     HttpClientService.instance.onSessionExpired = () {
       if (mounted) {
-        AppLogger.log('🚨 MainScreen: Global session expiration triggered, refreshing auth state...');
+        AppLogger.log(
+            '🚨 MainScreen: Global session expiration triggered, refreshing auth state...');
         ref.read(googleSignInProvider).refreshAuthState();
       }
     };
@@ -240,7 +242,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
     // **BACKGROUND PRELOADING: Start preloading profile data when app opens (user starts on Yug tab)**
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      AppLogger.log('🚀 MainScreen: Starting background profile preloading on app start');
+      AppLogger.log(
+          '🚀 MainScreen: Starting background profile preloading on app start');
       _profilePreloader.startBackgroundPreloading();
 
       // **LOCATION ONBOARDING: Check and show location permission request**
@@ -257,7 +260,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
     // **STAGE 3: BACKGROUND SDK INITIALIZATION (Firebase, AdMob, etc.)**
     // Delay initialization to prevent stutter during initial screen mount
     // **DEBUG OPTIMIZATION: Longer delay in debug mode to prevent ANR**
-    const stage3Delay = kDebugMode ? Duration(seconds: 15) : Duration(seconds: 5);
+    const stage3Delay =
+        kDebugMode ? Duration(seconds: 15) : Duration(seconds: 5);
     Future.delayed(stage3Delay, () {
       if (mounted) {
         AppLogger.log('🚀 MainScreen: Triggering Stage 3 Initialization');
@@ -270,30 +274,34 @@ class _MainScreenState extends ConsumerState<MainScreen>
   Future<void> _restoreLastTabIndex() async {
     try {
       final mainController = ref.read(mainControllerProvider);
-      
+
       // Always restore to home tab (0) for a fresh start as requested
       await mainController.restoreLastTabIndex();
-      
-      AppLogger.log('🚀 MainScreen: Fresh start initiated (persistence disabled)');
+
+      AppLogger.log(
+          '🚀 MainScreen: Fresh start initiated (persistence disabled)');
     } catch (e) {
       AppLogger.log('❌ MainScreen: Error resetting tab index: $e');
     }
   }
 
   /// **NEW: Restore a specific sub-route for a tab**
-  void _restoreSubRoute(int tabIndex, String routeName, Map<String, String>? args) {
+  void _restoreSubRoute(
+      int tabIndex, String routeName, Map<String, String>? args) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final navState = _navigatorKeys[tabIndex].currentState;
       if (navState == null) return;
-      AppLogger.log('🔙 MainScreen: Attempting to restore sub-route $routeName for tab $tabIndex');
-      
+      AppLogger.log(
+          '🔙 MainScreen: Attempting to restore sub-route $routeName for tab $tabIndex');
+
       Widget? screen;
       if (routeName == 'profile') {
         final userId = args?['userId'];
         if (userId != null) screen = ProfileScreen(userId: userId);
       } else if (routeName == 'edit_profile') {
-        screen = EditProfileScreen(stateManager: ref.read(profileStateManagerProvider));
+        screen = EditProfileScreen(
+            stateManager: ref.read(profileStateManagerProvider));
       } else if (routeName == 'settings') {
         screen = const SettingsScreen();
       } else if (routeName == 'saved_videos') {
@@ -301,9 +309,9 @@ class _MainScreenState extends ConsumerState<MainScreen>
       } else if (routeName == 'creator_revenue') {
         screen = const CreatorRevenueScreen();
       } else if (routeName == 'vayu_player') {
-         // Landing on Vayu root is safer if we don't have the full video object
-         // But Index persistence within Vayu player will handle the position
-         return; 
+        // Landing on Vayu root is safer if we don't have the full video object
+        // But Index persistence within Vayu player will handle the position
+        return;
       }
 
       if (screen != null) {
@@ -388,7 +396,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     // **NEW: Dispose animation controller**
-    
+
     _refreshAnimationController.dispose();
     // **BACKGROUND PRELOADING: Dispose preloader**
     _profilePreloader.dispose();
@@ -454,7 +462,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
       // **VAYU TAB AUTO-LOAD: Trigger refresh if Vayu tab is selected and empty**
       if (index == 1) {
-        print('🔄 MainScreen: Switching to Vayu tab - checking if refresh is needed');
+        print(
+            '🔄 MainScreen: Switching to Vayu tab - checking if refresh is needed');
         WidgetsBinding.instance.addPostFrameCallback((_) {
           final vayuState = _vayuScreenKey.currentState;
           if (vayuState != null && vayuState.mounted) {
@@ -469,7 +478,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
       // If switching to profile tab, ensure profile data is loaded
       // If switching to profile tab, ensure profile data is loaded
-      if (index == 4) { // Profile is now index 4
+      if (index == 4) {
+        // Profile is now index 4
         // Force immediate data load when profile tab is selected
         WidgetsBinding.instance.addPostFrameCallback((_) {
           final profileScreenState = _profileScreenKey.currentState;
@@ -486,7 +496,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
       // **LAZY TAB RESTORATION: Restore sub-route on first visit if not already done**
       if (!_restoredTabs.contains(index)) {
-        AppLogger.log('🔄 MainScreen: First visit to tab $index, checking for sub-route restoration');
+        AppLogger.log(
+            '🔄 MainScreen: First visit to tab $index, checking for sub-route restoration');
         unawaited(mainController.getPersistedSubRoute(index).then((savedRoute) {
           if (savedRoute != null) {
             final routeName = savedRoute['routeName'] as String;
@@ -511,11 +522,12 @@ class _MainScreenState extends ConsumerState<MainScreen>
     // **SYNC: Trigger global refresh when auth state changes (Login/Logout)**
     if (_wasSignedIn != null && _wasSignedIn != isSignedIn) {
       _wasSignedIn = isSignedIn;
-      AppLogger.log('🔐 MainScreen: Auth transition detected (signedIn: $isSignedIn). Triggering feed refresh.');
-      
+      AppLogger.log(
+          '🔐 MainScreen: Auth transition detected (signedIn: $isSignedIn). Triggering feed refresh.');
+
       // Clear the initialization cache so fresh personalized videos are fetched
       AppInitializationManager.instance.clearCache();
-      
+
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _refreshVideoList();
@@ -526,71 +538,82 @@ class _MainScreenState extends ConsumerState<MainScreen>
     }
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-          value: const SystemUiOverlayStyle(
-            systemNavigationBarColor: Colors.transparent,
-            systemNavigationBarDividerColor: Colors.transparent,
-            systemNavigationBarIconBrightness: Brightness.light,
-            systemNavigationBarContrastEnforced: false,
-          ),
-          child: PopScope(
-          canPop: false, // Prevent default back behavior
-          onPopInvokedWithResult: (didPop, result) async {
-            await _handleBackPress(mainController);
-          },
-          child: Scaffold(
-            extendBody: !mainController.isBottomNavVisible, // Allow content to flow under the bottom bar only when hidden
-            backgroundColor: AppColors.backgroundPrimary,
-            floatingActionButton: kDebugMode
-                ? FloatingActionButton(
-                    mini: true,
-                    backgroundColor: Colors.deepPurple.withValues(alpha: 0.8),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => TalkerScreen(
-                            talker: AppLogger.talker,
-                            theme: const TalkerScreenTheme(
-                              backgroundColor: Color(0xFF1A1A2E),
-                              cardColor: Color(0xFF16213E),
-                            ),
+      value: const SystemUiOverlayStyle(
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: PopScope(
+        canPop: false, // Prevent default back behavior
+        onPopInvokedWithResult: (didPop, result) async {
+          await _handleBackPress(mainController);
+        },
+        child: Scaffold(
+          extendBody: !mainController
+              .isBottomNavVisible, // Allow content to flow under the bottom bar only when hidden
+          backgroundColor: AppColors.backgroundPrimary,
+          floatingActionButton: kDebugMode
+              ? FloatingActionButton(
+                  mini: true,
+                  backgroundColor: Colors.deepPurple.withValues(alpha: 0.8),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => TalkerScreen(
+                          talker: AppLogger.talker,
+                          theme: const TalkerScreenTheme(
+                            backgroundColor: Color(0xFF1A1A2E),
+                            cardColor: Color(0xFF16213E),
                           ),
                         ),
-                      );
-                    },
-                    child: const Icon(Icons.bug_report, color: Colors.white, size: 20),
-                  )
-                : null,
-            body: IndexedStack(
-              index: mainController.currentIndex,
-              children: [
-                // No parentTabIndex: the enclosing TabScope supplies it.
-                _buildTabNavigator(0, VideoScreen(
-                  key: _videoScreenKey,
-                  initialVideos: AppInitializationManager.instance.initialVideos,
-                  isMainYugTab: true, // **NEW: Mark as main feed for tab-active enforcement**
-                )),
-                _buildTabNavigator(1, VayuScreen(key: _vayuScreenKey)),
-                _buildTabNavigator(2, UploadScreen(
-                  key: const PageStorageKey('uploadScreen'),
-                  onVideoUploaded: _refreshVideoList,
-                )),
-                _buildTabNavigator(3, const SubscriptionsScreen()),
-                _buildTabNavigator(4, ProfileScreen(
-                  key: _profileScreenKey,
-                )),
-              ],
-            ),
-            bottomNavigationBar: AnimatedSize(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeInOut,
-              child: mainController.isBottomNavVisible 
+                      ),
+                    );
+                  },
+                  child: const Icon(Icons.bug_report,
+                      color: Colors.white, size: 20),
+                )
+              : null,
+          body: IndexedStack(
+            index: mainController.currentIndex,
+            children: [
+              // No parentTabIndex: the enclosing TabScope supplies it.
+              _buildTabNavigator(
+                  0,
+                  VideoScreen(
+                    key: _videoScreenKey,
+                    initialVideos:
+                        AppInitializationManager.instance.initialVideos,
+                    isMainYugTab:
+                        true, // **NEW: Mark as main feed for tab-active enforcement**
+                  )),
+              _buildTabNavigator(1, VayuScreen(key: _vayuScreenKey)),
+              _buildTabNavigator(
+                  2,
+                  UploadScreen(
+                    key: const PageStorageKey('uploadScreen'),
+                    onVideoUploaded: _refreshVideoList,
+                  )),
+              _buildTabNavigator(3, const SubscriptionsScreen()),
+              _buildTabNavigator(
+                  4,
+                  ProfileScreen(
+                    key: _profileScreenKey,
+                  )),
+            ],
+          ),
+          bottomNavigationBar: AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            child: mainController.isBottomNavVisible
                 ? RepaintBoundary(
                     child: Container(
                       decoration: BoxDecoration(
                         color: AppColors.backgroundPrimary,
                         border: const Border(
-                          top: BorderSide(color: AppColors.borderPrimary, width: 0.5),
+                          top: BorderSide(
+                              color: AppColors.borderPrimary, width: 0.5),
                         ),
                         boxShadow: [
                           BoxShadow(
@@ -637,7 +660,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
                               index: 2,
                               currentIndex: mainController.currentIndex,
                               icon: HugeIcons.strokeRoundedAddCircleHalfDot,
-                              activeIcon: HugeIcons.strokeRoundedAddCircleHalfDot,
+                              activeIcon:
+                                  HugeIcons.strokeRoundedAddCircleHalfDot,
                               label: 'Upload',
                               onTap: () => _handleNavTap(2, mainController),
                               mainController: mainController,
@@ -666,9 +690,9 @@ class _MainScreenState extends ConsumerState<MainScreen>
                     ),
                   )
                 : const SizedBox(height: 0, width: double.infinity),
-            ),
           ),
         ),
+      ),
     );
   }
 
@@ -687,72 +711,75 @@ class _MainScreenState extends ConsumerState<MainScreen>
     final isRefreshingYug = isYugTab && _isRefreshing;
 
     return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        onDoubleTap: isYugTab ? _handleYugTabDoubleTap : null,
-        behavior: HitTestBehavior.opaque, // **FIX: Make entire area tappable**
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
-          padding: const EdgeInsets.symmetric(
-              horizontal: 2, // Reduced from 4 to 2
-              vertical: 0), // Reduced from 1 to 0 for tighter spacing
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (isRefreshingYug)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  child: RotationTransition(
-                    turns: _refreshAnimationController,
-                    child: Container(
-                      width: 42,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? Colors.white
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
-                        Icons.refresh,
-                        size: 24,
-                        color: isSelected
-                            ? AppColors.backgroundPrimary
-                            : AppColors.textSecondary,
+      child: Semantics(
+        identifier: 'nav_${label.toLowerCase()}',
+        label: label,
+        button: true,
+        selected: isSelected,
+        excludeSemantics: true,
+        child: GestureDetector(
+          onTap: onTap,
+          onDoubleTap: isYugTab ? _handleYugTabDoubleTap : null,
+          behavior:
+              HitTestBehavior.opaque, // **FIX: Make entire area tappable**
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            padding: const EdgeInsets.symmetric(
+                horizontal: 2, // Reduced from 4 to 2
+                vertical: 0), // Reduced from 1 to 0 for tighter spacing
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isRefreshingYug)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    child: RotationTransition(
+                      turns: _refreshAnimationController,
+                      child: Container(
+                        width: 42,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.white : Colors.transparent,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(
+                          Icons.refresh,
+                          size: 24,
+                          color: isSelected
+                              ? AppColors.backgroundPrimary
+                              : AppColors.textSecondary,
+                        ),
                       ),
                     ),
+                  )
+                else
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    child: HugeIcon(
+                      icon: isSelected ? activeIcon : icon,
+                      size: 26.0,
+                      color:
+                          isSelected ? Colors.white : AppColors.textSecondary,
+                    ),
                   ),
-                )
-              else
-                AnimatedContainer(
+
+                const SizedBox(height: 4), // Added small gap for clarity
+
+                // Label always visible below icon
+                AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 200),
-                  child: HugeIcon(
-                    icon: isSelected ? activeIcon : icon,
-                    size: 26.0,
-                    color: isSelected
-                        ? Colors.white
-                        : AppColors.textSecondary,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected ? Colors.white : AppColors.textSecondary,
+                    letterSpacing: 0.1,
                   ),
+                  child: Text(isRefreshingYug ? 'Refreshing...' : label),
                 ),
-
-              const SizedBox(height: 4), // Added small gap for clarity
-
-              // Label always visible below icon
-              AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 200),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  color: isSelected
-                      ? Colors.white
-                      : AppColors.textSecondary,
-                  letterSpacing: 0.1,
-                ),
-                child: Text(isRefreshingYug ? 'Refreshing...' : label),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -766,16 +793,31 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// guessing. A player that guesses wrong keeps claiming playback from a
   /// background tab.
   Widget _buildTabNavigator(int index, Widget child) {
-    return TabScope(
-      index: index,
-      child: Navigator(
-        key: _navigatorKeys[index],
-        observers: [TabNavigatorObserver(index, ref), _tabRouteObservers[index]],
-        onGenerateRoute: (routeSettings) {
-          return MaterialPageRoute(
-            builder: (context) => child,
-          );
-        },
+    const screenIds = [
+      'screen_yug',
+      'screen_vayu',
+      'screen_upload',
+      'screen_subscriptions',
+      'screen_account',
+    ];
+
+    return Semantics(
+      identifier: screenIds[index],
+      container: true,
+      child: TabScope(
+        index: index,
+        child: Navigator(
+          key: _navigatorKeys[index],
+          observers: [
+            TabNavigatorObserver(index, ref),
+            _tabRouteObservers[index],
+          ],
+          onGenerateRoute: (routeSettings) {
+            return MaterialPageRoute(
+              builder: (context) => child,
+            );
+          },
+        ),
       ),
     );
   }
@@ -802,7 +844,7 @@ class TabNavigatorObserver extends NavigatorObserver {
 
   void _updatePersistence(Route<dynamic>? route) {
     if (route == null) return;
-    
+
     final mainController = ref.read(mainControllerProvider);
     final routeName = route.settings.name;
     final args = route.settings.arguments;
@@ -825,4 +867,3 @@ class TabNavigatorObserver extends NavigatorObserver {
     mainController.persistSubRoute(tabIndex, routeName, args: serializableArgs);
   }
 }
-

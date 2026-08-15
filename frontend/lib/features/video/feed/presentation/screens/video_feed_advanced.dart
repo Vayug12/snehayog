@@ -15,6 +15,7 @@ import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/data/services/video_service.dart';
+import 'package:vayug/features/video/core/data/services/picture_in_picture_service.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/shared/managers/carousel_ad_manager.dart';
 import 'package:like_button/like_button.dart';
@@ -135,6 +136,19 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   final Map<String, bool> _likeInProgress = {};
   Timer?
       _pageChangeDebounceTimer; // **NEW: Timer for debouncing page rapid scrolls**
+  final PictureInPictureService _pictureInPictureService =
+      PictureInPictureService.instance;
+  late final String _pictureInPictureOwnerId = 'yug-${identityHashCode(this)}';
+  final GlobalKey _pictureInPictureSourceKey = GlobalKey();
+  StreamSubscription<PictureInPictureModeEvent>?
+      _pictureInPictureModeSubscription;
+  StreamSubscription<PictureInPicturePlaybackEvent>?
+      _pictureInPicturePlaybackSubscription;
+  StreamSubscription<String>? _pictureInPicturePreparationSubscription;
+  bool _isPictureInPictureSupported = false;
+  bool _isInPictureInPicture = false;
+  bool? _lastPictureInPicturePlayingState;
+  double? _lastPictureInPictureAspectRatio;
 
   @override
   bool get wantKeepAlive => true;
@@ -188,6 +202,7 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     // Initialize services
     _initializeServices();
     _checkDeviceCapabilities();
+    unawaited(_initializePictureInPicture());
 
     // **FIX: Immediately mark screen as visible if opened as a dedicated player (Profile/DeepLink)**
     // This allows forcePlayCurrent to work immediately without waiting for VisibilityDetector.
@@ -342,10 +357,18 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     super.didChangeAppLifecycleState(state);
     switch (state) {
       case AppLifecycleState.paused:
+        if (_isInPictureInPicture) {
+          _keepYugPlaybackActiveInPictureInPicture();
+          break;
+        }
         _playbackCoordinator.setAppLifecycle(false);
         _handleAppMovedToBackground(state);
         break;
       case AppLifecycleState.inactive:
+        if (_isInPictureInPicture) {
+          _keepYugPlaybackActiveInPictureInPicture();
+          break;
+        }
         _playbackCoordinator.setAppLifecycle(false);
         _handleAppMovedToBackground(state);
         break;
@@ -404,11 +427,151 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         _ensureWakelockForVisibility();
         break;
       case AppLifecycleState.hidden:
+        if (_isInPictureInPicture) {
+          _keepYugPlaybackActiveInPictureInPicture();
+          break;
+        }
         _handleAppMovedToBackground(state);
         break;
       default:
         break;
     }
+  }
+
+  Future<void> _initializePictureInPicture() async {
+    _pictureInPictureModeSubscription =
+        _pictureInPictureService.modeChanges.listen((event) {
+      if (event.ownerId == _pictureInPictureOwnerId) {
+        _onPictureInPictureModeChanged(event.isActive);
+      }
+    });
+    _pictureInPicturePlaybackSubscription =
+        _pictureInPictureService.playbackRequests.listen((event) {
+      if (event.ownerId == _pictureInPictureOwnerId) {
+        unawaited(_onPictureInPicturePlaybackRequested(event.shouldPlay));
+      }
+    });
+    _pictureInPicturePreparationSubscription =
+        _pictureInPictureService.preparationRequests.listen((ownerId) {
+      if (ownerId == _pictureInPictureOwnerId) {
+        _prepareYugPictureInPictureSurface();
+      }
+    });
+    final isSupported = await _pictureInPictureService.initialize();
+    if (!mounted) return;
+    setState(() => _isPictureInPictureSupported = isSupported);
+    if (isSupported) unawaited(_syncPictureInPictureState(force: true));
+  }
+
+  void _prepareYugPictureInPictureSurface() {
+    if (!mounted || _isInPictureInPicture) return;
+    setState(() => _isInPictureInPicture = true);
+    _keepYugPlaybackActiveInPictureInPicture();
+  }
+
+  void _keepYugPlaybackActiveInPictureInPicture() {
+    _lifecyclePaused = false;
+    _isScreenVisible = true;
+    _playbackCoordinator.setAppLifecycle(true);
+  }
+
+  void _onPictureInPictureModeChanged(bool isActive) {
+    if (!mounted) return;
+    setState(() => _isInPictureInPicture = isActive);
+    if (isActive) {
+      _keepYugPlaybackActiveInPictureInPicture();
+      _tryAutoplayCurrent();
+      return;
+    }
+
+    final lifecycleState = WidgetsBinding.instance.lifecycleState;
+    if (lifecycleState == AppLifecycleState.resumed) {
+      _lifecyclePaused = false;
+      _playbackCoordinator.setAppLifecycle(true);
+      _tryAutoplayCurrent();
+    } else {
+      _playbackCoordinator.setAppLifecycle(false);
+      _handleAppMovedToBackground(lifecycleState ?? AppLifecycleState.paused);
+    }
+  }
+
+  Future<void> _onPictureInPicturePlaybackRequested(bool shouldPlay) async {
+    final controller = _currentPictureInPictureController;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _videos.isEmpty) {
+      return;
+    }
+    final videoId = _videos[_currentIndex].id;
+    _userPaused[videoId] = !shouldPlay;
+    _userPausedVN[videoId]?.value = !shouldPlay;
+    _controllerStates[videoId] = shouldPlay;
+    _playbackCoordinator.setUserPaused(_playbackSession, !shouldPlay);
+    if (shouldPlay) {
+      _keepYugPlaybackActiveInPictureInPicture();
+      _pauseOtherLocalVideos(videoId);
+      if (_playbackCoordinator.claimForPlay(_playbackSession, controller,
+          reason: 'Yug PiP play')) {
+        await controller.play();
+      }
+    } else {
+      await controller.pause();
+    }
+    await _syncPictureInPictureState(force: true);
+  }
+
+  VideoPlayerController? get _currentPictureInPictureController {
+    if (_videos.isEmpty || _currentIndex < 0 || _currentIndex >= _videos.length) {
+      return null;
+    }
+    return _controllerPool[_videos[_currentIndex].id];
+  }
+
+  Future<void> _syncPictureInPictureState({bool force = false}) async {
+    if (!_isPictureInPictureSupported ||
+        (!_isScreenVisible && !_isInPictureInPicture)) {
+      return;
+    }
+    final controller = _currentPictureInPictureController;
+    final isPlaying =
+        controller?.value.isInitialized == true && controller!.value.isPlaying;
+    final aspectRatio =
+        controller == null ? 9 / 16 : _pictureInPictureAspectRatio(controller);
+    if (!force &&
+        _lastPictureInPicturePlayingState == isPlaying &&
+        _lastPictureInPictureAspectRatio == aspectRatio) {
+      return;
+    }
+    _lastPictureInPicturePlayingState = isPlaying;
+    _lastPictureInPictureAspectRatio = aspectRatio;
+    await _pictureInPictureService.update(
+      ownerId: _pictureInPictureOwnerId,
+      aspectRatio: aspectRatio,
+      isPlaying: isPlaying,
+      autoEnterEnabled: isPlaying && !_isInPictureInPicture,
+      sourceRect: _pictureInPictureSourceRect(),
+    );
+  }
+
+  double _pictureInPictureAspectRatio(VideoPlayerController controller) {
+    final ratio = controller.value.aspectRatio;
+    return ratio.isFinite && ratio > 0 ? ratio : 9 / 16;
+  }
+
+  List<double>? _pictureInPictureSourceRect() {
+    final sourceContext = _pictureInPictureSourceKey.currentContext;
+    final renderBox = sourceContext?.findRenderObject();
+    if (sourceContext == null || renderBox is! RenderBox || !renderBox.hasSize) {
+      return null;
+    }
+    final origin = renderBox.localToGlobal(Offset.zero);
+    final pixelRatio = View.of(sourceContext).devicePixelRatio;
+    return <double>[
+      origin.dx * pixelRatio,
+      origin.dy * pixelRatio,
+      (origin.dx + renderBox.size.width) * pixelRatio,
+      (origin.dy + renderBox.size.height) * pixelRatio,
+    ];
   }
 
   void _handleAppMovedToBackground(AppLifecycleState state) {
@@ -1752,6 +1915,8 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
 
+    if (_isInPictureInPicture) return _buildYugPictureInPicturePlayer();
+
     final authController = ref.watch(googleSignInProvider);
     final isSignedIn = authController.isSignedIn;
 
@@ -1941,6 +2106,10 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
   @override
   void dispose() {
+    _pictureInPictureModeSubscription?.cancel();
+    _pictureInPicturePlaybackSubscription?.cancel();
+    _pictureInPicturePreparationSubscription?.cancel();
+    unawaited(_pictureInPictureService.release(_pictureInPictureOwnerId));
     appRouteObserver.unsubscribe(this);
     // Releasing the session drops this feed's pins and hands the screen back to
     // the surface underneath, which the coordinator then reactivates.

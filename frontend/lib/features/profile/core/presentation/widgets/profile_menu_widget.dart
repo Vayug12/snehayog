@@ -61,28 +61,6 @@ class ProfileMenuWidget extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: EdgeInsets.all(AppSpacing.spacing3),
-                decoration: BoxDecoration(
-                  color: AppColors.backgroundSecondary.withValues(alpha: 0.5),
-                ),
-                child: Row(
-                  children: [
-                    const HugeIcon(
-                        icon: HugeIcons.strokeRoundedMenu01,
-                        color: AppColors.primary,
-                        size: 24),
-                    SizedBox(width: AppSpacing.spacing3),
-                    Text(
-                      'Account Menu',
-                      style: AppTypography.headlineSmall.copyWith(
-                        color: AppColors.textPrimary,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               Expanded(
                 child: Consumer<ProfileStateManager>(
                   builder: (context, stateManager, child) {
@@ -107,7 +85,7 @@ class ProfileMenuWidget extends StatelessWidget {
                     menuItems.add({
                       'title': 'Auto Scroll',
                       'icon': HugeIcons.strokeRoundedScrollVertical,
-                      'color': AppColors.info,
+                      'color': AppColors.textSecondary,
                       'onTap': () async {
                         final enabled = await AutoScrollSettings.isEnabled();
                         await AutoScrollSettings.setEnabled(!enabled);
@@ -127,7 +105,7 @@ class ProfileMenuWidget extends StatelessWidget {
                       menuItems.add({
                         'title': 'Edit Profile',
                         'icon': HugeIcons.strokeRoundedUser,
-                        'color': AppColors.success,
+                        'color': AppColors.textSecondary,
                         'onTap': () {
                           Navigator.pop(context);
                           Navigator.push(
@@ -145,7 +123,7 @@ class ProfileMenuWidget extends StatelessWidget {
                       menuItems.add({
                         'title': 'Save',
                         'icon': HugeIcons.strokeRoundedCheckmarkCircle01,
-                        'color': AppColors.success,
+                        'color': AppColors.textSecondary,
                         'onTap': () {
                           Navigator.pop(context);
                           onSaveProfile?.call();
@@ -154,7 +132,7 @@ class ProfileMenuWidget extends StatelessWidget {
                       menuItems.add({
                         'title': 'Cancel',
                         'icon': HugeIcons.strokeRoundedCancel01,
-                        'color': AppColors.error,
+                        'color': AppColors.textSecondary,
                         'onTap': () {
                           Navigator.pop(context);
                           onCancelEdit?.call();
@@ -162,19 +140,31 @@ class ProfileMenuWidget extends StatelessWidget {
                       });
                     }
 
-                    // Report User
-                    if (userId != null &&
-                        ((stateManager.userData?['_id'] ??
-                                stateManager.userData?['id'] ??
-                                stateManager.userData?['googleId']) !=
-                            userId)) {
+                    // Setup Billing (Shifted from Header when completed)
+                    if (stateManager.isOwner && stateManager.hasUpiId) {
                       menuItems.add({
-                        'title': 'Report',
-                        'icon': HugeIcons.strokeRoundedAlert01,
-                        'color': AppColors.error,
+                        'title': 'Setup Billing',
+                        'icon': HugeIcons.strokeRoundedWallet01,
+                        'color': AppColors.textSecondary,
                         'onTap': () {
                           Navigator.pop(context);
-                          onReportUser?.call();
+                          ProfileDialogsWidget.showHowToEarnDialog(
+                            context,
+                            stateManager: stateManager,
+                          );
+                        },
+                      });
+                    }
+
+                    // Delete Videos
+                    if (stateManager.isOwner) {
+                      menuItems.add({
+                        'title': 'Manage Content',
+                        'icon': HugeIcons.strokeRoundedDelete02,
+                        'color': AppColors.textSecondary,
+                        'onTap': () {
+                          Navigator.pop(context);
+                          onEnterSelectionMode?.call();
                         },
                       });
                     }
@@ -183,7 +173,7 @@ class ProfileMenuWidget extends StatelessWidget {
                     menuItems.add({
                       'title': 'Support Chat',
                       'icon': HugeIcons.strokeRoundedMessageQuestion,
-                      'color': const Color(0xFF10B981),
+                      'color': AppColors.textSecondary,
                       'onTap': () {
                         Navigator.pop(context);
                         onShowWhatsApp?.call();
@@ -194,7 +184,7 @@ class ProfileMenuWidget extends StatelessWidget {
                     menuItems.add({
                       'title': 'Help & FAQ',
                       'icon': HugeIcons.strokeRoundedHelpCircle,
-                      'color': AppColors.primaryLight,
+                      'color': AppColors.textSecondary,
                       'onTap': () {
                         Navigator.pop(context);
                         onShowFAQ?.call();
@@ -212,31 +202,19 @@ class ProfileMenuWidget extends StatelessWidget {
                       },
                     });
 
-                    // Setup Billing (Shifted from Header when completed)
-                    if (stateManager.isOwner && stateManager.hasUpiId) {
+                    // Report User
+                    if (userId != null &&
+                        ((stateManager.userData?['_id'] ??
+                                stateManager.userData?['id'] ??
+                                stateManager.userData?['googleId']) !=
+                            userId)) {
                       menuItems.add({
-                        'title': 'Setup Billing',
-                        'icon': HugeIcons.strokeRoundedWallet01,
-                        'color': AppColors.primary,
+                        'title': 'Report',
+                        'icon': HugeIcons.strokeRoundedAlert01,
+                        'color': AppColors.textSecondary,
                         'onTap': () {
                           Navigator.pop(context);
-                          ProfileDialogsWidget.showHowToEarnDialog(
-                            context,
-                            stateManager: stateManager,
-                          );
-                        },
-                      });
-                    }
-
-                    // Delete Videos
-                    if (stateManager.isOwner) {
-                      menuItems.add({
-                        'title': 'Manage Content',
-                        'icon': HugeIcons.strokeRoundedDelete02,
-                        'color': AppColors.error,
-                        'onTap': () {
-                          Navigator.pop(context);
-                          onEnterSelectionMode?.call();
+                          onReportUser?.call();
                         },
                       });
                     }

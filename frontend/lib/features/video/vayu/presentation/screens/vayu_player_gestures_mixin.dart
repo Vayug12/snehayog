@@ -153,8 +153,8 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
       controller.pause();
       onUserPlaybackChanged(false);
     } else {
-      playCurrentVideo();
       onUserPlaybackChanged(true);
+      playCurrentVideo();
       hideControlsWithDelay();
     }
   }

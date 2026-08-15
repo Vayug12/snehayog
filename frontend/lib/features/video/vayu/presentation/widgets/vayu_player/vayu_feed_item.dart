@@ -10,7 +10,6 @@ import 'package:vayug/core/design/spacing.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-
 enum GestureType { none, horizontal, vertical, scale }
 
 class VayuFeedItem extends ConsumerStatefulWidget {
@@ -20,13 +19,13 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   final ChewieController? chewie;
   final bool isCurrent;
   final bool isFullScreenManual;
-  final ValueListenable<bool>? suppressTransientPauseOverlayVN;
   final ValueNotifier<bool> showControlsVN;
   final ValueNotifier<bool> isControlsLockedVN;
   final ValueNotifier<bool> showScrubbingOverlayVN;
   final ValueNotifier<bool>? isSeekingBufferingVN;
   final VoidCallback onToggleFullScreen;
   final VoidCallback onOpenExternalPlayer;
+  final GlobalKey? pictureInPictureSourceKey;
   final VoidCallback onHandleTap;
   final void Function(TapDownDetails) onDoubleTapToSeek;
   final VoidCallback onHorizontalDragEnd;
@@ -39,8 +38,10 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   final Widget Function(int) buildVideoInfo; // Legacy support or direct call
   final Widget Function(int) buildChannelRow; // Legacy support or direct call
   final Widget Function() buildScrubbingOverlay;
-  final Widget Function(int) buildCustomControls; // Legacy support or direct call
-  final Widget Function(int) buildDubbingProgress; // Legacy support or direct call
+  final Widget Function(int)
+      buildCustomControls; // Legacy support or direct call
+  final Widget Function(int)
+      buildDubbingProgress; // Legacy support or direct call
   final String Function(Duration) formatDuration;
   final QuizModel? activeQuiz;
   final VoidCallback onQuizDismiss;
@@ -61,12 +62,12 @@ class VayuFeedItem extends ConsumerStatefulWidget {
     this.chewie,
     required this.isCurrent,
     required this.isFullScreenManual,
-    this.suppressTransientPauseOverlayVN,
     required this.showControlsVN,
     required this.isControlsLockedVN,
     required this.showScrubbingOverlayVN,
     this.isSeekingBufferingVN,
     required this.onToggleFullScreen,
+    this.pictureInPictureSourceKey,
     required this.onHandleTap,
     required this.onDoubleTapToSeek,
     required this.onHorizontalDragEnd,
@@ -97,7 +98,8 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   ConsumerState<VayuFeedItem> createState() => _VayuFeedItemState();
 }
 
-class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepAliveClientMixin {
+class _VayuFeedItemState extends ConsumerState<VayuFeedItem>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -117,7 +119,8 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
   Widget build(BuildContext context) {
     super.build(context);
     final orientation = MediaQuery.orientationOf(context);
-    final isFull = orientation == Orientation.landscape || widget.isFullScreenManual;
+    final isFull =
+        orientation == Orientation.landscape || widget.isFullScreenManual;
     final lateralPadding = orientation == Orientation.landscape ? 60.0 : 14.0;
 
     // We use a Stack as the root to maintain widget tree stability across orientation changes
@@ -137,7 +140,8 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                 filterQuality: FilterQuality.low,
                 fadeInDuration: Duration.zero,
                 fadeOutDuration: Duration.zero,
-                errorWidget: (_, __, ___) => const ColoredBox(color: Colors.transparent),
+                errorWidget: (_, __, ___) =>
+                    const ColoredBox(color: Colors.transparent),
               ),
             ),
           )
@@ -148,22 +152,25 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
         Positioned.fill(
           child: Container(
             decoration: BoxDecoration(
-              gradient: isFull 
-                ? const LinearGradient(
-                    colors: [Color.fromRGBO(0, 0, 0, 0.4), Color.fromRGBO(0, 0, 0, 0.6)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  )
-                : LinearGradient(
-                    colors: [
-                      Colors.black.withValues(alpha: 0.3),
-                      Colors.black.withValues(alpha: 0.8),
-                      Colors.black,
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    stops: const [0.0, 0.4, 0.7],
-                  ),
+              gradient: isFull
+                  ? const LinearGradient(
+                      colors: [
+                        Color.fromRGBO(0, 0, 0, 0.4),
+                        Color.fromRGBO(0, 0, 0, 0.6)
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    )
+                  : LinearGradient(
+                      colors: [
+                        Colors.black.withValues(alpha: 0.3),
+                        Colors.black.withValues(alpha: 0.8),
+                        Colors.black,
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      stops: const [0.0, 0.4, 0.7],
+                    ),
             ),
           ),
         ),
@@ -176,7 +183,8 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
               Expanded(
                 child: SingleChildScrollView(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: AppSpacing.spacing4),
+                    padding:
+                        EdgeInsets.symmetric(horizontal: AppSpacing.spacing4),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -185,11 +193,14 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                         widget.channelInfo,
                         if (widget.activeQuiz != null)
                           Padding(
-                            padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
+                            padding: EdgeInsets.symmetric(
+                                vertical: AppSpacing.spacing3),
                             child: QuizOverlay(
                               quiz: widget.activeQuiz!,
                               onDismiss: widget.onQuizDismiss,
-                              onBack: (widget.onQuizBack != null) ? widget.onQuizBack : null,
+                              onBack: (widget.onQuizBack != null)
+                                  ? widget.onQuizBack
+                                  : null,
                               onAnswered: (idx) {},
                             ),
                           ),
@@ -271,7 +282,8 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
       controllerIsHealthy = false;
     }
 
-    final isFull = orientation == Orientation.landscape || widget.isFullScreenManual;
+    final isFull =
+        orientation == Orientation.landscape || widget.isFullScreenManual;
     final isPortrait = orientation == Orientation.portrait;
     // Asymmetric offsets for landscape to clear system navigation buttons while staying compact on the left
     final leftPadding = orientation == Orientation.landscape ? 24.0 : 14.0;
@@ -281,9 +293,10 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
       child: Stack(
         fit: StackFit.passthrough,
         children: [
-          // Background handled at the root build level. 
+          // Background handled at the root build level.
           // Layer 3: Actual video container + all overlays
           SizedBox(
+            key: widget.pictureInPictureSourceKey,
             width: size.width,
             height: isFull ? size.height : size.width * (9 / 16),
             child: Stack(
@@ -299,7 +312,8 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                         fit: BoxFit.cover,
                         fadeInDuration: Duration.zero,
                         fadeOutDuration: Duration.zero,
-                        errorWidget: (_, __, ___) => const ColoredBox(color: Colors.black),
+                        errorWidget: (_, __, ___) =>
+                            const ColoredBox(color: Colors.black),
                       ),
                     ),
                   ),
@@ -322,11 +336,14 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                                   child: const Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.error_outline_rounded, color: Colors.white70, size: 32),
+                                      Icon(Icons.error_outline_rounded,
+                                          color: Colors.white70, size: 32),
                                       SizedBox(height: 8),
                                       Text(
                                         "Couldn't load video. Retrying…",
-                                        style: TextStyle(color: Colors.white70, fontSize: 13),
+                                        style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 13),
                                       ),
                                     ],
                                   ),
@@ -346,7 +363,9 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                   Positioned.fill(
                     child: AnimatedOpacity(
                       opacity: controllerIsHealthy ? 1.0 : 0.0,
-                      duration: controllerIsHealthy ? Duration.zero : const Duration(milliseconds: 400),
+                      duration: controllerIsHealthy
+                          ? Duration.zero
+                          : const Duration(milliseconds: 400),
                       child: Center(
                         child: ClipRect(
                           child: Transform.translate(
@@ -364,312 +383,325 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> with AutomaticKeepA
                     ),
                   ),
 
-                // 2. PAUSE OVERLAY (Black semi-transparent layer when paused)
-                if (controllerIsHealthy && controller != null)
-                  Positioned.fill(
-                    child: ValueListenableBuilder<VideoPlayerValue>(
-                      valueListenable: controller,
-                      builder: (context, value, _) {
+                // Single overlay provides contrast while controls are visible.
+                Positioned.fill(
+                  child: ValueListenableBuilder<bool>(
+                      valueListenable: widget.showControlsVN,
+                      builder: (context, showControls, _) {
                         return IgnorePointer(
                           child: AnimatedOpacity(
-                            opacity: (!(widget.suppressTransientPauseOverlayVN?.value ?? false) && !value.isPlaying && value.isInitialized) ? 1.0 : 0.0,
+                            opacity: showControls ? 1.0 : 0.0,
                             duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeInOut,
                             child: Container(
                               color: Colors.black.withValues(alpha: 0.55),
                             ),
                           ),
                         );
+                      }),
+                ),
+
+                // 2. GESTURE LAYER
+                Positioned.fill(
+                  child: Listener(
+                    onPointerDown: (event) => _pointers++,
+                    onPointerUp: (event) {
+                      _pointers--;
+                      if (_pointers <= 0) {
+                        _pointers = 0;
+                        if (_isScaling) {
+                          setState(() {
+                            _isScaling = false;
+                            _scale = 1.0;
+                            _offset = Offset.zero;
+                          });
+                          widget.onScrollingLock(false);
+                        }
+                        if (_activeGesture == GestureType.horizontal) {
+                          widget.onHorizontalDragEnd();
+                          widget.onScrollingLock(false);
+                        }
+                        if (_activeGesture == GestureType.vertical) {
+                          widget.onVerticalDragEnd();
+                          widget.onScrollingLock(false);
+                        }
+                        _activeGesture = GestureType.none;
+                        _dragHorizontalDeltaAccumulated = 0;
+                        _dragVerticalDeltaAccumulated = 0;
+                      }
+                    },
+                    onPointerCancel: (event) {
+                      _pointers = 0;
+                      if (_isScaling) {
+                        setState(() {
+                          _isScaling = false;
+                          _scale = 1.0;
+                          _offset = Offset.zero;
+                        });
+                        widget.onScrollingLock(false);
+                      }
+                      if (_activeGesture == GestureType.horizontal) {
+                        widget.onHorizontalDragEnd();
+                      }
+                      if (_activeGesture == GestureType.vertical) {
+                        widget.onVerticalDragEnd();
+                      }
+                      _activeGesture = GestureType.none;
+                      _dragHorizontalDeltaAccumulated = 0;
+                      _dragVerticalDeltaAccumulated = 0;
+                    },
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: widget.onHandleTap,
+                      onDoubleTapDown: widget.onDoubleTapToSeek,
+                      onVerticalDragStart: (_) {
+                        _activeGesture = GestureType.vertical;
+                        widget.onScrollingLock(true);
+                      },
+                      onVerticalDragUpdate: (details) {
+                        widget.onVerticalDragUpdate(
+                            details.delta.dy, details.localPosition);
+                      },
+                      onVerticalDragEnd: (_) {
+                        _activeGesture = GestureType.none;
+                        widget.onScrollingLock(false);
+                        widget.onVerticalDragEnd();
+                      },
+                      onScaleStart: (details) {
+                        if (_pointers >= 2) {
+                          _isScaling = true;
+                          _baseScale = _scale;
+                          widget.onScrollingLock(true);
+                        }
+                      },
+                      onScaleUpdate: (details) {
+                        if (_isScaling) {
+                          setState(() {
+                            _scale =
+                                (_baseScale * details.scale).clamp(1.0, 4.0);
+                          });
+                          return;
+                        }
+
+                        if (_activeGesture == GestureType.none) {
+                          _dragHorizontalDeltaAccumulated +=
+                              details.focalPointDelta.dx;
+                          // Vertical is handled by onVerticalDragUpdate now
+                          if (_dragHorizontalDeltaAccumulated.abs() >
+                              _gestureThreshold) {
+                            _activeGesture = GestureType.horizontal;
+                            widget.onScrollingLock(true);
+                          }
+                        }
+
+                        if (_activeGesture == GestureType.horizontal) {
+                          widget.onUnifiedHorizontalDrag(
+                              details.focalPointDelta.dx);
+                        }
+                      },
+                      onScaleEnd: (details) {
+                        if (_activeGesture == GestureType.horizontal) {
+                          widget.onHorizontalDragEnd();
+                          widget.onScrollingLock(false);
+                        }
+                        _activeGesture = GestureType.none;
+                        _dragHorizontalDeltaAccumulated = 0;
+                        _dragVerticalDeltaAccumulated = 0;
                       },
                     ),
                   ),
-
-                // 3. CONTROLS OVERLAY (Provides contrast for icons when controls are visible)
-                Positioned.fill(
-                  child: ValueListenableBuilder<bool>(
-                    valueListenable: widget.showControlsVN,
-                    builder: (context, showControls, _) {
-                      return IgnorePointer(
-                        child: AnimatedOpacity(
-                          opacity: showControls ? 1.0 : 0.0,
-                          duration: const Duration(milliseconds: 250),
-                          child: Container(
-                            color: Colors.black.withValues(alpha: 0.45),
-                          ),
-                        ),
-                      );
-                    }
-                  ),
                 ),
 
-          // 2. GESTURE LAYER
-          Positioned.fill(
-            child: Listener(
-              onPointerDown: (event) => _pointers++,
-              onPointerUp: (event) {
-                _pointers--;
-                if (_pointers <= 0) {
-                  _pointers = 0;
-                  if (_isScaling) {
-                    setState(() {
-                      _isScaling = false;
-                      _scale = 1.0;
-                      _offset = Offset.zero;
-                    });
-                    widget.onScrollingLock(false);
-                  }
-                  if (_activeGesture == GestureType.horizontal) {
-                    widget.onHorizontalDragEnd();
-                    widget.onScrollingLock(false);
-                  }
-                  if (_activeGesture == GestureType.vertical) {
-                    widget.onVerticalDragEnd();
-                    widget.onScrollingLock(false);
-                  }
-                  _activeGesture = GestureType.none;
-                  _dragHorizontalDeltaAccumulated = 0;
-                  _dragVerticalDeltaAccumulated = 0;
-                }
-              },
-              onPointerCancel: (event) {
-                _pointers = 0;
-                if (_isScaling) {
-                  setState(() {
-                    _isScaling = false;
-                    _scale = 1.0;
-                    _offset = Offset.zero;
-                  });
-                  widget.onScrollingLock(false);
-                }
-                if (_activeGesture == GestureType.horizontal) widget.onHorizontalDragEnd();
-                if (_activeGesture == GestureType.vertical) widget.onVerticalDragEnd();
-                _activeGesture = GestureType.none;
-                _dragHorizontalDeltaAccumulated = 0;
-                _dragVerticalDeltaAccumulated = 0;
-              },
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: widget.onHandleTap,
-                onDoubleTapDown: widget.onDoubleTapToSeek,
-                onVerticalDragStart: (_) {
-                  _activeGesture = GestureType.vertical;
-                  widget.onScrollingLock(true);
-                },
-                onVerticalDragUpdate: (details) {
-                  widget.onVerticalDragUpdate(details.delta.dy, details.localPosition);
-                },
-                onVerticalDragEnd: (_) {
-                  _activeGesture = GestureType.none;
-                  widget.onScrollingLock(false);
-                  widget.onVerticalDragEnd();
-                },
-                onScaleStart: (details) {
-                  if (_pointers >= 2) {
-                    _isScaling = true;
-                    _baseScale = _scale;
-                    widget.onScrollingLock(true);
-                  }
-                },
-                onScaleUpdate: (details) {
-                  if (_isScaling) {
-                    setState(() {
-                      _scale = (_baseScale * details.scale).clamp(1.0, 4.0);
-                    });
-                    return;
-                  }
-
-                  if (_activeGesture == GestureType.none) {
-                    _dragHorizontalDeltaAccumulated += details.focalPointDelta.dx;
-                    // Vertical is handled by onVerticalDragUpdate now
-                    if (_dragHorizontalDeltaAccumulated.abs() > _gestureThreshold) {
-                      _activeGesture = GestureType.horizontal;
-                      widget.onScrollingLock(true);
-                    }
-                  }
-
-                  if (_activeGesture == GestureType.horizontal) {
-                    widget.onUnifiedHorizontalDrag(details.focalPointDelta.dx);
-                  }
-                },
-                onScaleEnd: (details) {
-                  if (_activeGesture == GestureType.horizontal) {
-                    widget.onHorizontalDragEnd();
-                    widget.onScrollingLock(false);
-                  }
-                  _activeGesture = GestureType.none;
-                  _dragHorizontalDeltaAccumulated = 0;
-                  _dragVerticalDeltaAccumulated = 0;
-                },
-              ),
-            ),
-          ),
-
-          // 3. OVERLAYS (Controls, Scrubbing)
-          if (widget.isCurrent) ...[
-            widget.playerOverlay,
-            ValueListenableBuilder<bool>(
-              valueListenable: widget.showScrubbingOverlayVN,
-              builder: (context, showScrubbing, _) {
-                if (!showScrubbing) return const SizedBox.shrink();
-                return widget.buildScrubbingOverlay();
-              },
-            ),
-            if (widget.isSeekingBufferingVN != null)
-              ValueListenableBuilder<bool>(
-                valueListenable: widget.isSeekingBufferingVN!,
-                builder: (context, isSeeking, _) {
-                  return AnimatedOpacity(
-                    opacity: isSeeking ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: isSeeking
-                        ? const IgnorePointer(
-                            child: Center(
-                              child: SizedBox(
-                                width: 44,
-                                height: 44,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Color(0x66000000),
-                                    shape: BoxShape.circle,
+                // 3. OVERLAYS (Controls, Scrubbing)
+                if (widget.isCurrent) ...[
+                  widget.playerOverlay,
+                  ValueListenableBuilder<bool>(
+                    valueListenable: widget.showScrubbingOverlayVN,
+                    builder: (context, showScrubbing, _) {
+                      if (!showScrubbing) return const SizedBox.shrink();
+                      return widget.buildScrubbingOverlay();
+                    },
+                  ),
+                  if (widget.isSeekingBufferingVN != null)
+                    ValueListenableBuilder<bool>(
+                      valueListenable: widget.isSeekingBufferingVN!,
+                      builder: (context, isSeeking, _) {
+                        return AnimatedOpacity(
+                          opacity: isSeeking ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 200),
+                          child: isSeeking
+                              ? const IgnorePointer(
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 44,
+                                      height: 44,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Color(0x66000000),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Padding(
+                                          padding: EdgeInsets.all(11),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.5,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ),
+                                )
+                              : const SizedBox.shrink(),
+                        );
+                      },
+                    ),
+                ],
+
+                // 4. SECONDARY CONTROLS & PROGRESS BAR
+                if (controllerIsHealthy && widget.isCurrent)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Duration and Action Buttons Row
+                        ValueListenableBuilder<bool>(
+                            valueListenable: widget.showControlsVN,
+                            builder: (context, showControls, _) {
+                              return AnimatedOpacity(
+                                opacity: showControls ? 1.0 : 0.0,
+                                duration: const Duration(milliseconds: 200),
+                                child: IgnorePointer(
+                                  ignoring: !showControls,
                                   child: Padding(
-                                    padding: EdgeInsets.all(11),
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                      color: Colors.white,
+                                    padding: EdgeInsets.fromLTRB(
+                                        leftPadding, 0, rightPadding, 8),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        // Duration Text (Instant Frost + Tabular Figures)
+                                        if (controller != null)
+                                          ValueListenableBuilder<
+                                                  VideoPlayerValue>(
+                                              valueListenable: controller,
+                                              builder: (context, value, _) {
+                                                return Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black45,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            20),
+                                                  ),
+                                                  child: Text(
+                                                    '${widget.formatDuration(value.position)} / ${widget.formatDuration(value.duration)}',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      fontFeatures: [
+                                                        FontFeature
+                                                            .tabularFigures()
+                                                      ],
+                                                    ),
+                                                  ),
+                                                );
+                                              }),
+
+                                        // Action Buttons (Play/External & Fullscreen)
+                                        ValueListenableBuilder<bool>(
+                                            valueListenable:
+                                                widget.isControlsLockedVN,
+                                            builder: (context, isLocked, _) {
+                                              if (isLocked) {
+                                                return const SizedBox.shrink();
+                                              }
+                                              return Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  _bottomCircleButton(
+                                                    icon: Icons
+                                                        .play_circle_outline_rounded,
+                                                    onPressed: widget
+                                                        .onOpenExternalPlayer,
+                                                    isPortrait: isPortrait,
+                                                  ),
+                                                  AppSpacing.hSpace12,
+                                                  _bottomCircleButton(
+                                                    icon: isPortrait
+                                                        ? Icons
+                                                            .fullscreen_rounded
+                                                        : Icons
+                                                            .fullscreen_exit_rounded,
+                                                    onPressed: widget
+                                                        .onToggleFullScreen,
+                                                    isPortrait: isPortrait,
+                                                  ),
+                                                ],
+                                              );
+                                            }),
+                                      ],
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  );
-                },
-              ),
-          ],
+                              );
+                            }),
 
-          // 4. SECONDARY CONTROLS & PROGRESS BAR
-          if (controllerIsHealthy && widget.isCurrent)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Duration and Action Buttons Row
-                  ValueListenableBuilder<bool>(
-                    valueListenable: widget.showControlsVN,
-                    builder: (context, showControls, _) {
-                      return AnimatedOpacity(
-                        opacity: showControls ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 200),
-                        child: IgnorePointer(
-                          ignoring: !showControls,
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(leftPadding, 0, rightPadding, 8),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                // Duration Text (Instant Frost + Tabular Figures)
-                                if (controller != null)
-                                  ValueListenableBuilder<VideoPlayerValue>(
-                                    valueListenable: controller,
-                                    builder: (context, value, _) {
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black45,
-                                          borderRadius: BorderRadius.circular(20),
-                                        ),
-                                        child: Text(
-                                          '${widget.formatDuration(value.position)} / ${widget.formatDuration(value.duration)}',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            fontFeatures: [FontFeature.tabularFigures()],
-                                          ),
-                                        ),
-                                      );
-                                    }
+                        // Progress Bar (Auto-hide in landscape)
+                        ValueListenableBuilder<bool>(
+                            valueListenable: widget.showControlsVN,
+                            builder: (context, showControls, _) {
+                              return AnimatedOpacity(
+                                opacity:
+                                    isFull ? (showControls ? 1.0 : 0.0) : 1.0,
+                                duration: const Duration(milliseconds: 200),
+                                child: IgnorePointer(
+                                  ignoring: isFull && !showControls,
+                                  child: Padding(
+                                    padding: EdgeInsets.only(
+                                      left: isFull ? leftPadding : 0,
+                                      right: isFull ? rightPadding : 0,
+                                    ),
+                                    child: VayuVideoProgressBar(
+                                      controller: controller!,
+                                      height: isFull ? 20 : 12,
+                                      barHeight: isFull ? 4 : 2,
+                                      activeBarHeight: isFull ? 10 : 4,
+                                      thumbRadius: isFull ? 8 : 0,
+                                      barCenterOffset: isFull ? null : 10,
+                                      onDragStart: () =>
+                                          widget.onScrollingLock(true),
+                                      onDragEnd: () =>
+                                          widget.onScrollingLock(false),
+                                      onResumeAfterSeek:
+                                          widget.onResumeAfterSeek,
+                                      onSeekStarted:
+                                          widget.isSeekingBufferingVN != null
+                                              ? () => widget
+                                                  .isSeekingBufferingVN!
+                                                  .value = true
+                                              : null,
+                                    ),
                                   ),
-
-                                // Action Buttons (Play/External & Fullscreen)
-                                ValueListenableBuilder<bool>(
-                                  valueListenable: widget.isControlsLockedVN,
-                                  builder: (context, isLocked, _) {
-                                    if (isLocked) return const SizedBox.shrink();
-                                    return Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        _bottomCircleButton(
-                                          icon: Icons.play_circle_outline_rounded,
-                                          onPressed: widget.onOpenExternalPlayer,
-                                          isPortrait: isPortrait,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        _bottomCircleButton(
-                                          icon: isPortrait
-                                              ? Icons.fullscreen_rounded
-                                              : Icons.fullscreen_exit_rounded,
-                                          onPressed: widget.onToggleFullScreen,
-                                          isPortrait: isPortrait,
-                                        ),
-                                      ],
-                                    );
-                                  }
                                 ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }
+                              );
+                            }),
+                        // Fixed 32px clearance in landscape for stable placement
+                        if (isFull) const SizedBox(height: 32),
+                      ],
+                    ),
                   ),
-
-                  // Progress Bar (Auto-hide in landscape)
-                  ValueListenableBuilder<bool>(
-                    valueListenable: widget.showControlsVN,
-                    builder: (context, showControls, _) {
-                      return AnimatedOpacity(
-                        opacity: isFull ? (showControls ? 1.0 : 0.0) : 1.0,
-                        duration: const Duration(milliseconds: 200),
-                        child: IgnorePointer(
-                          ignoring: isFull && !showControls,
-                          child: Padding(
-                            padding: EdgeInsets.only(
-                              left: isFull ? leftPadding : 0,
-                              right: isFull ? rightPadding : 0,
-                            ),
-                            child: VayuVideoProgressBar(
-                              controller: controller!,
-                              height: isFull ? 20 : 12,
-                              barHeight: isFull ? 4 : 2,
-                              activeBarHeight: isFull ? 10 : 4,
-                              thumbRadius: isFull ? 8 : 0,
-                              barCenterOffset: isFull ? null : 10,
-                              onDragStart: () => widget.onScrollingLock(true),
-                              onDragEnd: () => widget.onScrollingLock(false),
-                              onResumeAfterSeek: widget.onResumeAfterSeek,
-                              onSeekStarted: widget.isSeekingBufferingVN != null ? () => widget.isSeekingBufferingVN!.value = true : null,
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-                  ),
-                  // Fixed 32px clearance in landscape for stable placement
-                  if (isFull) const SizedBox(height: 32),
-                ],
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    ],
-  ),
-);
+    );
   }
 }

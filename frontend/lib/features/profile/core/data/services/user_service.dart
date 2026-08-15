@@ -17,8 +17,7 @@ class UserService implements IUserService {
   Future<Map<String, dynamic>> getUserById(String id) async {
     // **OPTIMIZATION: If a request for this user ID is already in-flight, reuse it**
     if (_pendingRequests.containsKey(id)) {
-      AppLogger.log(
-          '♻️ UserService: Reusing in-flight request for user: $id');
+      AppLogger.log('♻️ UserService: Reusing in-flight request for user: $id');
       try {
         return await _pendingRequests[id]!;
       } catch (e) {
@@ -292,7 +291,7 @@ class UserService implements IUserService {
       throw Exception('Failed to update profile on server');
     }
   }
-  
+
   @override
   Future<String?> updateProfilePhoto(String googleId, String photoPath) async {
     final token = (await _authService.getUserData())?['token'];
@@ -304,14 +303,16 @@ class UserService implements IUserService {
       files: [
         MapEntry(
           'profilePic',
-          await MultipartFile.fromFile(photoPath, filename: 'profile_photo.jpg'),
+          await MultipartFile.fromFile(photoPath,
+              filename: 'profile_photo.jpg'),
         ),
       ],
       headers: {'Authorization': 'Bearer $token'},
     );
 
     if (response.statusCode == 200) {
-      final data = response.data is String ? jsonDecode(response.data) : response.data;
+      final data =
+          response.data is String ? jsonDecode(response.data) : response.data;
       return data['profilePic'];
     }
     return null;
@@ -443,10 +444,14 @@ class UserService implements IUserService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final List<dynamic> subscribersList = data['subscribers'] ?? [];
-        AppLogger.log('✅ UserService: Fetched ${subscribersList.length} subscribers');
-        return subscribersList.map((json) => Subscriber.fromJson(json)).toList();
+        AppLogger.log(
+            '✅ UserService: Fetched ${subscribersList.length} subscribers');
+        return subscribersList
+            .map((json) => Subscriber.fromJson(json))
+            .toList();
       } else {
-        AppLogger.log('Failed to fetch subscribers. Status: ${response.statusCode}');
+        AppLogger.log(
+            'Failed to fetch subscribers. Status: ${response.statusCode}');
         throw Exception('Failed to fetch subscribers');
       }
     } catch (e) {
@@ -461,14 +466,31 @@ class UserService implements IUserService {
     int limit = 20,
     String videoType = 'vayu',
   }) async {
+    final page = await getSuggestedCreatorsPage(
+      limit: limit,
+      videoType: videoType,
+    );
+    return page.creators;
+  }
+
+  /// Fetches one page of suggestions. Pass the returned cursor back unchanged.
+  Future<SuggestedCreatorsPage> getSuggestedCreatorsPage({
+    int limit = 20,
+    String videoType = 'vayu',
+    String? cursor,
+  }) async {
     try {
       final token = (await _authService.getUserData())?['token'];
       if (token == null) throw Exception('Not authenticated');
 
+      final query = <String, String>{
+        'limit': '$limit',
+        'videoType': videoType,
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      };
       final response = await httpClientService.get(
-        Uri.parse(
-          '${NetworkHelper.usersEndpoint}/suggested-creators?limit=$limit&videoType=$videoType',
-        ),
+        Uri.parse('${NetworkHelper.usersEndpoint}/suggested-creators')
+            .replace(queryParameters: query),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -478,14 +500,20 @@ class UserService implements IUserService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final List<dynamic> creators = data['creators'] ?? [];
-        return creators
+        final parsedCreators = creators
             .map((json) =>
                 SuggestedCreator.fromJson(Map<String, dynamic>.from(json)))
             .where((c) => c.id.isNotEmpty)
             .toList();
+        return SuggestedCreatorsPage(
+          creators: parsedCreators,
+          nextCursor: data['nextCursor']?.toString(),
+          hasMore: data['hasMore'] == true,
+        );
       }
 
-      throw Exception('Failed to fetch suggested creators: ${response.statusCode}');
+      throw Exception(
+          'Failed to fetch suggested creators: ${response.statusCode}');
     } catch (e) {
       AppLogger.log('❌ UserService: Error fetching suggested creators: $e');
       rethrow;
@@ -519,6 +547,18 @@ class UserService implements IUserService {
   }
 }
 
+class SuggestedCreatorsPage {
+  final List<SuggestedCreator> creators;
+  final String? nextCursor;
+  final bool hasMore;
+
+  const SuggestedCreatorsPage({
+    required this.creators,
+    required this.nextCursor,
+    required this.hasMore,
+  });
+}
+
 /// Creator suggested to a user who has not yet unlocked the Vayu feed
 class SuggestedCreator {
   final String id; // googleId — accepted by the follow/unfollow endpoints
@@ -538,8 +578,7 @@ class SuggestedCreator {
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Creator',
       profilePic: json['profilePic']?.toString() ?? '',
-      followerCount:
-          int.tryParse(json['followerCount']?.toString() ?? '') ?? 0,
+      followerCount: int.tryParse(json['followerCount']?.toString() ?? '') ?? 0,
     );
   }
 }

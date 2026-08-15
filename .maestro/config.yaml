@@ -1,0 +1,7 @@
+flows:
+  - "flows/**"
+executionOrder:
+  continueOnFailure: true
+  flowsOrder:
+    - 01_core_navigation
+

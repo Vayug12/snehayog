@@ -29,45 +29,92 @@ class CreatorSuggestionsRail extends ConsumerStatefulWidget {
 
 class _CreatorSuggestionsRailState
     extends ConsumerState<CreatorSuggestionsRail> {
-  static const double _cardWidth = 140;
-  static const double _avatarRadius = 26;
+  static const int _pageSize = 12;
+  static const double _cardWidth = 104;
+  static const double _avatarRadius = 22;
   static const double _buttonHeight = 32;
 
   /// Shared by the card and its skeleton so both measure identically.
   static EdgeInsets get _cardPadding => EdgeInsets.symmetric(
-        horizontal: AppSpacing.spacing3,
-        vertical: AppSpacing.spacing4,
+        horizontal: AppSpacing.spacing2,
+        vertical: AppSpacing.spacing3,
       );
 
   final UserService _userService = UserService();
+  final ScrollController _railController = ScrollController();
 
   List<SuggestedCreator> _creators = [];
   final Set<String> _subscribedIds = {};
   final Set<String> _pendingIds = {};
 
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
   bool _hasFailed = false;
+  String? _nextCursor;
 
   @override
   void initState() {
     super.initState();
+    _railController.addListener(_onRailScroll);
     _loadCreators();
   }
 
-  Future<void> _loadCreators() async {
+  @override
+  void dispose() {
+    _railController.dispose();
+    super.dispose();
+  }
+
+  void _onRailScroll() {
+    if (!_railController.hasClients ||
+        _isLoading ||
+        _isLoadingMore ||
+        !_hasMore) {
+      return;
+    }
+    if (_railController.position.extentAfter < _cardWidth * 2) {
+      _loadCreators(loadMore: true);
+    }
+  }
+
+  Future<void> _loadCreators({bool loadMore = false}) async {
+    if (loadMore) {
+      if (_isLoadingMore || !_hasMore) return;
+      setState(() => _isLoadingMore = true);
+    }
+
     try {
-      final creators = await _userService.getSuggestedCreators(limit: 12);
+      final page = await _userService.getSuggestedCreatorsPage(
+        limit: _pageSize,
+        cursor: loadMore ? _nextCursor : null,
+      );
       if (!mounted) return;
       setState(() {
-        _creators = creators;
+        final existingIds = _creators.map((creator) => creator.id).toSet();
+        final newCreators =
+            page.creators.where((creator) => !existingIds.contains(creator.id));
+        if (loadMore) {
+          _creators.addAll(newCreators);
+        } else {
+          _creators = newCreators.toList();
+        }
+        _nextCursor = page.nextCursor;
+        _hasMore = page.hasMore && page.nextCursor != null;
         _isLoading = false;
+        _isLoadingMore = false;
       });
     } catch (e) {
       AppLogger.log('❌ CreatorSuggestionsRail: Failed to load creators: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _hasFailed = true;
+        _isLoadingMore = false;
+        if (loadMore) {
+          _hasMore = false;
+        } else {
+          _hasFailed = true;
+        }
       });
     }
   }
@@ -141,11 +188,12 @@ class _CreatorSuggestionsRailState
           // No fixed rail height: the cards define it, so there is never
           // leftover space below them.
           SingleChildScrollView(
+            controller: _railController,
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.symmetric(horizontal: AppSpacing.spacing1),
             physics: _isLoading
                 ? const NeverScrollableScrollPhysics()
-                : const BouncingScrollPhysics(),
+                : const ClampingScrollPhysics(),
             child: Row(children: _buildRailChildren()),
           ),
         ],
@@ -163,6 +211,10 @@ class _CreatorSuggestionsRailState
         if (i > 0) SizedBox(width: AppSpacing.spacing3),
         cards[i],
       ],
+      if (_isLoadingMore) ...[
+        SizedBox(width: AppSpacing.spacing3),
+        _buildSkeletonCard(),
+      ],
     ];
   }
 
@@ -172,49 +224,53 @@ class _CreatorSuggestionsRailState
 
     return InteractiveScaleButton(
       onTap: () => _openProfile(creator),
-      child: Container(
+      child: SizedBox(
         width: _cardWidth,
-        padding: _cardPadding,
-        decoration: BoxDecoration(
-          color: AppColors.backgroundSecondary,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              radius: _avatarRadius,
-              backgroundColor: AppColors.backgroundTertiary,
-              backgroundImage: creator.profilePic.isNotEmpty
-                  ? CachedNetworkImageProvider(creator.profilePic)
-                  : null,
-              child: creator.profilePic.isEmpty
-                  ? const Icon(Icons.person_outline,
-                      size: 24, color: AppColors.textTertiary)
-                  : null,
+        child: AspectRatio(
+          aspectRatio: 9 / 16,
+          child: Container(
+            padding: _cardPadding,
+            decoration: BoxDecoration(
+              color: AppColors.backgroundSecondary,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
             ),
-            SizedBox(height: AppSpacing.spacing3),
-            // Tight line heights: the default 1.4–1.5 leading reads as dead
-            // space in a card this small.
-            Text(
-              creator.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: AppTypography.titleMedium.copyWith(height: 1.2),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: _avatarRadius,
+                  backgroundColor: AppColors.backgroundTertiary,
+                  backgroundImage: creator.profilePic.isNotEmpty
+                      ? CachedNetworkImageProvider(creator.profilePic)
+                      : null,
+                  child: creator.profilePic.isEmpty
+                      ? const Icon(Icons.person_outline,
+                          size: 22, color: AppColors.textTertiary)
+                      : null,
+                ),
+                SizedBox(height: AppSpacing.spacing2),
+                Text(
+                  creator.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.titleMedium.copyWith(height: 1.2),
+                ),
+                Text(
+                  '${FormatUtils.formatViews(creator.followerCount)} subs',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.labelSmall
+                      .copyWith(color: AppColors.textTertiary, height: 1.2),
+                ),
+                const Spacer(),
+                _buildSubscribeButton(
+                  isSubscribed: isSubscribed,
+                  isPending: isPending,
+                  onTap: () => _toggleSubscription(creator),
+                ),
+              ],
             ),
-            Text(
-              '${FormatUtils.formatViews(creator.followerCount)} subs',
-              style: AppTypography.labelSmall
-                  .copyWith(color: AppColors.textTertiary, height: 1.2),
-            ),
-            SizedBox(height: AppSpacing.spacing3),
-            _buildSubscribeButton(
-              isSubscribed: isSubscribed,
-              isPending: isPending,
-              onTap: () => _toggleSubscription(creator),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -228,36 +284,42 @@ class _CreatorSuggestionsRailState
     return GestureDetector(
       onTap: isPending ? null : onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        height: _buttonHeight,
-        width: double.infinity,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSubscribed ? Colors.transparent : AppColors.primary,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: isSubscribed
-              ? Border.all(color: AppColors.borderPrimary, width: 1)
-              : null,
+      child: SizedBox(
+        height: 44,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            height: _buttonHeight,
+            width: double.infinity,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isSubscribed ? Colors.transparent : AppColors.primary,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: isSubscribed
+                  ? Border.all(color: AppColors.borderPrimary, width: 1)
+                  : null,
+            ),
+            child: isPending
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.textSecondary,
+                    ),
+                  )
+                : isSubscribed
+                    ? const Icon(Icons.check_rounded,
+                        size: 18, color: AppColors.textSecondary)
+                    : Text(
+                        'Subscribe',
+                        style: AppTypography.labelMedium.copyWith(
+                          fontWeight: AppTypography.weightSemiBold,
+                        ),
+                      ),
+          ),
         ),
-        child: isPending
-            ? const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.textSecondary,
-                ),
-              )
-            : isSubscribed
-                ? const Icon(Icons.check_rounded,
-                    size: 18, color: AppColors.textSecondary)
-                : Text(
-                    'Subscribe',
-                    style: AppTypography.labelMedium
-                        .copyWith(fontWeight: AppTypography.weightSemiBold),
-                  ),
       ),
     );
   }
@@ -274,27 +336,34 @@ class _CreatorSuggestionsRailState
           ),
         );
 
-    return Container(
+    return SizedBox(
       width: _cardWidth,
-      padding: _cardPadding,
-      decoration: BoxDecoration(
-        color: AppColors.backgroundSecondary.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: _avatarRadius,
-            backgroundColor: AppColors.backgroundTertiary.withValues(alpha: 0.4),
+      child: AspectRatio(
+        aspectRatio: 9 / 16,
+        child: Container(
+          padding: _cardPadding,
+          decoration: BoxDecoration(
+            color: AppColors.backgroundSecondary.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
-          SizedBox(height: AppSpacing.spacing3),
-          // Heights match the 1.2 line-height text above.
-          bar(84, AppTypography.fontSizeBase * 1.2),
-          bar(48, AppTypography.fontSizeXS * 1.2),
-          SizedBox(height: AppSpacing.spacing3),
-          bar(double.infinity, _buttonHeight),
-        ],
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: _avatarRadius,
+                backgroundColor:
+                    AppColors.backgroundTertiary.withValues(alpha: 0.4),
+              ),
+              SizedBox(height: AppSpacing.spacing2),
+              bar(72, AppTypography.fontSizeBase * 1.2),
+              bar(40, AppTypography.fontSizeXS * 1.2),
+              const Spacer(),
+              SizedBox(
+                height: 44,
+                child: Center(child: bar(double.infinity, _buttonHeight)),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

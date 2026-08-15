@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vayug/core/providers/profile_providers.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/features/profile/core/presentation/screens/saved_videos_screen.dart';
-import 'package:vayug/features/profile/core/presentation/screens/linked_accounts_screen.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/utils/app_text.dart';
@@ -61,15 +60,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     Navigator.push(context, MaterialPageRoute(builder: (context) => const SavedVideosScreen()));
                   },
                 ),
-                _buildActionTile(
-                  title: AppText.get('settings_linked_accounts', fallback: 'Linked Accounts'),
-                  icon: Icons.link_rounded,
-                  color: AppColors.textPrimary,
-                  onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const LinkedAccountsScreen()));
-                  },
-                ),
-                
                 _buildActionTile(
                   title: 'Manage Alerts',
                   subtitle: 'Notifications from creators you subscribe to',
