@@ -1,6 +1,7 @@
 import Video from '../../models/Video.js';
 import fs from 'fs';
 import { beat } from '../../utils/progressHeartbeat.js';
+import { markVideoUploadFailed } from '../uploadServices/videoUploadLifecycleService.js';
 
 /**
  * FFmpeg-style Video Processing Engine (The Orchestrator)
@@ -64,10 +65,7 @@ class VideoPipeline {
       console.error(`❌ Pipeline: Failed at step for ${videoId}:`, error);
       
       // Update DB with failure
-      await Video.findByIdAndUpdate(videoId, { 
-        processingStatus: 'failed',
-        processingError: error.message 
-      });
+      await markVideoUploadFailed(videoId, error);
       
       // Cleanup local temp file on ANY failure to save disk space
       if (context.localRawPath && fs.existsSync(context.localRawPath)) {

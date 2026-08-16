@@ -10,6 +10,7 @@ import redisService from '../services/caching/redisService.js';
 import geminiService from '../services/geminiService.js';
 import { sendNotificationToUser } from '../services/notificationServices/notificationService.js';
 import { beat, msSinceBeat } from '../utils/progressHeartbeat.js';
+import { markVideoUploadFailed } from '../services/uploadServices/videoUploadLifecycleService.js';
 
 // Connect to MongoDB & Redis only if not already connected (reuses API server connections when in-process)
 const initializeWorkerConnections = async () => {
@@ -120,10 +121,7 @@ async function handleVideoProcessing(job) {
     // Only attempt database updates if the video still exists
     const videoExists = await Video.findById(videoId);
     if (videoExists) {
-      await Video.findByIdAndUpdate(videoId, { 
-          processingStatus: 'failed',
-          processingError: error.message 
-      });
+      await markVideoUploadFailed(videoId, error);
 
       // Send failure push notification & Notice
       try {

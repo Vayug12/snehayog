@@ -7,6 +7,7 @@ import * as managementController from '../controllers/video/videoManagementContr
 import * as analyticsController from '../controllers/video/videoAnalyticsController.js';
 import { validateVideoData, upload } from '../middleware/videoMiddleware.js';
 import rateLimit from 'express-rate-limit';
+import { enforceDailyUploadAvailability } from '../middleware/dailyUploadQuota.js';
 
 const router = express.Router();
 
@@ -27,7 +28,7 @@ router.post('/cache/clear', analyticsController.clearCache);
  * Video Upload & Processing Routes
  */
 router.post('/check-duplicate', verifyToken, uploadController.checkDuplicate);
-router.post('/upload', verifyToken, uploadLimiter, validateVideoData, upload.single('video'), uploadController.uploadVideo);
+router.post('/upload', verifyToken, enforceDailyUploadAvailability, uploadLimiter, validateVideoData, upload.single('video'), uploadController.uploadVideo);
 router.post('/register-upload', verifyToken, uploadController.registerUpload);
 router.post('/r2-callback', uploadController.r2Callback);
 router.post('/image', verifyToken, uploadController.createImageFeedEntry);

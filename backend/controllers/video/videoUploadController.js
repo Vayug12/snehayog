@@ -9,6 +9,14 @@ import cloudflareR2Service from '../../services/uploadServices/cloudflareR2Servi
 import redisService from '../../services/caching/redisService.js';
 import { invalidateCache, VideoCacheKeys } from '../../middleware/cacheMiddleware.js';
 import { calculateVideoHash } from '../../utils/videoUtils.js';
+import {
+  DAILY_UPLOAD_LIMIT_CODE,
+  sendDailyUploadLimitResponse,
+} from '../../services/uploadServices/dailyUploadQuotaService.js';
+import {
+  markVideoUploadFailed,
+  saveVideoWithDailyQuota,
+} from '../../services/uploadServices/videoUploadLifecycleService.js';
 
 let hybridVideoService;
 
@@ -54,6 +62,7 @@ export const checkDuplicate = async (req, res) => {
 };
 
 export const uploadVideo = async (req, res) => {
+  let createdVideo = null;
   try {
     console.log('🎬 Upload: Starting video upload process with HLS streaming...');
     
@@ -189,7 +198,8 @@ export const uploadVideo = async (req, res) => {
       isSubscriberOnly: isSubOnly
     });
 
-    await video.save();
+    await saveVideoWithDailyQuota(video);
+    createdVideo = video;
     user.videos.push(video._id);
     await user.save();
 
@@ -235,6 +245,9 @@ export const uploadVideo = async (req, res) => {
         }
       } catch (bgError) {
         console.error(`❌ Upload: Background processing failed for video ${video._id}:`, bgError);
+        await markVideoUploadFailed(video._id, bgError).catch((quotaError) => {
+          console.error(`Upload quota release failed for video ${video._id}:`, quotaError.message);
+        });
       } finally {
         // Cleanup temp file AFTER background processing
         try { 
@@ -267,11 +280,20 @@ export const uploadVideo = async (req, res) => {
     if (req.file) {
       try { fs.unlinkSync(req.file.path); } catch (_) { }
     }
+    if (error.code === DAILY_UPLOAD_LIMIT_CODE) {
+      return sendDailyUploadLimitResponse(res, error);
+    }
+    if (createdVideo) {
+      await markVideoUploadFailed(createdVideo._id, error).catch((quotaError) => {
+        console.error(`Upload quota release failed for video ${createdVideo._id}:`, quotaError.message);
+      });
+    }
     return res.status(500).json({ error: 'Video upload failed', details: error.message });
   }
 };
 
 export const registerUpload = async (req, res) => {
+  let createdVideo = null;
   try {
     const { 
       videoName, 
@@ -352,7 +374,8 @@ export const registerUpload = async (req, res) => {
       finalScore: initialScore
     });
 
-    await video.save();
+    await saveVideoWithDailyQuota(video);
+    createdVideo = video;
     user.videos.push(video._id);
     await user.save();
 
@@ -367,6 +390,9 @@ export const registerUpload = async (req, res) => {
          });
        } catch (err) {
          console.error('❌ RegisterUpload Background Error:', err);
+         await markVideoUploadFailed(video._id, err).catch((quotaError) => {
+           console.error(`Upload quota release failed for video ${video._id}:`, quotaError.message);
+         });
        }
     })();
 
@@ -394,6 +420,14 @@ export const registerUpload = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Register Upload Error:', error);
+    if (error.code === DAILY_UPLOAD_LIMIT_CODE) {
+      return sendDailyUploadLimitResponse(res, error);
+    }
+    if (createdVideo) {
+      await markVideoUploadFailed(createdVideo._id, error).catch((quotaError) => {
+        console.error(`Upload quota release failed for video ${createdVideo._id}:`, quotaError.message);
+      });
+    }
     return res.status(500).json({ error: 'Failed to register video' });
   }
 };
@@ -472,7 +506,7 @@ export const createImageFeedEntry = async (req, res) => {
         : {}),
     });
 
-    await video.save();
+    await saveVideoWithDailyQuota(video);
     user.videos.push(video._id);
     await user.save();
 
@@ -503,6 +537,9 @@ export const createImageFeedEntry = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error creating image feed entry:', error);
+    if (error.code === DAILY_UPLOAD_LIMIT_CODE) {
+      return sendDailyUploadLimitResponse(res, error);
+    }
     return res.status(500).json({ error: 'Failed to create image feed entry', details: error.message });
   }
 };

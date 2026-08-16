@@ -3,6 +3,7 @@ import multer from 'multer';
 import { verifyToken } from '../utils/verifytoken.js';
 import * as agentUploadController from '../controllers/agent/agentUploadController.js';
 import rateLimit from 'express-rate-limit';
+import { enforceDailyUploadAvailability } from '../middleware/dailyUploadQuota.js';
 
 const router = express.Router();
 
@@ -44,7 +45,7 @@ const handleMulterError = (err, req, res, next) => {
   next(err);
 };
 
-router.get('/upload/presigned-url', verifyToken, agentUploadController.getPresignedUrl);
+router.get('/upload/presigned-url', verifyToken, enforceDailyUploadAvailability, agentUploadController.getPresignedUrl);
 
 router.get('/upload/download-url', verifyToken, agentUploadController.getDownloadPresignedUrl);
 
@@ -52,6 +53,7 @@ router.post('/upload/register', verifyToken, agentUploadLimiter, agentUploadCont
 
 router.post('/upload/direct',
   verifyToken,
+  enforceDailyUploadAvailability,
   agentUploadLimiter,
   (req, res, next) => {
     agentUploadController.agentUpload.single('video')(req, res, (err) => {

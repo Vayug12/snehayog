@@ -28,13 +28,13 @@ const appConfigSchema = new mongoose.Schema({
     minSupportedAppVersion: {
       type: String,
       required: true,
-      default: '1.0.0',
+      default: '3.6.2',
       description: 'Minimum app version that can use the API. Versions below this will be blocked.'
     },
     latestAppVersion: {
       type: String,
       required: true,
-      default: '1.0.0',
+      default: '3.6.2',
       description: 'Latest available app version. Versions below this will see soft update banner.'
     },
     forceUpdateMessage: {
@@ -163,6 +163,12 @@ const appConfigSchema = new mongoose.Schema({
     
     // Upload limits
     uploadLimits: {
+      maxDailyUploads: {
+        type: Number,
+        default: 10,
+        min: 1,
+        description: 'Maximum successful user uploads per IST calendar day'
+      },
       maxVideoSize: {
         type: Number,
         default: 700 * 1024 * 1024, // 700MB

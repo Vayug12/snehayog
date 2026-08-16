@@ -11,6 +11,16 @@ let hybridVideoService;
 import { verifyToken } from '../../utils/verifytoken.js';
 import cloudflareR2Service from '../../services/uploadServices/cloudflareR2Service.js';
 import { uploadLimiter } from '../../middleware/rateLimiter.js';
+import {
+  DAILY_UPLOAD_LIMIT_CODE,
+  sendDailyUploadLimitResponse,
+} from '../../services/uploadServices/dailyUploadQuotaService.js';
+import {
+  markVideoUploadFailed,
+  saveVideoRetryWithDailyQuota,
+  saveVideoWithDailyQuota,
+} from '../../services/uploadServices/videoUploadLifecycleService.js';
+import { enforceDailyUploadAvailability } from '../../middleware/dailyUploadQuota.js';
 
 import queueService from '../../services/yugFeedServices/queueService.js';
 import redisService from '../../services/caching/redisService.js';
@@ -133,7 +143,7 @@ const upload = multer({
  * @desc Generate a presigned URL for direct R2 upload
  * @access Private
  */
-router.post('/video/presigned', verifyToken, uploadLimiter, async (req, res) => {
+router.post('/video/presigned', verifyToken, enforceDailyUploadAvailability, uploadLimiter, async (req, res) => {
   try {
     const { fileName, fileType, fileSize } = req.body;
     const userId = req.user.id;
@@ -181,6 +191,7 @@ router.post('/video/presigned', verifyToken, uploadLimiter, async (req, res) => 
  * @access Private
  */
 router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, res) => {
+  let createdVideo = null;
   try {
     const { key, videoName, description, link, size, category, tags, videoType, crossPostPlatforms, seriesId, episodeNumber, thumbnailKey, quizzes, allowedSubscribers } = req.body;
     const userId = req.user.id;
@@ -248,7 +259,8 @@ router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, re
       });
     }
 
-    await newVideo.save();
+    await saveVideoWithDailyQuota(newVideo);
+    createdVideo = newVideo;
 
     // Lazy load hybrid service
     if (!hybridVideoService) {
@@ -294,12 +306,21 @@ router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, re
 
   } catch (error) {
     console.error('❌ Error finishing direct upload:', error);
+    if (error.code === DAILY_UPLOAD_LIMIT_CODE) {
+      return sendDailyUploadLimitResponse(res, error);
+    }
+    if (createdVideo) {
+      await markVideoUploadFailed(createdVideo._id, error).catch((quotaError) => {
+        console.error(`Upload quota release failed for video ${createdVideo._id}:`, quotaError.message);
+      });
+    }
     res.status(500).json({ success: false, error: 'Failed to complete upload process' });
   }
 });
 
 // Original Server-Side Upload Route (Keep as fallback)
-router.post('/video', verifyToken, uploadLimiter, upload.single('video'), async (req, res) => {
+router.post('/video', verifyToken, enforceDailyUploadAvailability, uploadLimiter, upload.single('video'), async (req, res) => {
+  let createdVideo = null;
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No video file uploaded' });
@@ -423,7 +444,8 @@ router.post('/video', verifyToken, uploadLimiter, upload.single('video'), async 
     }
 
     // **NEW: Save video record first**
-    await video.save();
+    await saveVideoWithDailyQuota(video);
+    createdVideo = video;
 
     // Start processing in background via BullMQ
     // In fallback mode, we still add to queue for processing
@@ -465,6 +487,14 @@ router.post('/video', verifyToken, uploadLimiter, upload.single('video'), async 
       }
     }
 
+    if (error.code === DAILY_UPLOAD_LIMIT_CODE) {
+      return sendDailyUploadLimitResponse(res, error);
+    }
+    if (createdVideo) {
+      await markVideoUploadFailed(createdVideo._id, error).catch((quotaError) => {
+        console.error(`Upload quota release failed for video ${createdVideo._id}:`, quotaError.message);
+      });
+    }
     res.status(500).json({
       success: false,
       error: 'Video upload failed',
@@ -556,6 +586,7 @@ router.get('/video/:videoId/status', verifyToken, async (req, res) => {
 
 // **NEW: Retry failed video processing**
 router.post('/video/:videoId/retry', verifyToken, async (req, res) => {
+  let retryVideo = null;
   try {
     const video = await Video.findById(req.params.videoId);
     if (!video) {
@@ -579,12 +610,14 @@ router.post('/video/:videoId/retry', verifyToken, async (req, res) => {
     video.processingStatus = 'pending';
     video.processingProgress = 0;
     video.processingError = null;
-    await video.save();
+    await saveVideoRetryWithDailyQuota(video);
+    retryVideo = video;
 
     // **NEW: Start processing again**
     const videoPath = video.videoUrl; // Use original path
-    processVideoHybrid(video._id, videoPath, video.videoName, video.uploader).catch(err => {
+    processVideoHybrid(video._id, videoPath, video.videoName, video.uploader).catch(async (err) => {
         console.error('❌ Retry background processing failed:', err);
+        await markVideoUploadFailed(video._id, err).catch(() => {});
     });
 
     res.json({
@@ -599,6 +632,12 @@ router.post('/video/:videoId/retry', verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error retrying video processing:', error);
+    if (error.code === DAILY_UPLOAD_LIMIT_CODE) {
+      return sendDailyUploadLimitResponse(res, error);
+    }
+    if (retryVideo) {
+      await markVideoUploadFailed(retryVideo._id, error).catch(() => {});
+    }
     res.status(500).json({
       success: false,
       error: 'Failed to retry video processing',

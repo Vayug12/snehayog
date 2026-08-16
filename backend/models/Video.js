@@ -55,6 +55,11 @@ const videoSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
+  uploadQuotaDay: {
+    type: String,
+    default: null,
+    select: false,
+  },
   likes: {
     type: Number,
     default: 0

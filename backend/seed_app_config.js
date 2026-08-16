@@ -18,9 +18,9 @@ const seedConfig = async () => {
       environment: 'production',
       isActive: true,
       versionControl: {
-        minSupportedAppVersion: '1.0.0',
-        latestAppVersion: '1.0.0',
-        forceUpdateMessage: 'Please update Vayu to the latest version to continue.',
+        minSupportedAppVersion: '3.6.2',
+        latestAppVersion: '3.6.2',
+        forceUpdateMessage: 'Please update Vayug to the latest version to continue.',
         softUpdateMessage: 'A new update is available with better performance!',
         updateUrl: {
           android: 'https://play.google.com/store/apps/details?id=com.snehayog.app',

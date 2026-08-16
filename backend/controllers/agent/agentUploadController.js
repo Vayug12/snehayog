@@ -10,6 +10,14 @@ import cloudflareR2Service from '../../services/uploadServices/cloudflareR2Servi
 import redisService from '../../services/caching/redisService.js';
 import { invalidateCache, VideoCacheKeys } from '../../middleware/cacheMiddleware.js';
 import eventBus from '../../utils/eventBus.js';
+import {
+  DAILY_UPLOAD_LIMIT_CODE,
+  sendDailyUploadLimitResponse,
+} from '../../services/uploadServices/dailyUploadQuotaService.js';
+import {
+  markVideoUploadFailed,
+  saveVideoWithDailyQuota,
+} from '../../services/uploadServices/videoUploadLifecycleService.js';
 
 let hybridVideoService;
 
@@ -170,6 +178,7 @@ export const getDownloadPresignedUrl = async (req, res) => {
  */
 export const registerUpload = async (req, res) => {
   let user = null;
+  let createdVideo = null;
   try {
     const { r2Key, videoName, description, category, tags, duration, width, height, link } = req.body;
     const googleId = req.user.googleId;
@@ -242,7 +251,8 @@ export const registerUpload = async (req, res) => {
       originalFormat: path.extname(r2Key).replace('.', '').toLowerCase() || 'mp4'
     });
 
-    await video.save();
+    await saveVideoWithDailyQuota(video);
+    createdVideo = video;
 
     user.videos.push(video._id);
     await user.save();
@@ -261,10 +271,7 @@ export const registerUpload = async (req, res) => {
       } catch (err) {
         console.error(`❌ Agent RegisterUpload Background Error for video ${video._id}:`, err.message);
 
-        await Video.findByIdAndUpdate(video._id, {
-          processingStatus: 'failed',
-          processingError: `Background processing failed: ${err.message}`
-        }).catch(() => {});
+        await markVideoUploadFailed(video._id, `Background processing failed: ${err.message}`).catch(() => {});
       }
     })();
 
@@ -291,6 +298,14 @@ export const registerUpload = async (req, res) => {
   } catch (error) {
     console.error('❌ Agent Register Upload Error:', error.message);
 
+    if (error.code === DAILY_UPLOAD_LIMIT_CODE) {
+      return sendDailyUploadLimitResponse(res, error);
+    }
+
+    if (createdVideo) {
+      await markVideoUploadFailed(createdVideo._id, error).catch(() => {});
+    }
+
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(e => e.message);
       return res.status(400).json({ error: 'Validation failed', details: messages });
@@ -310,6 +325,7 @@ export const registerUpload = async (req, res) => {
  */
 export const directUpload = async (req, res) => {
   const tempFilePath = req.file ? req.file.path : null;
+  let createdVideo = null;
 
   try {
     const googleId = req.user.googleId;
@@ -397,7 +413,8 @@ export const directUpload = async (req, res) => {
       originalFormat: path.extname(req.file.path).replace('.', '').toLowerCase() || 'mp4'
     });
 
-    await video.save();
+    await saveVideoWithDailyQuota(video);
+    createdVideo = video;
     user.videos.push(video._id);
     await user.save();
 
@@ -420,10 +437,7 @@ export const directUpload = async (req, res) => {
       } catch (bgError) {
         console.error(`❌ Agent DirectUpload: Background processing failed for video ${video._id}:`, bgError.message);
 
-        await Video.findByIdAndUpdate(video._id, {
-          processingStatus: 'failed',
-          processingError: `Background processing failed: ${bgError.message}`
-        }).catch(() => {});
+        await markVideoUploadFailed(video._id, `Background processing failed: ${bgError.message}`).catch(() => {});
       } finally {
         safeUnlink(tempFilePath);
       }
@@ -443,6 +457,14 @@ export const directUpload = async (req, res) => {
   } catch (error) {
     console.error('❌ Agent Direct Upload Error:', error.message);
     safeUnlink(tempFilePath);
+
+    if (error.code === DAILY_UPLOAD_LIMIT_CODE) {
+      return sendDailyUploadLimitResponse(res, error);
+    }
+
+    if (createdVideo) {
+      await markVideoUploadFailed(createdVideo._id, error).catch(() => {});
+    }
 
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(e => e.message);

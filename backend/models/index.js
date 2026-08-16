@@ -14,6 +14,7 @@ import './Feedback.js';
 import './WatchHistory.js';
 import './FeedHistory.js';
 import './AppConfig.js';
+import './DailyUploadQuota.js';
 import './Notice.js';
 import './CreatorDailyStats.js';
 
