@@ -28,13 +28,13 @@ const appConfigSchema = new mongoose.Schema({
     minSupportedAppVersion: {
       type: String,
       required: true,
-      default: '3.6.2',
+      default: '1.0.0',
       description: 'Minimum app version that can use the API. Versions below this will be blocked.'
     },
     latestAppVersion: {
       type: String,
       required: true,
-      default: '3.6.2',
+      default: '1.0.0',
       description: 'Latest available app version. Versions below this will see soft update banner.'
     },
     forceUpdateMessage: {

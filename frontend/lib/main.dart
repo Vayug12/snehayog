@@ -31,6 +31,7 @@ import 'package:vayug/shared/services/http_client_service.dart';
 import 'package:vayug/shared/services/in_app_review_service.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
 import 'package:vayug/shared/services/install_attribution_service.dart';
+import 'package:vayug/shared/widgets/forced_update_widget.dart';
 
 // Enable on a desktop/web debug run with --dart-define=DEVICE_PREVIEW=true.
 const _enableDevicePreview = bool.fromEnvironment('DEVICE_PREVIEW');
@@ -254,10 +255,13 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
       locale: DevicePreview.locale(context),
       navigatorObservers: [AppNavigatorObserver(), appRouteObserver],
       builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: const TextScaler.linear(1.0)),
-          child: DevicePreview.appBuilder(context, child),
+        return ForcedUpdateWidget(
+          showSoftUpdateBanner: false,
+          child: MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.0)),
+            child: DevicePreview.appBuilder(context, child),
+          ),
         );
       },
       routes: {

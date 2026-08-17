@@ -7,6 +7,7 @@ const RESULTS_DIR = process.env.RESULTS_DIR ?? 'qa-results';
 const REPORT_PATH = `${RESULTS_DIR}/maestro-report.xml`;
 const LOG_PATH = `${RESULTS_DIR}/logcat.txt`;
 const META_PATH = `${RESULTS_DIR}/run-metadata.json`;
+const INFRASTRUCTURE_ERROR_PATH = `${RESULTS_DIR}/infrastructure-error.txt`;
 
 export function decodeXml(value = '') {
   return value.replaceAll('&quot;', '"').replaceAll('&apos;', "'")
@@ -58,6 +59,18 @@ export function fingerprintFor(failure) {
   return createHash('sha256').update(stableError).digest('hex').slice(0, 20);
 }
 
+export function infrastructureFailureFor({ apkStatus, executionStatus, diagnostic = '' }) {
+  if (executionStatus === 'success') return null;
+  const apkFailed = apkStatus && apkStatus !== 'success';
+  return {
+    name: apkFailed ? 'Release APK preflight' : 'Mobile QA infrastructure',
+    message: diagnostic.trim() || (apkFailed
+      ? 'The release APK could not be resolved or downloaded.'
+      : 'The emulator/Maestro step failed before a failing JUnit testcase was produced.'),
+    details: diagnostic.trim(),
+  };
+}
+
 async function readText(path, fallback = '') {
   return existsSync(path) ? readFile(path, 'utf8') : fallback;
 }
@@ -102,17 +115,26 @@ async function listQaIssues(owner, repo) {
   return issues;
 }
 
-function fallbackTriage(failure, infrastructureFailure = false) {
+export function fallbackTriage(failure, infrastructureFailure = false) {
+  const apkPreflightFailure = failure.name === 'Release APK preflight';
   return {
-    title: infrastructureFailure ? 'Mobile QA runner could not execute the test suite' : failure.name,
+    title: apkPreflightFailure
+      ? 'Release APK unavailable for mobile QA'
+      : infrastructureFailure ? 'Mobile QA runner could not execute the test suite' : failure.name,
     severity: infrastructureFailure ? 'infrastructure' : 'medium',
     summary: failure.message,
     reproductionSteps: infrastructureFailure
-      ? ['Open the linked GitHub Actions run.', 'Inspect the mobile-qa-evidence artifact and failed step.']
+      ? apkPreflightFailure
+        ? ['Open the linked GitHub Actions run.', 'Inspect the targeted GitHub Release and confirm it has an APK asset.']
+        : ['Open the linked GitHub Actions run.', 'Inspect the mobile-qa-evidence artifact and failed step.']
       : ['Install the same release APK linked in the run.', `Run the Maestro flow: ${failure.name}.`, 'Observe the failed assertion.'],
-    expected: infrastructureFailure ? 'The Android suite should start and produce a JUnit report.' : 'The named journey should complete successfully.',
+    expected: infrastructureFailure
+      ? apkPreflightFailure ? 'The targeted GitHub Release should provide an APK for mobile QA.' : 'The Android suite should start and produce a JUnit report.'
+      : 'The named journey should complete successfully.',
     actual: failure.message,
-    probableArea: infrastructureFailure ? 'GitHub Actions / Android emulator / Maestro' : 'Needs maintainer triage',
+    probableArea: infrastructureFailure
+      ? apkPreflightFailure ? 'GitHub Release / APK publishing / GitHub Actions' : 'GitHub Actions / Android emulator / Maestro'
+      : 'Needs maintainer triage',
     confidence: 'low',
   };
 }
@@ -177,13 +199,19 @@ async function main() {
   const model = process.env.MOBILE_QA_MODEL ?? 'openai/gpt-4o';
   const xml = await readText(REPORT_PATH);
   const sanitizedLog = redact(await readText(LOG_PATH)).slice(-12000);
+  const infrastructureDiagnostic = redact(await readText(INFRASTRUCTURE_ERROR_PATH)).slice(-4000);
   if (existsSync(LOG_PATH)) await writeFile(LOG_PATH, sanitizedLog, 'utf8');
   const metadata = JSON.parse(await readText(META_PATH, '{}'));
   let failures = parseJUnit(xml);
   let infrastructureFailure = false;
-  if (failures.length === 0 && process.env.QA_EXECUTION_STATUS !== 'success') {
+  const runnerFailure = infrastructureFailureFor({
+    apkStatus: process.env.QA_APK_STATUS,
+    executionStatus: process.env.QA_EXECUTION_STATUS,
+    diagnostic: infrastructureDiagnostic,
+  });
+  if (failures.length === 0 && runnerFailure) {
     infrastructureFailure = true;
-    failures = [{ name: 'Mobile QA infrastructure', message: 'The emulator/Maestro step failed before a failing JUnit testcase was produced.', details: sanitizedLog.slice(-4000) }];
+    failures = [{ ...runnerFailure, details: runnerFailure.details || sanitizedLog.slice(-4000) }];
   }
   if (failures.length === 0) return console.log('Mobile QA passed; no GitHub issue needed.');
 

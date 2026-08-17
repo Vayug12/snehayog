@@ -24,21 +24,37 @@ class ForcedUpdateWidget extends StatefulWidget {
   State<ForcedUpdateWidget> createState() => _ForcedUpdateWidgetState();
 }
 
-class _ForcedUpdateWidgetState extends State<ForcedUpdateWidget> {
+class _ForcedUpdateWidgetState extends State<ForcedUpdateWidget>
+    with WidgetsBindingObserver {
   VersionCheckResult? _versionCheck;
   bool _isChecking = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkVersion();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkVersion();
+    }
   }
 
   Future<void> _checkVersion() async {
     try {
       setState(() => _isChecking = true);
 
-      final result = await AppRemoteConfigService.instance.checkAppVersion();
+      final result = await AppRemoteConfigService.instance
+          .checkAppVersion(refresh: true);
 
       if (mounted) {
         setState(() {

@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import './config/config.js';
 import AppConfig from './models/AppConfig.js';
+import redisService from './services/caching/redisService.js';
 
 const seedConfig = async () => {
   try {
@@ -42,6 +43,7 @@ const seedConfig = async () => {
         cpmRates: { banner: 10, carousel: 30, videoFeedAd: 30 },
         revenueShare: { creatorShare: 0.80, platformShare: 0.20 },
         uploadLimits: {
+          maxDailyUploads: 10,
           maxVideoSize: 734003200, // 700MB
           maxImageSize: 5242880,   // 5MB
           maxVideoDuration: 600,
@@ -58,13 +60,33 @@ const seedConfig = async () => {
       }
     };
 
-    console.log('💾 Saving AppConfig to database...');
-    // Clear existing and insert new
-    await AppConfig.deleteMany({ platform: 'android', environment: 'production' });
-    const newConfig = new AppConfig(configData);
-    await newConfig.save();
+    console.log('💾 Updating AppConfig version control...');
+    const filter = { platform: configData.platform, environment: configData.environment };
+    const existingConfig = await AppConfig.findOne(filter).sort({ createdAt: -1 });
 
-    console.log('✨ Success! AppConfig has been seeded for Android/Production.');
+    if (existingConfig) {
+      existingConfig.set({
+        isActive: true,
+        'versionControl.minSupportedAppVersion': configData.versionControl.minSupportedAppVersion,
+        'versionControl.latestAppVersion': configData.versionControl.latestAppVersion,
+        'versionControl.forceUpdateMessage': configData.versionControl.forceUpdateMessage,
+        'versionControl.softUpdateMessage': configData.versionControl.softUpdateMessage,
+        'versionControl.updateUrl.android': configData.versionControl.updateUrl.android,
+        'versionControl.updateUrl.ios': configData.versionControl.updateUrl.ios,
+      });
+      await existingConfig.save();
+      console.log('✨ Updated version control without overwriting other AppConfig settings.');
+    } else {
+      const newConfig = new AppConfig(configData);
+      await newConfig.save();
+      console.log('✨ Created the initial AppConfig for Android/Production.');
+    }
+
+    if (await redisService.connect()) {
+      await redisService.del(`app_config:${configData.platform}:${configData.environment}`);
+      await redisService.disconnect();
+      console.log('🧹 Cleared the AppConfig cache.');
+    }
     process.exit(0);
   } catch (error) {
     console.error('❌ Error seeding database:', error);

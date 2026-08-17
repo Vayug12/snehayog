@@ -133,14 +133,14 @@ class AppRemoteConfigService {
   }
 
   /// Check app version and return update status
-  Future<VersionCheckResult> checkAppVersion() async {
+  Future<VersionCheckResult> checkAppVersion({bool refresh = false}) async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final appVersion = packageInfo.version;
 
       // Ensure config is loaded
-      if (_cachedConfig == null) {
-        await fetchConfig();
+      if (refresh || _cachedConfig == null) {
+        await fetchConfig(forceRefresh: refresh);
       }
 
       if (_cachedConfig == null) {
