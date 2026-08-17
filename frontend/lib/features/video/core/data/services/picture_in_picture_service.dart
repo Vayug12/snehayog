@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
@@ -44,6 +45,14 @@ class PictureInPictureService {
 
   PictureInPictureService({MethodChannel? channel})
       : _channel = channel ?? const MethodChannel(channelName);
+
+  /// Whether the Activity is rendering for the system PiP window.
+  ///
+  /// Android shrinks the whole Activity, not just the player, so app chrome
+  /// that lives outside the owning surface (the main bottom navigation bar)
+  /// has to collapse too. This is owner-independent on purpose: the shell has
+  /// no way to know which feed asked for PiP, only that PiP is happening.
+  final ValueNotifier<bool> isActive = ValueNotifier<bool>(false);
 
   Stream<PictureInPictureModeEvent> get modeChanges => _modeChanges.stream;
   Stream<PictureInPicturePlaybackEvent> get playbackRequests =>
@@ -148,6 +157,10 @@ class PictureInPictureService {
       autoEnterEnabled: false,
     );
     if (_activeOwnerId == ownerId) {
+      // The owner is going away (dispose), so no `modeChanged` can arrive to
+      // restore the app chrome. Without this the shell would keep its bottom
+      // navigation collapsed for the rest of the session.
+      isActive.value = false;
       _activeOwnerId = null;
       _desiredAutoEnterEnabled = false;
       _lastIsPlaying = false;
@@ -193,14 +206,18 @@ class PictureInPictureService {
         // only its transition animation and does not crop the final window.
         // Ask the active Flutter surface to render its video-only tree, then
         // wait for that frame before allowing Android to shrink the Activity.
+        isActive.value = true;
         _preparationRequests.add(ownerId);
         await SchedulerBinding.instance.endOfFrame;
         return true;
       case 'modeChanged':
         final arguments = call.arguments;
-        final isActive =
+        final isModeActive =
             arguments is Map ? arguments['isActive'] as bool? ?? false : false;
-        _modeChanges.add(PictureInPictureModeEvent(ownerId, isActive));
+        // Also covers a failed entry: the host reports `false` after
+        // `prepareToEnter` optimistically shrank the app chrome.
+        isActive.value = isModeActive;
+        _modeChanges.add(PictureInPictureModeEvent(ownerId, isModeActive));
         break;
       case 'playbackRequested':
         final arguments = call.arguments;

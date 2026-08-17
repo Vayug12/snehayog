@@ -146,4 +146,46 @@ void main() {
     await service.dispose();
   });
 
+  test('flags PiP for the shell before the video-only frame is rendered',
+      () async {
+    messenger.setMockMethodCallHandler(channel, (call) async => true);
+    final service = PictureInPictureService(channel: channel);
+    final flagStates = <bool>[];
+    service.isActive.addListener(() => flagStates.add(service.isActive.value));
+    await service.initialize();
+    await service.update(
+      ownerId: 'yug',
+      aspectRatio: 9 / 16,
+      isPlaying: true,
+      autoEnterEnabled: true,
+    );
+
+    expect(service.isActive.value, isFalse);
+
+    // Deliberately not awaited: the handler parks on the next rendered frame,
+    // which this binding only produces inside a widget test.
+    final preparation = messenger.handlePlatformMessage(
+      PictureInPictureService.channelName,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('prepareToEnter'),
+      ),
+      (_) {},
+    );
+    expect(preparation, isA<Future<void>>());
+    // The shell must already be chrome-free while the host waits for the frame.
+    expect(service.isActive.value, isTrue);
+
+    // A rejected entry reports `false` and has to restore the app chrome.
+    await messenger.handlePlatformMessage(
+      PictureInPictureService.channelName,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('modeChanged', <String, Object>{'isActive': false}),
+      ),
+      (_) {},
+    );
+    expect(service.isActive.value, isFalse);
+    expect(flagStates, <bool>[true, false]);
+
+    await service.dispose();
+  });
 }

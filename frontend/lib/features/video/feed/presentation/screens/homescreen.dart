@@ -13,6 +13,7 @@ import 'package:vayug/features/profile/core/presentation/screens/profile_screen.
 import 'package:vayug/features/video/vayu/presentation/screens/vayu_screen.dart';
 import 'package:vayug/features/video/subscriptions/presentation/screens/subscriptions_screen.dart';
 import 'package:vayug/features/video/core/presentation/screens/video_screen.dart';
+import 'package:vayug/features/video/core/data/services/picture_in_picture_service.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/features/profile/core/data/services/background_profile_preloader.dart';
@@ -549,150 +550,167 @@ class _MainScreenState extends ConsumerState<MainScreen>
         onPopInvokedWithResult: (didPop, result) async {
           await _handleBackPress(mainController);
         },
-        child: Scaffold(
-          extendBody: !mainController
-              .isBottomNavVisible, // Allow content to flow under the bottom bar only when hidden
-          backgroundColor: AppColors.backgroundPrimary,
-          floatingActionButton: kDebugMode
-              ? FloatingActionButton(
-                  mini: true,
-                  backgroundColor: Colors.deepPurple.withValues(alpha: 0.8),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => TalkerScreen(
-                          talker: AppLogger.talker,
-                          theme: const TalkerScreenTheme(
-                            backgroundColor: Color(0xFF1A1A2E),
-                            cardColor: Color(0xFF16213E),
+        child: ValueListenableBuilder<bool>(
+          // Android scales the whole Activity into the PiP window, so shell
+          // chrome shrinks into it alongside the video. The active player
+          // already switches to a video-only tree; the shell has to drop its
+          // own chrome for the same frame, otherwise the bottom navigation bar
+          // rides along inside the thumbnail.
+          valueListenable: PictureInPictureService.instance.isActive,
+          builder: (context, isPictureInPictureActive, _) => Scaffold(
+            extendBody: isPictureInPictureActive ||
+                !mainController
+                    .isBottomNavVisible, // Allow content to flow under the bottom bar only when hidden
+            backgroundColor: isPictureInPictureActive
+                ? Colors.black
+                : AppColors.backgroundPrimary,
+            floatingActionButton: kDebugMode && !isPictureInPictureActive
+                ? FloatingActionButton(
+                    mini: true,
+                    backgroundColor: Colors.deepPurple.withValues(alpha: 0.8),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TalkerScreen(
+                            talker: AppLogger.talker,
+                            theme: const TalkerScreenTheme(
+                              backgroundColor: Color(0xFF1A1A2E),
+                              cardColor: Color(0xFF16213E),
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
-                  child: const Icon(Icons.bug_report,
-                      color: Colors.white, size: 20),
-                )
-              : null,
-          body: IndexedStack(
-            index: mainController.currentIndex,
-            children: [
-              // No parentTabIndex: the enclosing TabScope supplies it.
-              _buildTabNavigator(
-                  0,
-                  VideoScreen(
-                    key: _videoScreenKey,
-                    initialVideos:
-                        AppInitializationManager.instance.initialVideos,
-                    isMainYugTab:
-                        true, // **NEW: Mark as main feed for tab-active enforcement**
-                  )),
-              _buildTabNavigator(1, VayuScreen(key: _vayuScreenKey)),
-              _buildTabNavigator(
-                  2,
-                  UploadScreen(
-                    key: const PageStorageKey('uploadScreen'),
-                    onVideoUploaded: _refreshVideoList,
-                  )),
-              _buildTabNavigator(3, const SubscriptionsScreen()),
-              _buildTabNavigator(
-                  4,
-                  ProfileScreen(
-                    key: _profileScreenKey,
-                  )),
-            ],
-          ),
-          bottomNavigationBar: AnimatedSize(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            child: mainController.isBottomNavVisible
-                ? RepaintBoundary(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.backgroundPrimary,
-                        border: const Border(
-                          top: BorderSide(
-                              color: AppColors.borderPrimary, width: 0.5),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 20,
-                            offset: const Offset(0, -4),
-                            spreadRadius: 0,
-                          ),
-                        ],
-                      ),
-                      child: Container(
-                        height: 52 + MediaQuery.viewPaddingOf(context).bottom,
-                        padding: EdgeInsets.only(
-                          left: 4,
-                          right: 4,
-                          top: 0,
-                          bottom: math.max(
-                            2.0,
-                            MediaQuery.viewPaddingOf(context).bottom,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildNavItem(
-                              index: 0,
-                              currentIndex: mainController.currentIndex,
-                              icon: HugeIcons.strokeRoundedPlayCircle02,
-                              activeIcon: HugeIcons.strokeRoundedPlayCircle02,
-                              label: 'Yug',
-                              onTap: () => _handleNavTap(0, mainController),
-                              mainController: mainController,
-                            ),
-                            _buildNavItem(
-                              index: 1,
-                              currentIndex: mainController.currentIndex,
-                              icon: HugeIcons.strokeRoundedVideo01,
-                              activeIcon: HugeIcons.strokeRoundedVideo01,
-                              label: 'Vayu',
-                              onTap: () => _handleNavTap(1, mainController),
-                              mainController: mainController,
-                            ),
-                            _buildNavItem(
-                              index: 2,
-                              currentIndex: mainController.currentIndex,
-                              icon: HugeIcons.strokeRoundedAddCircleHalfDot,
-                              activeIcon:
-                                  HugeIcons.strokeRoundedAddCircleHalfDot,
-                              label: 'Upload',
-                              onTap: () => _handleNavTap(2, mainController),
-                              mainController: mainController,
-                            ),
-                            _buildNavItem(
-                              index: 3,
-                              currentIndex: mainController.currentIndex,
-                              icon: HugeIcons.strokeRoundedUserMultiple02,
-                              activeIcon: HugeIcons.strokeRoundedUserMultiple02,
-                              label: 'Subs',
-                              onTap: () => _handleNavTap(3, mainController),
-                              mainController: mainController,
-                            ),
-                            _buildNavItem(
-                              index: 4,
-                              currentIndex: mainController.currentIndex,
-                              icon: HugeIcons.strokeRoundedUser,
-                              activeIcon: HugeIcons.strokeRoundedUser,
-                              label: 'Account',
-                              onTap: () => _handleNavTap(4, mainController),
-                              mainController: mainController,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                      );
+                    },
+                    child: const Icon(Icons.bug_report,
+                        color: Colors.white, size: 20),
                   )
-                : const SizedBox(height: 0, width: double.infinity),
+                : null,
+            body: IndexedStack(
+              index: mainController.currentIndex,
+              children: [
+                // No parentTabIndex: the enclosing TabScope supplies it.
+                _buildTabNavigator(
+                    0,
+                    VideoScreen(
+                      key: _videoScreenKey,
+                      initialVideos:
+                          AppInitializationManager.instance.initialVideos,
+                      isMainYugTab:
+                          true, // **NEW: Mark as main feed for tab-active enforcement**
+                    )),
+                _buildTabNavigator(1, VayuScreen(key: _vayuScreenKey)),
+                _buildTabNavigator(
+                    2,
+                    UploadScreen(
+                      key: const PageStorageKey('uploadScreen'),
+                      onVideoUploaded: _refreshVideoList,
+                    )),
+                _buildTabNavigator(3, const SubscriptionsScreen()),
+                _buildTabNavigator(
+                    4,
+                    ProfileScreen(
+                      key: _profileScreenKey,
+                    )),
+              ],
+            ),
+            // Dropped outright in PiP: an AnimatedSize collapse would still
+            // paint the bar for a few frames inside the thumbnail.
+            bottomNavigationBar: isPictureInPictureActive
+                ? null
+                : _buildBottomNavigationBar(mainController),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildBottomNavigationBar(MainController mainController) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+      child: mainController.isBottomNavVisible
+          ? RepaintBoundary(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.backgroundPrimary,
+                  border: const Border(
+                    top: BorderSide(color: AppColors.borderPrimary, width: 0.5),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, -4),
+                      spreadRadius: 0,
+                    ),
+                  ],
+                ),
+                child: Container(
+                  height: 52 + MediaQuery.viewPaddingOf(context).bottom,
+                  padding: EdgeInsets.only(
+                    left: 4,
+                    right: 4,
+                    top: 0,
+                    bottom: math.max(
+                      2.0,
+                      MediaQuery.viewPaddingOf(context).bottom,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildNavItem(
+                        index: 0,
+                        currentIndex: mainController.currentIndex,
+                        icon: HugeIcons.strokeRoundedPlayCircle02,
+                        activeIcon: HugeIcons.strokeRoundedPlayCircle02,
+                        label: 'Yug',
+                        onTap: () => _handleNavTap(0, mainController),
+                        mainController: mainController,
+                      ),
+                      _buildNavItem(
+                        index: 1,
+                        currentIndex: mainController.currentIndex,
+                        icon: HugeIcons.strokeRoundedVideo01,
+                        activeIcon: HugeIcons.strokeRoundedVideo01,
+                        label: 'Vayu',
+                        onTap: () => _handleNavTap(1, mainController),
+                        mainController: mainController,
+                      ),
+                      _buildNavItem(
+                        index: 2,
+                        currentIndex: mainController.currentIndex,
+                        icon: HugeIcons.strokeRoundedAddCircleHalfDot,
+                        activeIcon: HugeIcons.strokeRoundedAddCircleHalfDot,
+                        label: 'Upload',
+                        onTap: () => _handleNavTap(2, mainController),
+                        mainController: mainController,
+                      ),
+                      _buildNavItem(
+                        index: 3,
+                        currentIndex: mainController.currentIndex,
+                        icon: HugeIcons.strokeRoundedUserMultiple02,
+                        activeIcon: HugeIcons.strokeRoundedUserMultiple02,
+                        label: 'Subs',
+                        onTap: () => _handleNavTap(3, mainController),
+                        mainController: mainController,
+                      ),
+                      _buildNavItem(
+                        index: 4,
+                        currentIndex: mainController.currentIndex,
+                        icon: HugeIcons.strokeRoundedUser,
+                        activeIcon: HugeIcons.strokeRoundedUser,
+                        label: 'Account',
+                        onTap: () => _handleNavTap(4, mainController),
+                        mainController: mainController,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          : const SizedBox(height: 0, width: double.infinity),
     );
   }
 

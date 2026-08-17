@@ -24,50 +24,35 @@ class ForcedUpdateWidget extends StatefulWidget {
   State<ForcedUpdateWidget> createState() => _ForcedUpdateWidgetState();
 }
 
-class _ForcedUpdateWidgetState extends State<ForcedUpdateWidget>
-    with WidgetsBindingObserver {
+class _ForcedUpdateWidgetState extends State<ForcedUpdateWidget> {
   VersionCheckResult? _versionCheck;
-  bool _isChecking = true;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
+    // Checked once per app launch. There is no resume listener on purpose:
+    // `resumed` fires far more often than a real app switch (permission
+    // dialogs, the in-app review prompt, a tapped ad returning from the
+    // browser, the notification shade) and re-checking on each one is pure
+    // overhead.
     _checkVersion();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _checkVersion();
-    }
   }
 
   Future<void> _checkVersion() async {
     try {
-      setState(() => _isChecking = true);
-
+      // `refresh: false` reuses the config AppInitializationManager already
+      // fetched at startup — a local version comparison, no extra network call.
       final result = await AppRemoteConfigService.instance
-          .checkAppVersion(refresh: true);
+          .checkAppVersion(refresh: false);
 
       if (mounted) {
-        setState(() {
-          _versionCheck = result;
-          _isChecking = false;
-        });
+        setState(() => _versionCheck = result);
       }
     } catch (e) {
       AppLogger.log('❌ ForcedUpdateWidget: Error checking version: $e');
+      // Assume supported if the check fails — never block a working app.
       if (mounted) {
         setState(() {
-          _isChecking = false;
-          // Assume supported if check fails
           _versionCheck = VersionCheckResult(
             isSupported: true,
             isLatest: true,
@@ -93,107 +78,107 @@ class _ForcedUpdateWidgetState extends State<ForcedUpdateWidget>
 
   @override
   Widget build(BuildContext context) {
-    // Show loading while checking
-    if (_isChecking) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
+    final versionCheck = _versionCheck;
 
-    // If update is required, block the app
-    if (_versionCheck?.updateRequired == true) {
-      return _buildForcedUpdateScreen();
-    }
+    // **CRITICAL**: this widget lives inside `MaterialApp.builder`, so
+    // `widget.child` is the app's Navigator. It must stay in the tree on
+    // every single build — dropping it unmounts the Navigator, disposes the
+    // whole route stack, and the rebuilt Navigator restarts at its initial
+    // route (the splash screen). Blocking UI is layered on top instead of
+    // replacing the child.
+    return Stack(
+      children: [
+        widget.child,
 
-    // Show soft update banner if recommended
-    if (widget.showSoftUpdateBanner &&
-        _versionCheck?.updateRecommended == true) {
-      return Stack(
-        children: [
-          widget.child,
+        // If update is required, block the app behind an opaque overlay.
+        if (versionCheck?.updateRequired == true)
+          Positioned.fill(child: _buildForcedUpdateScreen()),
+
+        // Show soft update banner if recommended
+        if (widget.showSoftUpdateBanner &&
+            versionCheck?.updateRecommended == true)
           _buildSoftUpdateBanner(),
-        ],
-      );
-    }
-
-    // App is up to date, show normally
-    return widget.child;
+      ],
+    );
   }
 
   /// Build forced update screen (blocks app usage)
   Widget _buildForcedUpdateScreen() {
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.blue.shade700,
-              Colors.blue.shade900,
-            ],
+    // `canPop: false` keeps the hardware back button from dismissing the
+    // block; the opaque Scaffold absorbs every pointer event behind it.
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.blue.shade700,
+                Colors.blue.shade900,
+              ],
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.system_update,
-                  size: 80,
-                  color: Colors.white,
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Update Required',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.system_update,
+                    size: 80,
                     color: Colors.white,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _versionCheck?.updateMessage ??
-                      'A new version of the app is available. Please update to continue.',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.white70,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 32),
-                AppButton(
-                  onPressed: _openUpdateUrl,
-                  label: 'Update Now',
-                  variant: AppButtonVariant.primary,
-                  size: AppButtonSize.large,
-                ),
-                if (_versionCheck?.currentVersion != null) ...[
                   const SizedBox(height: 24),
-                  Text(
-                    'Current Version: ${_versionCheck!.currentVersion}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.white60,
+                  const Text(
+                    'Update Required',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
+                    textAlign: TextAlign.center,
                   ),
-                ],
-                if (_versionCheck?.latestVersion != null) ...[
+                  const SizedBox(height: 16),
                   Text(
-                    'Latest Version: ${_versionCheck!.latestVersion}',
+                    _versionCheck?.updateMessage ??
+                        'A new version of the app is available. Please update to continue.',
                     style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.white60,
+                      fontSize: 16,
+                      color: Colors.white70,
                     ),
+                    textAlign: TextAlign.center,
                   ),
+                  const SizedBox(height: 32),
+                  AppButton(
+                    onPressed: _openUpdateUrl,
+                    label: 'Update Now',
+                    variant: AppButtonVariant.primary,
+                    size: AppButtonSize.large,
+                  ),
+                  if (_versionCheck?.currentVersion != null) ...[
+                    const SizedBox(height: 24),
+                    Text(
+                      'Current Version: ${_versionCheck!.currentVersion}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.white60,
+                      ),
+                    ),
+                  ],
+                  if (_versionCheck?.latestVersion != null) ...[
+                    Text(
+                      'Latest Version: ${_versionCheck!.latestVersion}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.white60,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
