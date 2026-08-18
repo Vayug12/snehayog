@@ -17,5 +17,6 @@ import './AppConfig.js';
 import './DailyUploadQuota.js';
 import './Notice.js';
 import './CreatorDailyStats.js';
+import './UserActivity.js';
 
 console.log('✅ All models imported and registered successfully');

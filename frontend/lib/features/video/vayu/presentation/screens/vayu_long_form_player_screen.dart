@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
+import 'package:vayug/features/video/core/data/models/video_url_resolver.dart';
+import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'dart:async';
 import 'package:vayug/shared/config/app_config.dart';
@@ -102,9 +103,20 @@ class _VayuLongFormPlayerScreenState
   late PageController _pageController;
   int _currentIndex = 0;
   final Map<int, VideoPlayerController> _controllers = {};
-  final Map<int, ChewieController?> _chewieControllers = {};
   final Map<int, VoidCallback> _positionListeners = {};
-  final Set<int> _preloadingIndices = {};
+
+  /// In-flight controller creations, keyed by **video id**.
+  ///
+  /// Preloading a neighbour and swiping onto it both ask for the same video's
+  /// controller. Without a shared entry point each built its own, so one video
+  /// downloaded twice, the pool disposed whichever lost the race, and the
+  /// surviving controller failed the `identical` playback check and paused
+  /// itself — the video then buffered forever until the page was revisited.
+  /// Keyed by id rather than index because pagination shifts indices.
+  final Map<String, Future<VideoPlayerController?>> _controllerRequests = {};
+
+  /// Defers the expensive part of a page change until the scroll settles.
+  Timer? _pageChangeDebounce;
 
   bool _hasMore = true;
   bool _isLoadingMore = false;
@@ -141,9 +153,11 @@ class _VayuLongFormPlayerScreenState
   bool? _lastPictureInPicturePlayingState;
   double? _lastPictureInPictureAspectRatio;
 
-  // Banner Ad State
+  // Banner Ad State. Fetched once for the whole session: the per-index fetch
+  // this replaced ran a server health probe plus an ad request on every single
+  // swipe, competing with the video stream for bandwidth.
   late final IAdService _activeAdsService;
-  final Map<int, Map<String, dynamic>> _bannerAdsByIndex = {};
+  List<Map<String, dynamic>> _bannerAds = const [];
   late final IQuizEngine _quizEngine;
 
   SharedPreferences? _prefs;
@@ -184,6 +198,7 @@ class _VayuLongFormPlayerScreenState
 
   final Map<int, Timer> _viewUITimers = {};
   final Map<int, Duration> _lastKnownPositions = {};
+  DateTime? _lastPositionSaveAt;
   bool _hasAppliedInitialSharePosition = false;
   bool _sharedSectionFinished = false;
 
@@ -242,22 +257,29 @@ class _VayuLongFormPlayerScreenState
         if (initialIdx >= 0) {
           _currentIndex = initialIdx;
           _pageController.jumpToPage(initialIdx);
-          _initializePlayer(initialIdx);
         } else {
           final mainController = ref.read(mainControllerProvider);
           final lastIndex = await mainController.getLastViewedVideoIndex(1);
+          if (!mounted) return;
           if (lastIndex > 0 && lastIndex < _videos.length) {
             _currentIndex = lastIndex;
             _pageController.jumpToPage(lastIndex);
-            _initializePlayer(lastIndex);
           } else {
-            _initializePlayer(0);
+            _currentIndex = 0;
           }
         }
+        // Pin BEFORE anything preloads. Preloading a neighbour refreshes that
+        // neighbour's LRU timestamp, so an unpinned current video becomes the
+        // pool's eviction candidate — and evicting it fires the disposal
+        // stream, which re-initialises it, which evicts it again.
+        _pinCurrentVideo();
+        _initializePlayer(_currentIndex);
         _preloadNearbyVideos();
         _reprimeWindowIfNeeded(_currentIndex);
       }
     });
+
+    unawaited(_loadBannerAds());
 
     if (_videos.length < 3) {
       _loadMoreVideos();
@@ -283,28 +305,23 @@ class _VayuLongFormPlayerScreenState
     });
 
     _poolDisposalSubscription =
-        SharedVideoControllerPool().disposalStream.listen((videoId) {
-      if (mounted) {
-        final index = _videos.indexWhere((v) => v.id == videoId);
-        if (index != -1 && _controllers.containsKey(index)) {
-          final oldC = _controllers[index];
-          if (oldC != null) {
-            final listener = _positionListeners.remove(index);
-            if (listener != null) {
-              try {
-                oldC.removeListener(listener);
-              } catch (_) {}
-            }
-          }
-          setState(() {
-            _controllers.remove(index);
-            _chewieControllers.remove(index)?.dispose();
-          });
-          if (index == _currentIndex) {
-            _initializePlayer(index);
-          }
-        }
-      }
+        _controllerPool.disposalStream.listen((videoId) {
+      if (!mounted) return;
+      final index = _videos.indexWhere((v) => v.id == videoId);
+      if (index == -1) return;
+      final held = _controllers[index];
+      if (held == null) return;
+      // The pool emits a disposal when a controller is REPLACED in place too,
+      // and the stream is delivered asynchronously — so by the time this runs,
+      // the map may already hold the healthy replacement. Tearing that down
+      // would restart the very controller that just became ready, which is how
+      // a page ends up reloading forever. Only react to the instance that
+      // actually went away.
+      if (!_controllerPool.isControllerDisposed(held)) return;
+
+      _detachControllerListeners(index);
+      setState(() => _controllers.remove(index));
+      if (index == _currentIndex) _initializePlayer(index);
     });
 
     isSeekingBufferingVN.addListener(_onSeekingBufferingChanged);
@@ -679,92 +696,124 @@ class _VayuLongFormPlayerScreenState
     }
   }
 
-  Future<void> _initializePlayer([int? requestedIndex]) async {
-    final index = requestedIndex ?? _currentIndex;
-    if (index >= _videos.length) return;
-    final videoToPlay = _videos[index];
-    VideoPlayerController? existing =
-        _controllerPool.getController(videoToPlay.id);
+  /// The video a controller should actually stream, honouring the audio
+  /// language the user picked for it.
+  VideoModel _effectiveVideo(VideoModel video) {
+    final selectedLang = _selectedAudioLanguage[video.id] ?? 'default';
+    if (selectedLang == 'default') return video;
+    final dubbedUrl = video.dubbedUrls?[selectedLang];
+    if (dubbedUrl == null || dubbedUrl.isEmpty) return video;
+    return video.copyWith(videoUrl: dubbedUrl);
+  }
 
-    if (existing != null && existing.value.isInitialized) {
-      if (mounted) {
-        setState(() {
-          _controllers[index] = existing;
-          _chewieControllers[index]?.dispose();
-          _chewieControllers[index] =
-              _createChewieController(existing, videoToPlay);
-        });
-        _setupLateInitialization(index, existing);
-      }
-      return;
+  /// Returns the one controller for [index]'s video, creating it only if
+  /// nobody else already is.
+  ///
+  /// Every path that needs a controller — playback and speculative preload
+  /// alike — goes through here. Previously they each built their own, so a
+  /// preload still in flight when the user swiped onto that page produced a
+  /// second controller for the same video: two downloads of one stream, and
+  /// whichever lost the race left the winner failing `_canPlayCurrentVideo`'s
+  /// identity check, so it paused itself and the page buffered indefinitely.
+  Future<VideoPlayerController?> _acquireController(
+    int index, {
+    bool highPriority = false,
+  }) {
+    if (index < 0 || index >= _videos.length) return Future.value(null);
+    final video = _videos[index];
+
+    final pooled = _controllerPool.getController(video.id);
+    if (pooled != null && pooled.value.isInitialized) {
+      return Future.value(pooled);
     }
-    if (_controllers.containsKey(index)) {
-      final c = _controllers.remove(index);
-      final ch = _chewieControllers.remove(index);
-      ch?.dispose();
-      if (c != null) {
-        final listener = _positionListeners.remove(index);
-        if (listener != null) c.removeListener(listener);
-        _controllerPool.disposeController(videoToPlay.id);
-      }
-    }
-    _disableWakelock();
+
+    final inFlight = _controllerRequests[video.id];
+    if (inFlight != null) return inFlight;
+
+    final request = _createControllerFor(index, video, highPriority)
+        .whenComplete(() => _controllerRequests.remove(video.id));
+    _controllerRequests[video.id] = request;
+    return request;
+  }
+
+  /// True once [index] has drifted outside the live window, or this screen is
+  /// gone. Checked after every await so a controller for a page the user has
+  /// already scrolled past is torn down instead of published.
+  bool _isStaleRequest(int index) =>
+      !mounted || (index - _currentIndex).abs() > 1;
+
+  Future<VideoPlayerController?> _createControllerFor(
+    int index,
+    VideoModel video,
+    bool highPriority,
+  ) async {
+    VideoPlayerController? controller;
     try {
-      final selectedLang = _selectedAudioLanguage[videoToPlay.id] ?? 'default';
-      VideoModel effectiveVideo = videoToPlay;
-      if (selectedLang != 'default') {
-        final dubbedUrl = videoToPlay.dubbedUrls?[selectedLang];
-        if (dubbedUrl != null) {
-          effectiveVideo = videoToPlay.copyWith(videoUrl: dubbedUrl);
-        }
+      // Admission control BEFORE allocating: a refused speculative preload is
+      // the point — it must not take the decoder out from under the video
+      // that is actually on screen.
+      final admitted = await _controllerPool.makeRoomForNewController(
+        forVideoId: video.id,
+        highPriority: highPriority,
+      );
+      if (!admitted || _isStaleRequest(index)) return null;
+
+      controller =
+          await VideoControllerFactory.createController(_effectiveVideo(video));
+      if (_isStaleRequest(index)) {
+        await controller.dispose();
+        return null;
       }
-      await _controllerPool.makeRoomForNewController();
-      final newController =
-          await VideoControllerFactory.createController(effectiveVideo);
-      await newController.initialize().timeout(const Duration(seconds: 15));
-      await newController.setPlaybackSpeed(_playbackSpeed);
-      // Chewie must never own autoplay: its delayed play callback can fire
-      // after the user has already scrolled to a different page.
-      await newController.pause();
-      if (mounted) {
-        final chewie = _createChewieController(newController, effectiveVideo);
-        setState(() {
-          _controllers[index] = newController;
-          _chewieControllers[index] = chewie;
-        });
-        _playbackCoordinator.attachController(_playbackSession, newController);
-        _controllerPool.addController(videoToPlay.id, newController);
-        _setupLateInitialization(index, newController);
-      } else {
-        newController.dispose();
+
+      await controller.initialize().timeout(const Duration(seconds: 15));
+      if (_isStaleRequest(index)) {
+        await controller.dispose();
+        return null;
       }
+
+      await controller.setPlaybackSpeed(_playbackSpeed);
+      // Autoplay is never the controller's decision: playback only starts
+      // through _playIfAllowed, which the coordinator gates.
+      await controller.pause();
+
+      _controllerPool.addController(video.id, controller);
+      return controller;
     } catch (e) {
-      AppLogger.log('Failed to init: $e');
+      AppLogger.log('Failed to init controller for ${video.id}: $e');
+      try {
+        await controller?.dispose();
+      } catch (_) {}
+      return null;
     }
   }
 
-  ChewieController _createChewieController(
-      VideoPlayerController controller, VideoModel video) {
-    return ChewieController(
-      videoPlayerController: controller,
-      aspectRatio: 16 / 9,
-      autoPlay: false,
-      showControls: false,
-      customControls: const SizedBox.shrink(),
-      materialProgressColors: ChewieProgressColors(
-          playedColor: AppColors.primary,
-          handleColor: AppColors.primary,
-          backgroundColor: AppColors.borderPrimary,
-          bufferedColor: AppColors.textTertiary),
-      placeholder: video.thumbnailUrl.isNotEmpty
-          ? CachedNetworkImage(
-              imageUrl: video.thumbnailUrl,
-              fit: BoxFit.cover,
-              errorWidget: (context, url, error) =>
-                  Container(color: AppColors.backgroundPrimary),
-            )
-          : Container(color: AppColors.backgroundPrimary),
-    );
+  Future<void> _initializePlayer([int? requestedIndex]) async {
+    final index = requestedIndex ?? _currentIndex;
+    if (index < 0 || index >= _videos.length) return;
+
+    final controller = await _acquireController(index, highPriority: true);
+    // The request may have been served after the user moved on.
+    if (controller == null || _isStaleRequest(index)) return;
+
+    if (!identical(_controllers[index], controller)) {
+      _detachControllerListeners(index);
+      setState(() => _controllers[index] = controller);
+    }
+    _setupLateInitialization(index, controller);
+  }
+
+  /// Removes this screen's listeners from whatever controller currently sits
+  /// at [index], without touching the controller itself — the pool owns its
+  /// lifetime.
+  void _detachControllerListeners(int index) {
+    final existing = _controllers[index];
+    final position = _positionListeners.remove(index);
+    final error = _errorListeners.remove(index);
+    if (existing == null) return;
+    try {
+      if (position != null) existing.removeListener(position);
+      if (error != null) existing.removeListener(error);
+    } catch (_) {}
   }
 
   bool _isCurrentPlaybackTarget(int index, VideoPlayerController controller) {
@@ -778,19 +827,21 @@ class _VayuLongFormPlayerScreenState
     if (index == _currentIndex) {
       _playbackCoordinator.attachController(_playbackSession, controller);
     }
+    // One listener, not two. Every VideoPlayerValue update ran both the
+    // position and the error callback, doubling the per-tick cost for each
+    // live controller; error state is just another field on that same value.
     final previousPositionListener = _positionListeners.remove(index);
     if (previousPositionListener != null) {
       controller.removeListener(previousPositionListener);
+    }
+    final previousErrorListener = _errorListeners.remove(index);
+    if (previousErrorListener != null) {
+      controller.removeListener(previousErrorListener);
     }
     void positionListener() =>
         _handleControllerPositionChanged(index, controller);
     _positionListeners[index] = positionListener;
     controller.addListener(positionListener);
-    if (_errorListeners.containsKey(index)) {
-      controller.removeListener(_errorListeners[index]!);
-    }
-    _errorListeners[index] = () => _handleVideoError(index, controller);
-    controller.addListener(_errorListeners[index]!);
     if (!_isCurrentPlaybackTarget(index, controller)) {
       await controller.pause();
       return;
@@ -823,6 +874,8 @@ class _VayuLongFormPlayerScreenState
     int index,
     VideoPlayerController controller,
   ) {
+    if (!mounted) return;
+    if (_handleVideoError(index, controller)) return;
     if (!_isCurrentPlaybackTarget(index, controller)) {
       if (controller.value.isPlaying) {
         unawaited(controller.pause());
@@ -859,14 +912,24 @@ class _VayuLongFormPlayerScreenState
     return true;
   }
 
-  void _handleVideoError(int index, VideoPlayerController controller) {
-    if (!mounted) return;
+  /// Returns true when [controller] is in an error state, so the caller can
+  /// skip the rest of the tick.
+  bool _handleVideoError(int index, VideoPlayerController controller) {
     try {
-      if (SharedVideoControllerPool().isControllerDisposed(controller)) return;
-      if (controller.value.hasError) {
-        if (index == _currentIndex) _initializePlayer(index);
+      if (_controllerPool.isControllerDisposed(controller)) return true;
+      if (!controller.value.hasError) return false;
+      if (index == _currentIndex) {
+        // Drop the failed controller first: leaving it pooled means
+        // _acquireController hands the same broken instance straight back.
+        _detachControllerListeners(index);
+        _controllers.remove(index);
+        _controllerPool.disposeController(_videos[index].id);
+        _initializePlayer(index);
       }
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return true;
+    }
   }
 
   void _onPositionChanged() {
@@ -881,8 +944,16 @@ class _VayuLongFormPlayerScreenState
     }
     _lastKnownPositions[_currentIndex] = currentPos;
     _pauseAtSharedSectionEnd(controller, currentPos);
-    if (controller.value.isPlaying && currentPos.inSeconds % 5 == 0) {
-      _savePlaybackPosition(_currentIndex);
+    // Throttled on wall-clock, not on the position value: the controller ticks
+    // several times inside the same second, so `position.inSeconds % 5` fired
+    // a SharedPreferences write on each of them.
+    if (controller.value.isPlaying) {
+      final now = DateTime.now();
+      final last = _lastPositionSaveAt;
+      if (last == null || now.difference(last) >= const Duration(seconds: 5)) {
+        _lastPositionSaveAt = now;
+        _savePlaybackPosition(_currentIndex);
+      }
     }
     _checkAndTriggerQuiz(controller);
   }
@@ -924,7 +995,9 @@ class _VayuLongFormPlayerScreenState
     _pictureInPicturePlaybackSubscription?.cancel();
     _pictureInPicturePreparationSubscription?.cancel();
     unawaited(_pictureInPictureService.release(_pictureInPictureOwnerId));
+    // Also drops this session's pool pin — see PlaybackCoordinator.release.
     _playbackCoordinator.release(_playbackSession);
+    _pageChangeDebounce?.cancel();
     _disableWakelock();
     appRouteObserver.unsubscribe(this);
     _seekingBufferingTimeout?.cancel();
@@ -941,13 +1014,14 @@ class _VayuLongFormPlayerScreenState
 
     _controllers.forEach((index, c) {
       try {
-        final listener = _positionListeners.remove(index);
-        if (listener != null) c.removeListener(listener);
+        final position = _positionListeners.remove(index);
+        if (position != null) c.removeListener(position);
+        final error = _errorListeners.remove(index);
+        if (error != null) c.removeListener(error);
         c.pause();
         c.setVolume(0.0);
       } catch (_) {}
     });
-    _chewieControllers.forEach((index, c) => c?.dispose());
     controlsTimer?.cancel();
     overlayTimer?.cancel();
     _seekingBufferingTimeout?.cancel();
@@ -1397,6 +1471,13 @@ class _VayuLongFormPlayerScreenState
     );
   }
 
+  /// Only the work the new page cannot be shown without runs synchronously
+  /// here; everything else waits for the scroll to settle.
+  ///
+  /// This used to tear down controllers, start two preloads, initialise a
+  /// third controller and fire two network requests inside the settle
+  /// animation of every swipe — with three controller creations racing each
+  /// other on the UI isolate. That is the scroll jank.
   void _onPageChanged(int index) {
     if (index == _currentIndex) return;
     final oldVideoId = _videos[_currentIndex].id;
@@ -1404,20 +1485,73 @@ class _VayuLongFormPlayerScreenState
     // Stop this player's own controllers before switching the active index.
     // This covers a controller that finished buffering after the previous swipe.
     _pauseAllPlayback();
-    _reprimeWindowIfNeeded(index);
     _stopViewTracking(_currentIndex);
     setState(() {
       _currentIndex = index;
       _activeQuiz = null;
     });
+    // Pin before any preload runs: preloading a neighbour refreshes that
+    // neighbour's LRU timestamp, which would otherwise make the video the user
+    // is watching the pool's next eviction candidate.
+    _pinCurrentVideo();
     ref
         .read(mainControllerProvider)
         .updateCurrentVideoIndex(index, tabIndex: 1);
-    _startViewTracking(index);
-    _preloadNearbyVideos();
     _initializePlayer(index);
-    _loadBannerAd(index);
-    if (_videos.length - index < 3) _loadMoreVideos();
+
+    _pageChangeDebounce?.cancel();
+    _pageChangeDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted || index != _currentIndex) return;
+      _startViewTracking(index);
+      _reprimeWindowIfNeeded(index);
+      _controllerPool.retainOnly(_keepAliveVideoIds(index - 1, index + 1));
+      _cancelOffWindowPrefetches(index);
+      _preloadNearbyVideos();
+      if (_videos.length - index < 3) _loadMoreVideos();
+    });
+  }
+
+  void _pinCurrentVideo() {
+    if (_currentIndex < 0 || _currentIndex >= _videos.length) return;
+    _controllerPool.pinVideo(
+      _videos[_currentIndex].id,
+      sessionId: _playbackSession.id,
+    );
+  }
+
+  /// Video ids occupying positions [start, end] in the CURRENT list.
+  ///
+  /// Recomputed on every call: pagination and reordering invalidate stored
+  /// positions, so the pool must never be handed cached indices.
+  Set<String> _keepAliveVideoIds(int start, int end) {
+    final ids = <String>{};
+    for (int i = start; i <= end; i++) {
+      if (i >= 0 && i < _videos.length) ids.add(_videos[i].id);
+    }
+    return ids;
+  }
+
+  /// Stops background downloads for everything outside the live window.
+  ///
+  /// Without this, prefetches started by the feed the user came from keep
+  /// running and steal bandwidth from the video actually on screen — which is
+  /// what makes a playing video buffer even though it is the only thing the
+  /// user is watching.
+  void _cancelOffWindowPrefetches(int index) {
+    final keep = <String>{};
+    for (int i = index - 1; i <= index + 1; i++) {
+      if (i < 0 || i >= _videos.length) continue;
+      final video = _videos[i];
+      keep.addAll(cacheKeyUrlsFor(
+        video,
+        selectedLanguage: _selectedAudioLanguage[video.id],
+      ));
+    }
+    try {
+      videoCacheProxy.cancelAllPrefetchesExcept(keep.toList());
+    } catch (e) {
+      AppLogger.log('Prefetch cancellation skipped: $e');
+    }
   }
 
   void _reprimeWindowIfNeeded(int current) {
@@ -1425,9 +1559,9 @@ class _VayuLongFormPlayerScreenState
         _controllers.keys.where((i) => (i - current).abs() > 1).toList();
     for (final i in keys) {
       _savePlaybackPosition(i);
+      _detachControllerListeners(i);
       _controllerPool.disposeController(_videos[i].id);
       _controllers.remove(i);
-      _chewieControllers.remove(i)?.dispose();
     }
   }
 
@@ -1452,24 +1586,18 @@ class _VayuLongFormPlayerScreenState
   }
 
   Future<void> _preloadVideo(int index) async {
-    if (index < 0 ||
-        index >= _videos.length ||
-        _controllers.containsKey(index) ||
-        _preloadingIndices.contains(index)) {
-      return;
-    }
+    if (index < 0 || index >= _videos.length) return;
+    if (_controllers.containsKey(index)) return;
 
-    _preloadingIndices.add(index);
-    try {
-      final c = await VideoControllerFactory.createController(_videos[index]);
-      await c.initialize();
-      await c.pause();
-      _controllers[index] = c;
-      _controllerPool.addController(_videos[index].id, c);
-    } catch (_) {
-    } finally {
-      _preloadingIndices.remove(index);
-    }
+    final controller = await _acquireController(index);
+    if (controller == null || !mounted) return;
+    if (_isStaleRequest(index)) return;
+    if (identical(_controllers[index], controller)) return;
+
+    // The result has to reach the widget tree. Assigning the map without a
+    // rebuild left the page rendering its loading state over a controller
+    // that was ready — the "video keeps loading" symptom.
+    setState(() => _controllers[index] = controller);
   }
 
   void _enableWakelock() {
@@ -1493,16 +1621,21 @@ class _VayuLongFormPlayerScreenState
         : '${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}';
   }
 
-  Future<void> _loadBannerAd(int index) async {
-    if (_bannerAdsByIndex.containsKey(index)) return;
+  /// Fetched once per screen. The per-index version this replaced hit a server
+  /// health probe plus an ad request on every swipe.
+  Future<void> _loadBannerAds() async {
     try {
       final ads = await _activeAdsService.fetchActiveAds();
       final List? banner = ads['banner'] as List?;
-      if (mounted && banner != null && banner.isNotEmpty) {
-        setState(() => _bannerAdsByIndex[index] =
-            Map<String, dynamic>.from(banner[index % banner.length]));
-      }
-    } catch (_) {}
+      if (!mounted || banner == null || banner.isEmpty) return;
+      setState(() {
+        _bannerAds = banner
+            .map((ad) => Map<String, dynamic>.from(ad as Map))
+            .toList(growable: false);
+      });
+    } catch (e) {
+      AppLogger.log('Failed to load banner ads: $e');
+    }
   }
 
   void _onLocalSmartDubTap(VideoModel video,
@@ -1522,14 +1655,14 @@ class _VayuLongFormPlayerScreenState
           final dubbed =
               Map<String, String>.from(_videos[vIdx].dubbedUrls ?? {});
           dubbed[r.language ?? targetLang] = r.dubbedUrl!;
+          final isCurrent = vIdx == _currentIndex;
           setState(() {
             _videos[vIdx] = _videos[vIdx].copyWith(dubbedUrls: dubbed);
-            if (vIdx == _currentIndex) {
+            if (isCurrent) {
               _selectedAudioLanguage[video.id] = r.language ?? targetLang;
-              _controllerPool.disposeController(video.id);
-              _initializePlayer(_currentIndex);
             }
           });
+          if (isCurrent) _rebuildControllerForSource(video.id);
         }
       }
     });
@@ -1582,11 +1715,24 @@ class _VayuLongFormPlayerScreenState
 
   void _handleLanguageSelection(VideoModel video, String code) {
     if (_selectedAudioLanguage[video.id] == code) return;
-    _controllerPool.disposeController(video.id);
-    setState(() {
-      _selectedAudioLanguage[video.id] = code;
-      _initializePlayer(_currentIndex);
-    });
+    setState(() => _selectedAudioLanguage[video.id] = code);
+    _rebuildControllerForSource(video.id);
+  }
+
+  /// Rebuilds the controller for [videoId] against its current audio source.
+  ///
+  /// Switching language changes the URL, so the pooled controller and any
+  /// in-flight request for it are both stale — dropping the request matters
+  /// because `_acquireController` would otherwise hand back the request that
+  /// is still fetching the previous language.
+  void _rebuildControllerForSource(String videoId) {
+    _controllerRequests.remove(videoId);
+    _controllerPool.disposeController(videoId);
+    final index = _videos.indexWhere((v) => v.id == videoId);
+    if (index == -1) return;
+    _detachControllerListeners(index);
+    setState(() => _controllers.remove(index));
+    if (index == _currentIndex) _initializePlayer(index);
   }
 
   void _showCancelDubbingDialog(String videoId) {
@@ -1811,7 +1957,6 @@ class _VayuLongFormPlayerScreenState
           index: index,
           video: v,
           controller: _controllers[index],
-          chewie: _chewieControllers[index],
           isCurrent: index == _currentIndex,
           isFullScreenManual: _isFullScreenManual,
           showControlsVN: showControlsVN,
@@ -1911,8 +2056,8 @@ class _VayuLongFormPlayerScreenState
   }
 
   Widget _buildAdSection(int index) {
-    final ad = _bannerAdsByIndex[index];
-    if (ad == null) return const SizedBox.shrink();
+    if (_bannerAds.isEmpty) return const SizedBox.shrink();
+    final ad = _bannerAds[index % _bannerAds.length];
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: BannerAdSection(

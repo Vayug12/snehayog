@@ -230,6 +230,53 @@
         .badge-success { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
         .badge-warning { background: rgba(241, 196, 15, 0.2); color: #f1c40f; }
 
+        .retention-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+            gap: 30px;
+            align-items: start;
+        }
+
+        /* Fixed height so full-width charts stay readable instead of
+           stretching to the container's aspect ratio */
+        .chart-box {
+            position: relative;
+            min-width: 0;
+            height: 300px;
+        }
+
+        .section-hint {
+            color: #888;
+            font-size: 0.85rem;
+            margin: -15px 0 20px;
+            line-height: 1.5;
+        }
+
+        .notice-banner {
+            background: rgba(241, 196, 15, 0.1);
+            border: 1px solid rgba(241, 196, 15, 0.3);
+            color: #f1c40f;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .insight-box {
+            background: rgba(46, 204, 113, 0.1);
+            border-left: 3px solid #2ecc71;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .muted-cell {
+            color: #666;
+        }
+
         .loading-overlay {
             position: fixed;
             top: 0;
@@ -256,6 +303,12 @@
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 900px) {
+            .retention-layout {
+                grid-template-columns: 1fr;
+            }
         }
 
         @media (max-width: 768px) {
@@ -308,6 +361,118 @@
                 <span class="stat-icon">👁️</span>
                 <div class="stat-number" id="avgDurationPerView">-</div>
                 <div class="stat-label">Avg Retention / View</div>
+            </div>
+        </div>
+
+        <div class="data-table-section">
+            <h2 class="section-title">🔁 Retention — Does the Curve Flatten?</h2>
+            <p class="section-hint">Signup cohorts vs the weeks they came back in. <strong>Weekly windows</strong> are used instead of exact D1/D7/D30 because on a small user base a single day swings wildly on a handful of people. What matters is not any one number but whether the curve <strong>flattens</strong> — a curve heading to zero means no product-market fit, however good week 1 looks.</p>
+
+            <div class="notice-banner" id="retentionNotice" style="display: none;"></div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-icon">🆕</span>
+                    <div class="stat-number" id="retentionNewUsers">-</div>
+                    <div class="stat-label">New Users</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-icon">1️⃣</span>
+                    <div class="stat-number" id="retentionWeek1">-</div>
+                    <div class="stat-label" id="retentionWeek1Base">Week 1 Return</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-icon">2️⃣</span>
+                    <div class="stat-number" id="retentionWeek2">-</div>
+                    <div class="stat-label" id="retentionWeek2Base">Week 2 Return</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-icon">🏆</span>
+                    <div class="stat-number" id="retentionWeek4">-</div>
+                    <div class="stat-label" id="retentionWeek4Base">Week 4 Return</div>
+                </div>
+            </div>
+
+            <div class="retention-layout">
+                <div class="chart-box">
+                    <canvas id="retentionCurveChart"></canvas>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="behavior-table">
+                        <thead>
+                            <tr>
+                                <th id="retentionPeriodHeader">Period</th>
+                                <th>New</th>
+                                <th>Week 1</th>
+                                <th>Week 2</th>
+                                <th>Week 4</th>
+                            </tr>
+                        </thead>
+                        <tbody id="retentionTableBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="data-table-section">
+            <h2 class="section-title">📅 Habit — How Often They Come Back</h2>
+            <p class="section-hint">Distinct days each user opened the app in the last 28 days. Shown as a <strong>distribution, not an average</strong> — an average lets a handful of power users hide a long tail of one-time visitors. <strong>DAU/MAU</strong> is the single best habit number: it answers what share of monthly users show up on a given day.</p>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-icon">☀️</span>
+                    <div class="stat-number" id="habitDau">-</div>
+                    <div class="stat-label">Active Today</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-icon">📆</span>
+                    <div class="stat-number" id="habitWau">-</div>
+                    <div class="stat-label">Active This Week</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-icon">🗓️</span>
+                    <div class="stat-number" id="habitMau">-</div>
+                    <div class="stat-label">Active in 28 Days</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-icon">🔥</span>
+                    <div class="stat-number" id="habitStickiness">-</div>
+                    <div class="stat-label">DAU / MAU Stickiness</div>
+                </div>
+            </div>
+
+            <div class="chart-box">
+                <canvas id="habitChart"></canvas>
+            </div>
+        </div>
+
+        <div class="data-table-section">
+            <h2 class="section-title">⚡ Activation — What Day 0 Predicts</h2>
+            <p class="section-hint">Videos watched in the first 24 hours vs whether the user came back in week 1. This is the one metric here you can <strong>move this week</strong> — onboarding and cold-start feed quality both feed it, and the feedback loop is days instead of a month.</p>
+
+            <div class="insight-box" id="activationInsight" style="display: none;"></div>
+
+            <div class="retention-layout">
+                <div class="chart-box">
+                    <canvas id="activationChart"></canvas>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="behavior-table">
+                        <thead>
+                            <tr>
+                                <th>Day 0 Videos</th>
+                                <th>Users</th>
+                                <th>Returned</th>
+                                <th>Week 1 Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activationTableBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -399,7 +564,64 @@
 
         const API_BASE = detectApiBase();
         let userData = [];
-        let skipChart, interestChart, versionChart, sourceChart;
+
+        // Single registry so every chart is created/destroyed the same way
+        const charts = {};
+
+        const BAR_SCALES = {
+            y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa', precision: 0 } },
+            x: { grid: { display: false }, ticks: { color: '#aaa' } }
+        };
+
+        // Percentage axis, capped at 100 so retention charts share one scale
+        const PERCENT_SCALES = {
+            y: {
+                beginAtZero: true,
+                max: 100,
+                grid: { color: 'rgba(255,255,255,0.1)' },
+                ticks: { color: '#aaa', callback: (v) => `${v}%` }
+            },
+            x: { grid: { display: false }, ticks: { color: '#aaa' } }
+        };
+
+        // Charts inside a .chart-box fill its fixed height instead of using
+        // Chart.js's default aspect ratio, which goes huge at full width
+        const BOXED = { responsive: true, maintainAspectRatio: false };
+
+        function mountChart(canvasId, config) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            if (charts[canvasId]) charts[canvasId].destroy();
+            charts[canvasId] = new Chart(canvas.getContext('2d'), config);
+        }
+
+        function setText(id, value) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        }
+
+        /**
+         * Shared table renderer — handles the empty state once for every table
+         * on the page instead of each renderer repeating it.
+         */
+        function renderTable(tbodyId, items, buildRow, { colspan, emptyMessage }) {
+            const tbody = document.getElementById(tbodyId);
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            if (!items.length) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td colspan="${colspan}" style="color: #aaa; text-align: center;">${emptyMessage}</td>`;
+                tbody.appendChild(tr);
+                return;
+            }
+
+            items.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = buildRow(item);
+                tbody.appendChild(tr);
+            });
+        }
 
         async function authorizedFetch(url, options = {}) {
             const key = getAdminKey();
@@ -443,6 +665,28 @@
             return '<span class="status-badge badge-warning">Casual</span>';
         }
 
+        function formatPercent(value) {
+            return `${Number(value || 0).toFixed(1)}%`;
+        }
+
+        function getRetentionBadge(rate) {
+            const variant = rate >= 40 ? 'success' : rate >= 20 ? 'info' : 'warning';
+            return `<span class="status-badge badge-${variant}">${formatPercent(rate)}</span>`;
+        }
+
+        /**
+         * Cohort ids are '%Y-%m-%d' (daily) or '%Y-%m' (monthly) strings from the API.
+         */
+        function formatCohortLabel(cohortId, unit) {
+            if (!cohortId) return '-';
+            const [year, month, day] = cohortId.split('-');
+            const date = new Date(Number(year), Number(month) - 1, Number(day || 1));
+            if (Number.isNaN(date.getTime())) return cohortId;
+            return unit === 'day'
+                ? date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+                : date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+        }
+
         async function refreshData() {
             const range = document.getElementById('timeRange')?.value || 'all';
             document.getElementById('loadingOverlay').style.display = 'flex';
@@ -452,6 +696,7 @@
                 
                 const data = await response.json();
                 renderStats(data);
+                renderRetentionAnalytics(data.retention);
                 renderCharts(data);
                 renderAttributionTable(data.feedbackAttribution || []);
                 renderUserTable(data.userTable);
@@ -466,20 +711,193 @@
 
         function renderStats(data) {
             const m = data.metrics;
-            document.getElementById('totalWatchTime').textContent = formatDuration(m.totalWatchTime);
-            document.getElementById('totalUsers').textContent = m.totalUniqueUsers.toLocaleString();
-            document.getElementById('avgDurationPerUser').textContent = formatDuration(m.avgDurationPerUser);
-            document.getElementById('avgDurationPerView').textContent = m.avgDurationPerView.toFixed(1) + 's';
+            setText('totalWatchTime', formatDuration(m.totalWatchTime));
+            setText('totalUsers', m.totalUniqueUsers.toLocaleString());
+            setText('avgDurationPerUser', formatDuration(m.avgDurationPerUser));
+            setText('avgDurationPerView', m.avgDurationPerView.toFixed(1) + 's');
+        }
+
+        function renderRetentionAnalytics(payload) {
+            const data = payload || {};
+            renderRetentionCohorts(data);
+            renderHabit(data.habit);
+            renderActivation(data.activation);
+        }
+
+        function renderRetentionCohorts(data) {
+            const { unit = 'month', rows = [], totals = {} } = data.cohorts || {};
+            const windows = totals.windows || {};
+            const notice = document.getElementById('retentionNotice');
+
+            // Signup counts are always real; retention columns need the activity log
+            if (data.hasActivityData === false) {
+                notice.style.display = 'block';
+                notice.innerHTML = '⏳ <strong>Activity tracking is live but has no history yet.</strong> '
+                    + 'Signup counts below are accurate; retention fills in as users return. '
+                    + 'To see past cohorts immediately, run <code>node scripts/backfill-user-activity.js</code>.';
+            } else {
+                notice.style.display = 'none';
+            }
+
+            // Without the activity log a 0% is "unknown", not "nobody returned"
+            const hasData = data.hasActivityData !== false;
+
+            setText('retentionNewUsers', (totals.newUsers || 0).toLocaleString());
+            setText('retentionPeriodHeader', unit === 'day' ? 'Day' : 'Month');
+
+            ['week1', 'week2', 'week4'].forEach((key, index) => {
+                const w = windows[key] || {};
+                const weekNumber = index === 2 ? 4 : index + 1;
+                const slot = `retentionWeek${weekNumber}`;
+                const known = hasData && w.base;
+                setText(slot, known ? formatPercent(w.rate) : '—');
+                setText(`${slot}Base`, known
+                    ? `Week ${weekNumber} · ${w.retained}/${w.base} users`
+                    : `Week ${weekNumber} · ${hasData ? 'not mature yet' : 'awaiting data'}`);
+            });
+
+            const curve = data.curve || [];
+            mountChart('retentionCurveChart', {
+                type: 'line',
+                data: {
+                    labels: curve.map(p => p.label),
+                    datasets: [{
+                        label: 'Still active',
+                        data: curve.map(p => Number(p.rate.toFixed(1))),
+                        borderColor: '#2ecc71',
+                        backgroundColor: 'rgba(46, 204, 113, 0.15)',
+                        pointBackgroundColor: '#2ecc71',
+                        borderWidth: 3,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    ...BOXED,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (c) => `${c.raw}% of ${curve[c.dataIndex]?.base || 0} users`
+                            }
+                        }
+                    },
+                    scales: PERCENT_SCALES
+                }
+            });
+
+            // Newest cohort first in the table; the curve stays chronological
+            renderTable('retentionTableBody', [...rows].reverse(), (row) => `
+                <td style="font-weight: 600;">${formatCohortLabel(row.period, unit)}</td>
+                <td style="color: #36a2eb; font-weight: 600;">${row.newUsers}</td>
+                <td>${cohortCell(row.windows.week1, hasData)}</td>
+                <td>${cohortCell(row.windows.week2, hasData)}</td>
+                <td>${cohortCell(row.windows.week4, hasData)}</td>
+            `, { colspan: 5, emptyMessage: 'No signups in this range' });
+        }
+
+        /**
+         * Distinguishes the three reasons a cell can be blank. Showing 0% for any
+         * of them would read as churn rather than "we cannot know yet".
+         */
+        function cohortCell(window, hasData) {
+            if (!hasData) {
+                return '<span class="muted-cell" title="Activity log has no history for this period">no data</span>';
+            }
+            if (!window) return '<span class="muted-cell">—</span>';
+            if (!window.isMature) {
+                return '<span class="muted-cell" title="Not enough time has passed to judge this cohort">maturing</span>';
+            }
+            return `${window.retained} ${getRetentionBadge(window.rate)}`;
+        }
+
+        function renderHabit(habit) {
+            const { buckets = [], stickiness = {}, windowDays = 28 } = habit || {};
+
+            setText('habitDau', (stickiness.dau || 0).toLocaleString());
+            setText('habitWau', (stickiness.wau || 0).toLocaleString());
+            setText('habitMau', (stickiness.mau || 0).toLocaleString());
+            setText('habitStickiness', stickiness.mau ? formatPercent(stickiness.dauOverMau) : '—');
+
+            mountChart('habitChart', {
+                type: 'bar',
+                data: {
+                    labels: buckets.map(b => b.label),
+                    datasets: [{
+                        label: `Users by active days (last ${windowDays} days)`,
+                        data: buckets.map(b => b.users),
+                        backgroundColor: ['#ff6384', '#ff9f40', '#ffce56', '#4bc0c0', '#2ecc71'],
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    ...BOXED,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (c) => `${c.raw} users (${formatPercent(buckets[c.dataIndex]?.share)})`
+                            }
+                        }
+                    },
+                    scales: BAR_SCALES
+                }
+            });
+        }
+
+        function renderActivation(activation) {
+            const { buckets = [], insight = null, windowLabel = 'Week 1', lookbackDays = 60 } = activation || {};
+            const insightBox = document.getElementById('activationInsight');
+
+            if (insight) {
+                insightBox.style.display = 'block';
+                insightBox.innerHTML = `💡 Users who watched <strong>${insight.bestLabel}</strong> on day 0 return at `
+                    + `<strong>${formatPercent(insight.bestRate)}</strong>, vs <strong>${formatPercent(insight.baselineRate)}</strong> `
+                    + `for <strong>${insight.baselineLabel}</strong> — a <strong>${insight.lift.toFixed(1)}×</strong> difference. `
+                    + `Getting new users past that threshold on day 0 is the highest-leverage change available.`;
+            } else {
+                insightBox.style.display = 'none';
+            }
+
+            mountChart('activationChart', {
+                type: 'bar',
+                data: {
+                    labels: buckets.map(b => b.label),
+                    datasets: [{
+                        label: `${windowLabel} return rate`,
+                        data: buckets.map(b => Number(b.rate.toFixed(1))),
+                        backgroundColor: '#9966ff',
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    ...BOXED,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (c) => `${c.raw}% of ${buckets[c.dataIndex]?.users || 0} users returned`
+                            }
+                        }
+                    },
+                    scales: PERCENT_SCALES
+                }
+            });
+
+            renderTable('activationTableBody', buckets, (bucket) => `
+                <td style="font-weight: 600;">${bucket.label}</td>
+                <td>${bucket.users}</td>
+                <td>${bucket.returned}</td>
+                <td>${bucket.users ? getRetentionBadge(bucket.rate) : '<span class="muted-cell">—</span>'}</td>
+            `, { colspan: 4, emptyMessage: `No mature signups in the last ${lookbackDays} days` });
         }
 
         function renderCharts(data) {
             // Skip Distribution Chart
-            const skipCtx = document.getElementById('skipChart').getContext('2d');
             const skipLabels = data.skipDistribution.map(d => d._id + (typeof d._id === 'number' ? 's' : ''));
             const skipValues = data.skipDistribution.map(d => d.count);
 
-            if (skipChart) skipChart.destroy();
-            skipChart = new Chart(skipCtx, {
+            mountChart('skipChart', {
                 type: 'bar',
                 data: {
                     labels: skipLabels,
@@ -493,21 +911,16 @@
                 options: {
                     responsive: true,
                     plugins: { legend: { display: false } },
-                    scales: {
-                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } },
-                        x: { grid: { display: false }, ticks: { color: '#aaa' } }
-                    }
+                    scales: BAR_SCALES
                 }
             });
 
             // Interest Chart
-            const interestCtx = document.getElementById('interestChart').getContext('2d');
             const sortedInterests = [...data.interests].sort((a,b) => b.totalDuration - a.totalDuration);
             const intLabels = sortedInterests.map(i => i._id || 'Uncategorized');
             const intValues = sortedInterests.map(i => i.totalDuration / 60); // In minutes
 
-            if (interestChart) interestChart.destroy();
-            interestChart = new Chart(interestCtx, {
+            mountChart('interestChart', {
                 type: 'doughnut',
                 data: {
                     labels: intLabels,
@@ -530,7 +943,6 @@
             });
 
             // Version Distribution Chart
-            const versionCtx = document.getElementById('versionChart').getContext('2d');
             const versionCounts = {};
             data.userTable.forEach(u => {
                 const v = u.appVersion || 'unknown';
@@ -540,8 +952,7 @@
             const verLabels = Object.keys(versionCounts);
             const verValues = Object.values(versionCounts);
 
-            if (versionChart) versionChart.destroy();
-            versionChart = new Chart(versionCtx, {
+            mountChart('versionChart', {
                 type: 'pie',
                 data: {
                     labels: verLabels,
@@ -560,7 +971,6 @@
             });
 
             // Feedback Attribution Chart
-            const sourceCtx = document.getElementById('sourceChart').getContext('2d');
             const attribution = data.feedbackAttribution || [];
             const sourceLabels = attribution.length
                 ? attribution.map(s => formatSourceName(s._id))
@@ -572,8 +982,7 @@
                 ? attribution.map(s => s.feedbackCount || 0)
                 : [0];
 
-            if (sourceChart) sourceChart.destroy();
-            sourceChart = new Chart(sourceCtx, {
+            mountChart('sourceChart', {
                 type: 'bar',
                 data: {
                     labels: sourceLabels,
@@ -595,10 +1004,7 @@
                 options: {
                     responsive: true,
                     plugins: { legend: { labels: { color: '#ccc' } } },
-                    scales: {
-                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa', precision: 0 } },
-                        x: { grid: { display: false }, ticks: { color: '#aaa' } }
-                    }
+                    scales: BAR_SCALES
                 }
             });
         }
@@ -618,54 +1024,34 @@
         }
 
         function renderAttributionTable(sources) {
-            const tbody = document.getElementById('sourceTableBody');
-            tbody.innerHTML = '';
-
-            if (!sources.length) {
-                const tr = document.createElement('tr');
-                tr.innerHTML = '<td colspan="7" style="color: #aaa; text-align: center;">No attributed data yet</td>';
-                tbody.appendChild(tr);
-                return;
-            }
-
-            sources.forEach(source => {
-                const installCount = source.installCount || 0;
-                const feedbackCount = source.feedbackCount || 0;
+            renderTable('sourceTableBody', sources, (source) => {
                 const latestActivity = source.latestInstallAt || source.latestFeedbackAt;
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
+                return `
                     <td><span class="status-badge badge-info">${formatSourceName(source._id)}</span></td>
-                    <td style="font-weight: 600; color: #36a2eb;">${installCount}</td>
-                    <td style="font-weight: 600;">${feedbackCount}</td>
+                    <td style="font-weight: 600; color: #36a2eb;">${source.installCount || 0}</td>
+                    <td style="font-weight: 600;">${source.feedbackCount || 0}</td>
                     <td>${formatRating(source.avgRating)}</td>
                     <td>${source.fiveStarCount || 0}</td>
                     <td>${source.lowRatingCount || 0}</td>
                     <td>${latestActivity ? new Date(latestActivity).toLocaleDateString() : '-'}</td>
                 `;
-                tbody.appendChild(tr);
-            });
+            }, { colspan: 7, emptyMessage: 'No attributed data yet' });
         }
 
         function renderUserTable(users) {
-            const tbody = document.getElementById('userTableBody');
-            tbody.innerHTML = '';
-            
-            users.forEach(u => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>
-                        <strong>${u.name}</strong><br>
-                        <small style="color: #aaa;">${u.email || u.googleId}</small>
-                    </td>
-                    <td style="font-weight: 600;">${formatDuration(u.totalWatchTime)}</td>
-                    <td>${u.videoCount}</td>
-                    <td>${formatLocation(u.location)}</td>
-                    <td><span class="status-badge badge-info" style="font-family: monospace;">v${u.appVersion}</span></td>
-                    <td>${new Date(u.lastActivity).toLocaleDateString()}</td>
-                    <td>${getEngagementBadge(u.totalWatchTime)}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            renderTable('userTableBody', users, (u) => `
+                <td>
+                    <strong>${u.name}</strong><br>
+                    <small style="color: #aaa;">${u.email || u.googleId}</small>
+                </td>
+                <td style="font-weight: 600;">${formatDuration(u.totalWatchTime)}</td>
+                <td>${u.videoCount}</td>
+                <td>${formatLocation(u.location)}</td>
+                <td><span class="status-badge badge-info" style="font-family: monospace;">v${u.appVersion}</span></td>
+                <td>${new Date(u.lastActivity).toLocaleDateString()}</td>
+                <td>${getEngagementBadge(u.totalWatchTime)}</td>
+            `, { colspan: 7, emptyMessage: 'No users in this range' });
+
             const range = document.getElementById('timeRange')?.value || 'all';
             const rangeSuffix = range === 'month' ? ' (This Month)' : ' (All Time)';
             document.getElementById('userCount').textContent = `Showing ${users.length} users${rangeSuffix}`;

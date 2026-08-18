@@ -32,6 +32,7 @@ import attributionRoutes from '../routes/attributionRoutes.js';
 import { errorHandler, notFoundHandler } from '../middleware/errorHandler.js';
 import { apiVersioning } from '../middleware/apiVersioning.js';
 import { versionTracking } from '../middleware/versionTracking.js';
+import { activityTracking } from '../middleware/activityTracking.js';
 import { globalLimiter, apiLimiter } from '../middleware/rateLimiter.js';
 import { verifyToken, passiveVerifyToken } from '../utils/verifytoken.js';
 import { traceMiddleware } from '../middleware/traceMiddleware.js';
@@ -214,7 +215,7 @@ export default async ({ app }) => {
   apiRouter.use('/attribution', attributionRoutes);
 
   // Apply Passive Auth BEFORE Rate Limiter
-  app.use('/api', apiVersioning, passiveVerifyToken, versionTracking, apiLimiter, apiRouter);
+  app.use('/api', apiVersioning, passiveVerifyToken, versionTracking, activityTracking, apiLimiter, apiRouter);
 
   // System Routes (APK, ads.txt, health, landing page)
   app.use(systemRoutes);

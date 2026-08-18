@@ -62,7 +62,6 @@ dependencies:
   wakelock_plus: ^1.4.0
   # Video player dependencies - keep only essential ones
   video_player: ^2.8.1
-  chewie: ^1.8.1
   video_player_platform_interface: ^6.2.0
   video_player_android: ^2.3.7
   video_player_avfoundation: ^2.3.7

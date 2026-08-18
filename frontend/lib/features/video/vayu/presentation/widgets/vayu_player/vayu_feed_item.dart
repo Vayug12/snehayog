@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/presentation/widgets/quiz_overlay.dart';
 import 'package:vayug/features/video/vayu/presentation/widgets/vayu_video_progress_bar.dart';
@@ -15,7 +14,6 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   final int index;
   final VideoModel video;
   final VideoPlayerController? controller;
-  final ChewieController? chewie;
   final bool isCurrent;
   final bool isFullScreenManual;
   final ValueNotifier<bool> showControlsVN;
@@ -58,7 +56,6 @@ class VayuFeedItem extends ConsumerStatefulWidget {
     required this.index,
     required this.video,
     this.controller,
-    this.chewie,
     required this.isCurrent,
     required this.isFullScreenManual,
     required this.showControlsVN,
@@ -97,11 +94,13 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   ConsumerState<VayuFeedItem> createState() => _VayuFeedItemState();
 }
 
-class _VayuFeedItemState extends ConsumerState<VayuFeedItem>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-
+// Deliberately NOT an AutomaticKeepAliveClient. A kept-alive page stays in the
+// element tree forever, and SliverMultiBoxAdaptorElement rebuilds keep-alive
+// children too — so every page the user had ever visited was rebuilt on every
+// swipe, which is why scrolling got progressively slower the longer the session
+// ran. The feed screen itself is kept alive for tab switches; individual pages
+// are cheap to rebuild from the video model and the pooled controller.
+class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
   double _scale = 1.0;
   Offset _offset = Offset.zero;
   double _baseScale = 1.0;
@@ -116,7 +115,6 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     final orientation = MediaQuery.orientationOf(context);
     final isFull =
         orientation == Orientation.landscape || widget.isFullScreenManual;
@@ -266,7 +264,6 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem>
   Widget _buildVideoSection(Orientation orientation) {
     final size = MediaQuery.sizeOf(context);
     final controller = widget.controller;
-    final chewie = widget.chewie;
 
     bool controllerIsHealthy = false;
     bool isPlaying = false;
@@ -357,24 +354,22 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem>
                     ),
                   ),
 
-                // 2. VIDEO LAYER with Cross-Fade
-                if (controllerIsHealthy && chewie != null)
+                // 2. VIDEO LAYER
+                // Rendered directly rather than through Chewie: this player
+                // draws its own controls, poster and progress bar, so Chewie
+                // was an extra widget layer plus its own per-tick listeners
+                // around a plain VideoPlayer.
+                if (controllerIsHealthy)
                   Positioned.fill(
-                    child: AnimatedOpacity(
-                      opacity: controllerIsHealthy ? 1.0 : 0.0,
-                      duration: controllerIsHealthy
-                          ? Duration.zero
-                          : const Duration(milliseconds: 400),
-                      child: Center(
-                        child: ClipRect(
-                          child: Transform.translate(
-                            offset: _offset,
-                            child: Transform.scale(
-                              scale: _scale,
-                              child: AspectRatio(
-                                aspectRatio: 16 / 9,
-                                child: Chewie(controller: chewie),
-                              ),
+                    child: Center(
+                      child: ClipRect(
+                        child: Transform.translate(
+                          offset: _offset,
+                          child: Transform.scale(
+                            scale: _scale,
+                            child: AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: VideoPlayer(controller!),
                             ),
                           ),
                         ),

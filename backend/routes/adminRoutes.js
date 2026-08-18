@@ -15,6 +15,7 @@ import WatchHistory from '../models/WatchHistory.js';
 import RevenueService from '../services/adServices/revenueService.js';
 import queueService from '../services/yugFeedServices/queueService.js';
 import { billableMatch, renderedSum } from '../services/adServices/impressionCounting.js';
+import { getRetentionAnalytics } from '../services/analytics/retentionAnalyticsService.js';
 
 const router = express.Router();
 
@@ -924,6 +925,9 @@ router.get('/user-behavior/stats', requireAdminDashboardKey, async (req, res) =>
     // Merge feedback attribution and anonymous device attribution
     const mergedAttribution = mergeAttributionData(feedbackAttribution, anonymousAttribution);
 
+    // 7. Retention, habit and activation (reads the UserActivity day log)
+    const retention = await getRetentionAnalytics({ range });
+
     res.json({
       success: true,
       metrics: {
@@ -934,6 +938,7 @@ router.get('/user-behavior/stats', requireAdminDashboardKey, async (req, res) =>
         totalViews: globalMetrics.totalEntries
       },
       skipDistribution,
+      retention,
       interests: interestStats,
       feedbackAttribution: mergedAttribution,
       anonymousAttribution,
