@@ -48,7 +48,16 @@ jobs:
           # key.properties from android/, and file("key.jks") in the signing
           # config resolves against the app module, so the store lives in app/.
           mkdir -p android/app
-          echo "$KEYSTORE_FILE" | base64 -d > android/app/key.jks
+          # Strip whitespace before decoding: secrets pasted from Windows carry
+          # CR characters, which base64 rejects as invalid input.
+          if ! printf '%s' "$KEYSTORE_FILE" | tr -d '[:space:]' | base64 -d > android/app/key.jks 2>/dev/null; then
+            echo "::error::ANDROID_KEYSTORE_FILE is not valid base64. Regenerate it from key.jks with 'base64 -w0 key.jks', or on Windows: [Convert]::ToBase64String([IO.File]::ReadAllBytes('key.jks'))"
+            exit 1
+          fi
+          if [ ! -s android/app/key.jks ]; then
+            echo "::error::ANDROID_KEYSTORE_FILE decoded to an empty file."
+            exit 1
+          fi
           cat > android/key.properties << EOF
           storeFile=key.jks
           storePassword=$KEYSTORE_PASSWORD
