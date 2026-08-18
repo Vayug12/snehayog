@@ -11,8 +11,8 @@ on:
     - cron: '30 20 * * *'
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: 'Release tag to test; empty means the latest release'
+      ref:
+        description: 'Git ref to test; empty means the default branch'
         required: false
         type: string
       suite:
@@ -38,56 +38,105 @@ env:
   MOBILE_QA_MODEL: ${{ vars.MOBILE_QA_MODEL || 'openai/gpt-4o' }}
 
 jobs:
-  android-release-qa:
-    name: Android release journeys
+  qa-apk:
+    name: Build QA APK
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      ref: ${{ steps.resolve.outputs.ref }}
+    steps:
+      - name: Resolve ref under test
+        id: resolve
+        env:
+          REQUESTED_REF: ${{ inputs.ref || github.event.release.tag_name || github.event.workflow_run.head_branch || '' }}
+        run: |
+          set -euo pipefail
+          ref="${REQUESTED_REF:-$GITHUB_REF_NAME}"
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+          printf 'Testing ref: %s\n' "$ref"
+
+      - name: Checkout ref under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: flutter pub get
+
+      # No keystore is written, so the release build type falls back to the
+      # debug signing key. Installable on an emulator, never distributable.
+      - name: Build unsigned QA APK
+        working-directory: ./frontend
+        run: flutter build apk --release
+
+      - name: Stage APK and metadata
+        env:
+          REF_UNDER_TEST: ${{ steps.resolve.outputs.ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p qa-apk
+          cp frontend/build/app/outputs/flutter-apk/app-release.apk qa-apk/
+          printf '%s' "$REF_UNDER_TEST" > qa-apk/release-tag.txt
+
+      - name: Upload QA APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-apk-${{ github.run_id }}
+          path: qa-apk
+          if-no-files-found: error
+          retention-days: 7
+
+  android-qa:
+    name: Android journeys
+    needs: qa-apk
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Checkout test definitions
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.qa-apk.outputs.ref }}
 
-      - name: Resolve release APK
+      - name: Download QA APK
         id: apk
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name || github.event.workflow_run.head_branch || '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: qa-apk-${{ github.run_id }}
+          path: qa-apk
+
+      - name: Record APK metadata
         run: |
-          mkdir -p qa-apk qa-results
-          if [[ -z "$RELEASE_TAG" ]]; then
-            if ! RELEASE_TAG="$(gh release view --json tagName --jq '.tagName' 2>qa-results/release-lookup.log)"; then
-              if [[ "$GITHUB_EVENT_NAME" == 'schedule' ]] && grep -qi 'release not found' qa-results/release-lookup.log; then
-                echo 'available=false' >> "$GITHUB_OUTPUT"
-                printf '%s\n' 'No published GitHub Release exists yet; scheduled mobile QA was skipped.' > qa-results/skip-reason.txt
-                printf '%s\n' '### Mobile QA skipped' '' 'No published GitHub Release exists yet, so there is no APK to test.' >> "$GITHUB_STEP_SUMMARY"
-                exit 0
-              fi
-              printf '%s\n' 'Unable to resolve a published GitHub Release for mobile QA.' > qa-results/infrastructure-error.txt
-              exit 2
-            fi
-          fi
-          printf '%s' "$RELEASE_TAG" > qa-apk/release-tag.txt
-          jq -n --arg releaseTag "$RELEASE_TAG" '{releaseTag: $releaseTag}' > qa-results/run-metadata.json
-          if ! gh release download "$RELEASE_TAG" --pattern '*.apk' --dir qa-apk --clobber; then
-            printf 'Release %s does not contain a downloadable APK.\n' "$RELEASE_TAG" > qa-results/infrastructure-error.txt
-            exit 2
-          fi
+          set -euo pipefail
+          mkdir -p qa-results
           if ! find qa-apk -type f -name '*.apk' -print -quit | grep -q .; then
-            printf 'Release %s does not contain a downloadable APK.\n' "$RELEASE_TAG" > qa-results/infrastructure-error.txt
+            printf 'QA APK artifact was missing or empty.\n' > qa-results/infrastructure-error.txt
             exit 2
           fi
-          echo 'available=true' >> "$GITHUB_OUTPUT"
+          jq -n --arg ref '${{ needs.qa-apk.outputs.ref }}' '{releaseTag: $ref}' > qa-results/run-metadata.json
 
       - name: Set up Java for Maestro
-        if: steps.apk.outputs.available == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Install pinned Maestro CLI
-        if: steps.apk.outputs.available == 'true'
         env:
           MAESTRO_VERSION: ${{ env.MAESTRO_VERSION }}
         run: |
@@ -95,15 +144,13 @@ jobs:
           "$HOME/.maestro/bin/maestro" --version
 
       - name: Enable Android emulator acceleration
-        if: steps.apk.outputs.available == 'true'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run Maestro journeys on release APK
+      - name: Run Maestro journeys
         id: maestro
-        if: steps.apk.outputs.available == 'true'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -118,7 +165,7 @@ jobs:
           script: bash scripts/mobile-qa/run-maestro.sh
 
       - name: AI triage and deduplicated GitHub issues
-        if: always() && steps.apk.outputs.available != 'false'
+        if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}
           QA_APK_STATUS: ${{ steps.apk.outcome }}
@@ -135,5 +182,5 @@ jobs:
           retention-days: 14
 
       - name: Mark failed mobile journey
-        if: always() && steps.apk.outputs.available != 'false' && (steps.apk.outcome != 'success' || steps.maestro.outcome != 'success')
+        if: always() && (steps.apk.outcome != 'success' || steps.maestro.outcome != 'success')
         run: exit 1

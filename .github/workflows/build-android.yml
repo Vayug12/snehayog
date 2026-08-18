@@ -1,9 +1,8 @@
 name: Build Android
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # No tag trigger: Release already builds and publishes the APK and AAB for
+  # every v*.*.* tag. Firing both would double the build cost per release.
   workflow_dispatch:
     inputs:
       build_type:

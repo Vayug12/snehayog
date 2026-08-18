@@ -44,9 +44,12 @@ jobs:
             echo "❌ Keystore secrets not configured"
             exit 1
           fi
-          echo "$KEYSTORE_FILE" | base64 -d > ./frontend/android/key.jks
-          mkdir -p ./frontend/android/app
-          cat > ./frontend/android/key.properties << EOF
+          # Paths are relative to working-directory (./frontend). Gradle reads
+          # key.properties from android/, and file("key.jks") in the signing
+          # config resolves against the app module, so the store lives in app/.
+          mkdir -p android/app
+          echo "$KEYSTORE_FILE" | base64 -d > android/app/key.jks
+          cat > android/key.properties << EOF
           storeFile=key.jks
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS

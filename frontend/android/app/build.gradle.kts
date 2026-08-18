@@ -16,6 +16,10 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+// CI QA builds and fresh clones have no key.properties. Without a fallback the
+// release build type produces an unsigned APK that Android refuses to install.
+val hasReleaseKeystore = !keystoreProperties.getProperty("storeFile").isNullOrBlank()
+
 android {
     namespace = "com.snehayog.app"
     compileSdk = 36 // Stable version for Android 15
@@ -78,7 +82,13 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // Signed distribution builds are unchanged. Keystore-free builds fall
+            // back to the debug key so the APK stays installable for QA.
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             // Enable R8 code shrinking, obfuscation, optimization, and resource shrinking for release builds.
             isMinifyEnabled = true
             isShrinkResources = true
