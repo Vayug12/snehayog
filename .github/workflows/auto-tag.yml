@@ -20,6 +20,44 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # actions/checkout reports a bad token as "could not read Username",
+      # which says nothing about why. Diagnose it here instead. Only the HTTP
+      # status is ever printed; the token itself is never echoed.
+      - name: Verify RELEASE_PAT
+        env:
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+        run: |
+          set -uo pipefail
+          if [[ -z "${RELEASE_PAT:-}" ]]; then
+            echo 'No RELEASE_PAT set; falling back to GITHUB_TOKEN (tag will not trigger Release).'
+            exit 0
+          fi
+          code="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $RELEASE_PAT" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY")"
+          case "$code" in
+            200)
+              echo "RELEASE_PAT authenticates and can see $GITHUB_REPOSITORY."
+              ;;
+            401)
+              echo "::error::RELEASE_PAT rejected (401): the stored value is invalid or malformed. Re-set the secret — a stray newline or truncated paste is the usual cause."
+              exit 1
+              ;;
+            403)
+              echo "::error::RELEASE_PAT forbidden (403): token is valid but blocked for $GITHUB_REPOSITORY."
+              exit 1
+              ;;
+            404)
+              echo "::error::RELEASE_PAT cannot see $GITHUB_REPOSITORY (404): the repository is not in the token's Repository access list."
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected HTTP $code while validating RELEASE_PAT."
+              exit 1
+              ;;
+          esac
+
       - name: Checkout with full tag history
         uses: actions/checkout@v4
         with:
