@@ -1,9 +1,14 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  # Manual only. This is the one workflow that needs the signing keystore, so
+  # it never runs as part of the automated tag -> QA chain. Dispatch it against
+  # a tag when you actually want to ship:  gh workflow run release.yml --ref v3.6.3
+  # To go back to publishing automatically, restore:
+  #   push:
+  #     tags:
+  #       - 'v*.*.*'
+  workflow_dispatch:
 
 jobs:
   release:

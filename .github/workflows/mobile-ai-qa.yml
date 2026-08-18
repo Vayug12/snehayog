@@ -1,11 +1,11 @@
 name: Mobile AI QA
 
 on:
-  release:
-    types: [published]
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
+  # Triggered straight off the tag, not off Release. QA builds its own
+  # debug-signed APK, so it must never depend on the keystore being present.
+  push:
+    tags:
+      - 'v*.*.*'
   schedule:
     # 02:00 India Standard Time every day.
     - cron: '30 20 * * *'
@@ -40,7 +40,6 @@ env:
 jobs:
   qa-apk:
     name: Build QA APK
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -49,7 +48,7 @@ jobs:
       - name: Resolve ref under test
         id: resolve
         env:
-          REQUESTED_REF: ${{ inputs.ref || github.event.release.tag_name || github.event.workflow_run.head_branch || '' }}
+          REQUESTED_REF: ${{ inputs.ref || '' }}
         run: |
           set -euo pipefail
           ref="${REQUESTED_REF:-$GITHUB_REF_NAME}"
