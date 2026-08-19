@@ -17,7 +17,18 @@ name, tags, explicit assertions, and no production-destructive action. Tests
 that create ads, upload videos, delete content, or move money must use a
 dedicated QA account and staging data before they are enabled in CI.
 
-The scheduled workflow uses the latest GitHub Release APK. A manual run can
-select a specific release tag, which makes every issue reproducible against an
-exact binary.
+The workflow builds its own debug-signed APK from the ref under test, so QA
+never depends on the release keystore. A manual run can select any ref, which
+makes every issue reproducible against an exact binary.
+
+Selectors must use identifiers that exist for automation (`nav_*`, `screen_*`).
+Never derive them from display copy: that copy is remote-configurable, so a
+wording change would break the journey silently.
+
+`run-maestro.sh` suppresses system crash/ANR dialogs (`hide_error_dialogs`)
+before installing. A cold-booted emulator keeps updating GMS packages, and a
+background app that stalls under that load raises an "isn't responding" dialog
+which owns the accessibility window -- Maestro then reads the dialog instead of
+the app and every selector fails. A failure of that shape is emulator load, not
+a product defect, so keep the suppression in place.
 

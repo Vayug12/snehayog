@@ -17,6 +17,12 @@ import {
   paginateCreatorSuggestions,
   rankCreatorSuggestions,
 } from '../services/creatorDiscoveryService.js';
+import {
+  countNewSubscribers,
+  fetchSubscribersPage,
+  markSubscribersSeen,
+  parseSubscriberLimit,
+} from '../services/subscriberService.js';
 
 const router = express.Router();
 
@@ -70,6 +76,27 @@ const invalidateProfileCache = async (userIds) => {
       console.error('❌ Redis cache invalidate error:', err.message);
     }
   }
+};
+
+/**
+ * Resolve the authenticated user document from the token payload.
+ * Tokens carry the Mongo _id for most flows and only a googleId for others,
+ * so both lookups are supported.
+ * @param {object} req - Express request carrying req.user from verifyToken
+ * @param {string} projection - Mongoose field projection
+ * @returns {Promise<object|null>} lean user doc, or null when not found
+ */
+const resolveRequestUser = async (req, projection = '_id') => {
+  const rawId = req.user?._id;
+  if (rawId && mongoose.Types.ObjectId.isValid(rawId)) {
+    const byId = await User.findById(rawId).select(projection).lean();
+    if (byId) return byId;
+  }
+
+  const googleId = req.user?.googleId || req.user?.id;
+  if (!googleId) return null;
+
+  return User.findOne({ googleId }).select(projection).lean();
 };
 
 /**
@@ -1110,49 +1137,82 @@ router.post('/sync-all-counters', async (req, res) => {
   }
 });
 
-// ✅ Route to get creator's subscribers (for subscriber-only content)
+// ✅ Route to get creator's subscribers (paginated, newest first)
+// Powers the profile Subscribers bottom sheet and the subscriber-only picker.
 router.get('/subscribers', verifyToken, async (req, res) => {
   try {
-    let user = null;
-    if (req.user?._id) {
-      user = await User.findById(req.user._id).select('_id').lean();
-    }
-    if (!user) {
-      const googleId = req.user?.googleId || req.user?.id;
-      if (googleId) {
-        user = await User.findOne({ googleId }).select('_id').lean();
-      }
-    }
-    if (!user) {
-      console.log(`❌ /subscribers: User not found for search`);
+    const creator = await resolveRequestUser(req, '_id subscribersSeenAt');
+    if (!creator) {
+      console.log('❌ /subscribers: User not found for search');
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const userId = user._id;
-    console.log(`🔍 /subscribers: Fetching subscribers for creator _id: ${userId}`);
+    const limit = parseSubscriberLimit(req.query.limit);
+    const seenAt = creator.subscribersSeenAt || null;
 
-    // Get all followers (subscribers) of this creator
-    const followers = await Follower.find({ following: userId })
-      .populate('follower', 'name email profilePic profilePicture')
-      .lean();
+    const [page, total, newCount] = await Promise.all([
+      fetchSubscribersPage({
+        creatorId: creator._id,
+        limit,
+        cursor: req.query.cursor,
+        seenAt,
+      }),
+      Follower.countDocuments({ following: creator._id }),
+      countNewSubscribers({ creatorId: creator._id, seenAt }),
+    ]);
 
-    const subscribers = followers.map(f => ({
-      _id: f.follower._id,
-      id: f.follower._id.toString(),
-      name: f.follower.name,
-      email: f.follower.email,
-      profilePic: f.follower.profilePic || f.follower.profilePicture,
-    }));
-
-    console.log(`✅ /subscribers: Found ${subscribers.length} subscribers for creator`);
+    console.log(`✅ /subscribers: Returned ${page.subscribers.length}/${total} subscribers (new: ${newCount})`);
     res.json({
       success: true,
-      subscribers,
-      total: subscribers.length,
+      subscribers: page.subscribers,
+      total,
+      newCount,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+      lastSeenAt: seenAt,
     });
   } catch (err) {
     console.error('❌ Get subscribers error:', err);
     res.status(500).json({ error: 'Failed to fetch subscribers', details: err.message });
+  }
+});
+
+// ✅ Route for the unseen-subscribers badge (red dot on the profile stat)
+router.get('/subscribers/new-count', verifyToken, async (req, res) => {
+  try {
+    const creator = await resolveRequestUser(req, '_id subscribersSeenAt');
+    if (!creator) return res.status(404).json({ error: 'User not found' });
+
+    const seenAt = creator.subscribersSeenAt || null;
+    const newCount = await countNewSubscribers({ creatorId: creator._id, seenAt });
+
+    res.json({ success: true, newCount, lastSeenAt: seenAt });
+  } catch (err) {
+    console.error('❌ New subscribers count error:', err);
+    res.status(500).json({ error: 'Failed to fetch new subscribers count' });
+  }
+});
+
+// ✅ Route to clear the badge once the creator has looked at the list.
+// Body accepts an optional `seenAt` (ISO string) — normally the newest
+// subscribedAt the client actually displayed, so a subscriber that lands
+// mid-request stays unseen. Watermark never moves backwards or past now.
+router.post('/subscribers/seen', verifyToken, async (req, res) => {
+  try {
+    const creator = await resolveRequestUser(req, '_id subscribersSeenAt');
+    if (!creator) return res.status(404).json({ error: 'User not found' });
+
+    const { seenAt } = await markSubscribersSeen({
+      creatorId: creator._id,
+      seenAt: req.body?.seenAt,
+      currentSeenAt: creator.subscribersSeenAt,
+    });
+    const newCount = await countNewSubscribers({ creatorId: creator._id, seenAt });
+
+    res.json({ success: true, seenAt, newCount });
+  } catch (err) {
+    console.error('❌ Mark subscribers seen error:', err);
+    res.status(500).json({ error: 'Failed to update subscribers seen state' });
   }
 });
 

@@ -216,35 +216,13 @@ class FeedQueueService {
     }
 
     /**
-     * Add a background video analysis job (Gemini)
-     * @param {Object} data - { videoId }
-     */
-    async addAnalysisJob(data) {
-        try {
-            console.log('📥 QueueService: Adding analysis job for video:', data.videoId);
-            await videoQueue.add('analyze-video', data, {
-                jobId: `analyze-video_${data.videoId}`,
-                attempts: 3,
-                backoff: { type: 'exponential', delay: 10000 },
-                removeOnComplete: true,
-                removeOnFail: false,
-                priority: 3 // Lower priority than video processing
-            });
-            return true;
-        } catch (error) {
-            console.error('❌ QueueService: Failed to add analysis job:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Remove video processing and analysis jobs from the queue if they exist
+     * Remove video processing jobs from the queue if they exist
      * @param {string} videoId - Video ID
      */
     async removeVideoJob(videoId) {
         try {
             console.log(`🧹 QueueService: Attempting to remove jobs for video ${videoId} from queue...`);
-            const jobTypes = [`process-video_${videoId}`, `analyze-video_${videoId}`];
+            const jobTypes = [`process-video_${videoId}`];
             for (const jobId of jobTypes) {
                 try {
                     const job = await videoQueue.getJob(jobId);

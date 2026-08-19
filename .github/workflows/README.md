@@ -1,6 +1,6 @@
 # GitHub Actions Workflows
 
-This directory contains GitHub Actions workflows for automating the build, test, and release process of the Snehayog Flutter app.
+This directory contains GitHub Actions workflows for automating the build, test, and release process of the Vayug Flutter app.
 
 ## 📋 Available Workflows
 
@@ -47,7 +47,7 @@ Automatically creates a GitHub Release with built artifacts.
 - ✅ Generates release notes from commits
 
 **Triggers:**
-- When you push a tag like `v1.4.1` or `v1.5.0-beta`
+- When you push a tag like `v1.4.1` or `v1.5.0-beta` 
 
 **How to use:**
 ```bash

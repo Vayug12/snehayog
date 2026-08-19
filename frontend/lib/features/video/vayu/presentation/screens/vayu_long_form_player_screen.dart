@@ -6,6 +6,7 @@ import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/data/models/video_url_resolver.dart';
 import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/utils/feed_page_alignment.dart';
 import 'dart:async';
 import 'package:vayug/shared/config/app_config.dart';
 import 'package:vayug/core/design/colors.dart';
@@ -118,6 +119,27 @@ class _VayuLongFormPlayerScreenState
   /// Defers the expensive part of a page change until the scroll settles.
   Timer? _pageChangeDebounce;
 
+  /// Neighbour preloads held back until the video on screen is really running.
+  ///
+  /// A neighbour's controller opens a second stream over the same connection,
+  /// so starting one while the current video is still filling its buffer splits
+  /// the bandwidth between them: the page the user is looking at keeps spinning
+  /// while the page they did not ask for finishes first. The window opens only
+  /// once the current video reports real progress — or after
+  /// [_neighbourPreloadGrace], so a stalled current video cannot leave its
+  /// neighbours permanently unloaded.
+  static const Duration _neighbourPreloadGrace = Duration(seconds: 6);
+  Timer? _neighbourPreloadTimer;
+  int? _pendingNeighbourPreloadIndex;
+
+  /// How many pages one replenish attempt may walk past before giving up.
+  ///
+  /// The Vayu feed is served shuffled, so a page can legitimately come back
+  /// holding nothing this list does not already have. Stopping there would end
+  /// the feed for good: the only thing that asks for more is a page change, and
+  /// a list that did not grow can no longer produce one.
+  static const int _maxReplenishAttempts = 3;
+
   bool _hasMore = true;
   bool _isLoadingMore = false;
   int _currentPage = 1;
@@ -152,6 +174,13 @@ class _VayuLongFormPlayerScreenState
   bool _isInPictureInPicture = false;
   bool? _lastPictureInPicturePlayingState;
   double? _lastPictureInPictureAspectRatio;
+
+  /// Which video the picture-in-picture window is showing.
+  ///
+  /// An id rather than an index: the PageView the index refers to is unmounted
+  /// for the whole time the Activity is shrunk, so the position it describes no
+  /// longer exists by the time the window is expanded again.
+  String? _pictureInPictureVideoId;
 
   // Banner Ad State. Fetched once for the whole session: the per-index fetch
   // this replaced ran a server health probe plus an ad request on every single
@@ -273,8 +302,11 @@ class _VayuLongFormPlayerScreenState
         // pool's eviction candidate — and evicting it fires the disposal
         // stream, which re-initialises it, which evicts it again.
         _pinCurrentVideo();
+        // Downloads started by the feed this screen was opened from are still
+        // running, and would compete with the video the user just tapped.
+        _cancelOffWindowPrefetches(_currentIndex);
         _initializePlayer(_currentIndex);
-        _preloadNearbyVideos();
+        _requestNeighbourPreload();
         _reprimeWindowIfNeeded(_currentIndex);
       }
     });
@@ -435,20 +467,56 @@ class _VayuLongFormPlayerScreenState
 
   void _preparePictureInPictureSurface() {
     if (!mounted || _isInPictureInPicture) return;
+    _capturePictureInPictureVideoId();
     setState(() => _isInPictureInPicture = true);
     _lifecyclePaused = false;
     _playbackCoordinator.setAppLifecycle(true);
+  }
+
+  void _capturePictureInPictureVideoId() {
+    if (_currentIndex < 0 || _currentIndex >= _videos.length) return;
+    _pictureInPictureVideoId = _videos[_currentIndex].id;
+  }
+
+  /// Puts the viewport back on the video picture-in-picture was showing.
+  ///
+  /// The picture-in-picture tree replaces the PageView outright, so leaving it
+  /// builds a fresh one that starts at `initialPage` — always 0 here — while
+  /// `_currentIndex` and the playing controller still belong to the video the
+  /// user was watching. `keepPage` does not cover this: PageStorage only
+  /// records an offset when a PageStorageKey sits above the scrollable, and
+  /// there is none above this feed.
+  void _restorePageAfterPictureInPicture() {
+    final videoId = _pictureInPictureVideoId;
+    _pictureInPictureVideoId = null;
+    if (videoId == null) return;
+    // Deferred by a frame: the PageView is remounted by the build this exit
+    // triggers, so it has no scroll position to move yet.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isInPictureInPicture) return;
+      final index = FeedPageAlignment.indexOfVideoId(_videos, videoId);
+      if (index == -1) return;
+      // Positions shifted under us. Route through the normal page-change path:
+      // _controllers is keyed by index, so the new position needs its player
+      // initialised like any other swipe. It also sets _currentIndex, which
+      // keeps the jump below silent.
+      if (index != _currentIndex) _onPageChanged(index);
+      FeedPageAlignment.jumpToIndex(_pageController, index);
+    });
   }
 
   void _onPictureInPictureModeChanged(bool isActive) {
     if (!mounted) return;
     setState(() => _isInPictureInPicture = isActive);
     if (isActive) {
+      _capturePictureInPictureVideoId();
       _lifecyclePaused = false;
       _playbackCoordinator.setAppLifecycle(true);
       _resumeCurrentVideo();
       return;
     }
+
+    _restorePageAfterPictureInPicture();
 
     final isResumed =
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -662,31 +730,45 @@ class _VayuLongFormPlayerScreenState
     if (_isLoadingMore || !_hasMore) return;
     setState(() => _isLoadingMore = true);
     try {
-      final response = await _videoService.getVideos(
-          page: _currentPage,
-          videoType: 'vayu',
-          clearSession: false,
-          random: true);
-      List<VideoModel> newVideos = [];
-      final List? videosList = response['videos'] ?? response['data'];
-      if (videosList != null) {
-        newVideos = videosList
-            .map((v) => VideoModel.fromJson(Map<String, dynamic>.from(v)))
-            .toList();
-        newVideos.shuffle();
-      }
-      if (newVideos.isEmpty) {
-        if (mounted) setState(() => _hasMore = false);
-      } else {
+      for (int attempt = 0; attempt < _maxReplenishAttempts; attempt++) {
+        final response = await _videoService.getVideos(
+            page: _currentPage,
+            videoType: 'vayu',
+            clearSession: false,
+            random: true);
+        if (!mounted) return;
+
+        final fetched = _decodeVideos(response['videos'] ?? response['data']);
+        if (fetched.isEmpty) {
+          setState(() => _hasMore = false);
+          return;
+        }
+
+        // Advance on every answered page, not only on pages that contributed
+        // something new: asking for the same page again can only return the
+        // same videos, which is how the feed stalled in place.
+        _currentPage++;
+        final bool serverHasMore = response['hasMore'] as bool? ?? true;
+
         final existingIds = _videos.map((v) => v.id).toSet();
-        newVideos.removeWhere((v) => existingIds.contains(v.id));
-        if (mounted) {
+        final freshVideos =
+            fetched.where((v) => !existingIds.contains(v.id)).toList()
+              ..shuffle();
+
+        if (freshVideos.isNotEmpty) {
           setState(() {
-            _videos.addAll(newVideos);
-            _currentPage++;
-            _hasMore = response['hasMore'] as bool? ?? true;
+            _videos.addAll(freshVideos);
+            _hasMore = serverHasMore;
           });
-          if (_currentIndex + 1 < _videos.length) _preloadNearbyVideos();
+          if (_currentIndex + 1 < _videos.length) _requestNeighbourPreload();
+          return;
+        }
+
+        // The whole page was already on screen. Walk to the next one instead of
+        // returning empty-handed — see [_maxReplenishAttempts].
+        if (!serverHasMore) {
+          setState(() => _hasMore = false);
+          return;
         }
       }
     } catch (e) {
@@ -694,6 +776,25 @@ class _VayuLongFormPlayerScreenState
     } finally {
       if (mounted) setState(() => _isLoadingMore = false);
     }
+  }
+
+  /// Videos out of a feed response, whatever shape they arrive in.
+  ///
+  /// [VideoService] parses the payload off the UI isolate, so a live response
+  /// carries models, not maps. Re-parsing them unconditionally threw a type
+  /// error on every non-empty page — swallowed by the caller's catch — so the
+  /// list never grew past the batch the screen was opened with.
+  List<VideoModel> _decodeVideos(dynamic rawVideos) {
+    if (rawVideos is! List) return const <VideoModel>[];
+    final videos = <VideoModel>[];
+    for (final entry in rawVideos) {
+      if (entry is VideoModel) {
+        videos.add(entry);
+      } else if (entry is Map) {
+        videos.add(VideoModel.fromJson(Map<String, dynamic>.from(entry)));
+      }
+    }
+    return videos;
   }
 
   /// The video a controller should actually stream, honouring the audio
@@ -885,6 +986,10 @@ class _VayuLongFormPlayerScreenState
     if (isSeekingBufferingVN.value && controller.value.isPlaying) {
       isSeekingBufferingVN.value = false;
     }
+    if (_pendingNeighbourPreloadIndex == index &&
+        _hasCurrentVideoStarted(index)) {
+      _releaseNeighbourPreload(index);
+    }
     unawaited(_syncPictureInPictureState());
     _onPositionChanged();
   }
@@ -998,6 +1103,7 @@ class _VayuLongFormPlayerScreenState
     // Also drops this session's pool pin — see PlaybackCoordinator.release.
     _playbackCoordinator.release(_playbackSession);
     _pageChangeDebounce?.cancel();
+    _neighbourPreloadTimer?.cancel();
     _disableWakelock();
     appRouteObserver.unsubscribe(this);
     _seekingBufferingTimeout?.cancel();
@@ -1506,7 +1612,7 @@ class _VayuLongFormPlayerScreenState
       _reprimeWindowIfNeeded(index);
       _controllerPool.retainOnly(_keepAliveVideoIds(index - 1, index + 1));
       _cancelOffWindowPrefetches(index);
-      _preloadNearbyVideos();
+      _requestNeighbourPreload();
       if (_videos.length - index < 3) _loadMoreVideos();
     });
   }
@@ -1578,6 +1684,51 @@ class _VayuLongFormPlayerScreenState
         _initializePlayer(idx);
       }
     }
+  }
+
+  /// True once the page on screen is genuinely streaming — initialized,
+  /// playing, and past its opening buffer. Anything less means it still needs
+  /// the connection to itself.
+  bool _hasCurrentVideoStarted(int index) {
+    final controller = _controllers[index];
+    if (controller == null) return false;
+    final value = controller.value;
+    return value.isInitialized &&
+        value.isPlaying &&
+        !value.isBuffering &&
+        value.position > Duration.zero;
+  }
+
+  /// Opens the neighbour preload window — now if the current video is already
+  /// streaming, otherwise as soon as it starts. See [_neighbourPreloadGrace].
+  void _requestNeighbourPreload() {
+    final index = _currentIndex;
+    _neighbourPreloadTimer?.cancel();
+    _neighbourPreloadTimer = null;
+
+    if (_hasCurrentVideoStarted(index)) {
+      _pendingNeighbourPreloadIndex = null;
+      _preloadNearbyVideos();
+      return;
+    }
+
+    _pendingNeighbourPreloadIndex = index;
+    _neighbourPreloadTimer =
+        Timer(_neighbourPreloadGrace, () => _releaseNeighbourPreload(index));
+  }
+
+  /// Runs the deferred preload for [index], but only while it is still the page
+  /// on screen — a swipe during the wait makes those neighbours irrelevant.
+  void _releaseNeighbourPreload(int index) {
+    if (!mounted ||
+        _pendingNeighbourPreloadIndex != index ||
+        index != _currentIndex) {
+      return;
+    }
+    _pendingNeighbourPreloadIndex = null;
+    _neighbourPreloadTimer?.cancel();
+    _neighbourPreloadTimer = null;
+    _preloadNearbyVideos();
   }
 
   void _preloadNearbyVideos() {
@@ -1881,9 +2032,15 @@ class _VayuLongFormPlayerScreenState
           body: Stack(children: [
             PageView.builder(
               controller: _pageController,
-              physics: isScrollingLocked
-                  ? const NeverScrollableScrollPhysics()
-                  : const BouncingScrollPhysics(),
+              // A volume or brightness drag is kept off this PageView by the
+              // gesture arena, not by physics: VayuFeedItem's own vertical drag
+              // recognizer sits deeper in the tree, so it is handed the pointer
+              // first and wins the arena at touch slop. The scroll lock this
+              // replaced was never load-bearing — its notifier had no listener,
+              // so the read only ever saw whatever value an unrelated setState
+              // happened to leave behind, and a lock that outlived its gesture
+              // stranded the feed on NeverScrollableScrollPhysics for good.
+              physics: const BouncingScrollPhysics(),
               scrollDirection: Axis.vertical,
               onPageChanged: _onPageChanged,
               itemCount: _videos.length,
@@ -1975,7 +2132,6 @@ class _VayuLongFormPlayerScreenState
               handleVerticalDragUpdate(dy, lp, MediaQuery.sizeOf(context)),
           onVerticalDragEnd: () {},
           onUnifiedHorizontalDrag: handleUnifiedHorizontalDrag,
-          onScrollingLock: (l) => isScrollingLockedVN.value = l,
           onShowSnackBar: _showSnackBar,
           buildAdSection: _buildAdSection,
           buildVideoInfo: (_) => const SizedBox.shrink(),

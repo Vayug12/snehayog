@@ -32,7 +32,7 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
-async function searchTavily(query) {
+export async function searchTavily(query) {
   const data = await fetchJson('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -54,7 +54,7 @@ async function searchTavily(query) {
   }));
 }
 
-async function searchDuckDuckGo(query) {
+export async function searchDuckDuckGo(query) {
   const url = new URL('https://html.duckduckgo.com/html/');
   url.searchParams.set('q', query);
   const response = await fetch(url, {

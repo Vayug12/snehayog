@@ -7,6 +7,7 @@ import 'package:vayug/core/providers/subscription_providers.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/vayu/presentation/screens/vayu_long_form_player_screen.dart';
 import 'package:vayug/features/video/core/presentation/screens/video_screen.dart';
+import 'package:vayug/shared/widgets/help_pill_button.dart';
 import 'package:vayug/shared/widgets/auth_sign_in_prompt.dart';
 import 'package:vayug/shared/widgets/unified_video_card.dart';
 import 'package:vayug/shared/widgets/vayu_video_card.dart';
@@ -117,7 +118,7 @@ class _SubscriptionsScreenState extends ConsumerState<SubscriptionsScreen> {
             .copyWith(color: Colors.white, fontWeight: FontWeight.bold),
       ),
       actions: [
-        _buildGuideButton(context),
+        HelpPillButton(onTap: () => _showGuideDialog(context)),
         const SizedBox(width: 8),
       ],
     );
@@ -282,52 +283,6 @@ class _SubscriptionsScreenState extends ConsumerState<SubscriptionsScreen> {
 
   Widget _buildShimmerList() {
     return const Center(child: CircularProgressIndicator());
-  }
-
-  Widget _buildGuideButton(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          splashColor: AppColors.primary.withValues(alpha: 0.1),
-          highlightColor: AppColors.primary.withValues(alpha: 0.05),
-        ),
-        child: InkWell(
-          onTap: () => _showGuideDialog(context),
-          borderRadius: BorderRadius.circular(30),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.4),
-                width: 1.2,
-              ),
-              color: AppColors.primary.withValues(alpha: 0.08),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.info_outline_rounded,
-                  color: AppColors.primaryLight,
-                  size: 16,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Help',
-                  style: AppTypography.labelMedium.copyWith(
-                    color: AppColors.primaryLight,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   void _showGuideDialog(BuildContext context) {

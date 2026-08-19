@@ -10,6 +10,7 @@ import 'package:vayug/features/ads/data/services/ad_service.dart';
 import 'package:vayug/features/ads/presentation/screens/ad_detail_screen.dart';
 import 'package:vayug/features/ads/presentation/screens/create_ad_screen_refactored.dart';
 import 'package:vayug/features/auth/data/services/logout_service.dart';
+import 'package:vayug/features/auth/presentation/controllers/auth_flow.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_static_views.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 
@@ -77,11 +78,14 @@ class _AdManagementScreenState extends ConsumerState<AdManagementScreen> {
     if (!isSignedIn) {
       return ProfileSignInView(
         onGoogleSignIn: () async {
-          final user = await authController.signIn();
-          if (user != null) {
-            await LogoutService.refreshAllState(ref);
-            _loadAds();
-          }
+          await AuthFlow.signIn(
+            context,
+            ref,
+            onSuccess: () async {
+              await LogoutService.refreshAllState(ref);
+              _loadAds();
+            },
+          );
         },
       );
     }

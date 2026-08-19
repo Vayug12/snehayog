@@ -18,6 +18,29 @@ apk_path="${apk_files[0]}"
 release_tag="$(tr -d '\r\n' < qa-apk/release-tag.txt 2>/dev/null || true)"
 printf 'Testing APK: %s\n' "$apk_path"
 
+adb wait-for-device
+
+# A cold-booted emulator keeps updating GMS packages and scanning media for the
+# first minute or two. Anything that stalls under that load raises a system
+# "isn't responding" dialog, and that dialog owns the accessibility window --
+# Maestro then reads the dialog instead of the app and every selector fails.
+# Suppressing the dialogs is what keeps an unrelated system stall out of the
+# report; the settle wait keeps the app itself off the contended boot window.
+adb shell settings put global hide_error_dialogs 1 >/dev/null 2>&1 || true
+adb shell settings put global show_first_crash_dialog 0 >/dev/null 2>&1 || true
+adb shell settings put secure anr_show_background 0 >/dev/null 2>&1 || true
+
+printf 'Waiting for the device to settle before install...\n'
+for _ in $(seq 1 24); do
+  load="$(adb shell cat /proc/loadavg 2>/dev/null | awk '{print int($1)}')"
+  [[ -z "$load" ]] && load=0
+  if [[ "$load" -lt 4 ]]; then
+    break
+  fi
+  sleep 5
+done
+printf 'Device load average: %s\n' "${load:-unknown}"
+
 adb install -r "$apk_path"
 
 # Avoid unrelated first-run permission dialogs in navigation smoke tests.

@@ -425,16 +425,79 @@ class UserService implements IUserService {
     }
   }
 
-  /// Get creator's subscribers (for subscriber-only content)
-  Future<List<Subscriber>> getSubscribers() async {
+  /// Get every subscriber of the creator (walks pagination).
+  /// Used where the full audience is needed, e.g. subscriber notifications.
+  Future<List<Subscriber>> getSubscribers({int maxSubscribers = 2000}) async {
+    final subscribers = <Subscriber>[];
+    String? cursor;
+
+    // Bounded loop: stops on hasMore == false, on a repeated cursor, or at the cap
+    while (subscribers.length < maxSubscribers) {
+      final page = await getSubscribersPage(limit: 100, cursor: cursor);
+      subscribers.addAll(page.subscribers);
+
+      if (!page.hasMore ||
+          page.nextCursor == null ||
+          page.nextCursor == cursor) {
+        break;
+      }
+      cursor = page.nextCursor;
+    }
+
+    AppLogger.log('✅ UserService: Fetched ${subscribers.length} subscribers');
+    return subscribers;
+  }
+
+  /// One page of the creator's subscribers, newest first.
+  /// Pass the returned cursor back unchanged to load the next page.
+  Future<SubscribersPage> getSubscribersPage({
+    int limit = 30,
+    String? cursor,
+  }) async {
     try {
       final token = (await _authService.getUserData())?['token'];
       if (token == null) {
         throw Exception('Not authenticated');
       }
 
+      final query = <String, String>{
+        'limit': '$limit',
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      };
+
       final response = await httpClientService.get(
-        Uri.parse('${NetworkHelper.usersEndpoint}/subscribers'),
+        Uri.parse('${NetworkHelper.usersEndpoint}/subscribers')
+            .replace(queryParameters: query),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        return SubscribersPage.fromJson(
+          Map<String, dynamic>.from(jsonDecode(response.body)),
+        );
+      }
+
+      AppLogger.log(
+          'Failed to fetch subscribers. Status: ${response.statusCode}');
+      throw Exception('Failed to fetch subscribers');
+    } catch (e) {
+      AppLogger.log('Error fetching subscribers: $e');
+      rethrow;
+    }
+  }
+
+  /// Subscribers gained since the creator last opened their subscriber list.
+  /// Drives the red dot on the profile Subscribers stat.
+  Future<int> getNewSubscribersCount() async {
+    try {
+      final token = (await _authService.getUserData())?['token'];
+      if (token == null) return 0;
+
+      final response = await httpClientService.get(
+        Uri.parse('${NetworkHelper.usersEndpoint}/subscribers/new-count'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -443,19 +506,47 @@ class UserService implements IUserService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final List<dynamic> subscribersList = data['subscribers'] ?? [];
-        AppLogger.log(
-            '✅ UserService: Fetched ${subscribersList.length} subscribers');
-        return subscribersList
-            .map((json) => Subscriber.fromJson(json))
-            .toList();
-      } else {
-        AppLogger.log(
-            'Failed to fetch subscribers. Status: ${response.statusCode}');
-        throw Exception('Failed to fetch subscribers');
+        return int.tryParse(data['newCount']?.toString() ?? '') ?? 0;
       }
+
+      AppLogger.log(
+          '⚠️ UserService: New subscribers count failed (${response.statusCode})');
+      throw Exception('Failed to fetch new subscribers count');
     } catch (e) {
-      AppLogger.log('Error fetching subscribers: $e');
+      AppLogger.log('❌ UserService: Error fetching new subscribers count: $e');
+      rethrow;
+    }
+  }
+
+  /// Clear the new-subscriber badge. [seenAt] should be the newest
+  /// subscription timestamp actually shown, so anything that arrives
+  /// mid-request stays unseen. Returns the remaining unseen count.
+  Future<int> markSubscribersSeen({DateTime? seenAt}) async {
+    try {
+      final token = (await _authService.getUserData())?['token'];
+      if (token == null) return 0;
+
+      final response = await httpClientService.post(
+        Uri.parse('${NetworkHelper.usersEndpoint}/subscribers/seen'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: {
+          if (seenAt != null) 'seenAt': seenAt.toUtc().toIso8601String(),
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return int.tryParse(data['newCount']?.toString() ?? '') ?? 0;
+      }
+
+      AppLogger.log(
+          '⚠️ UserService: Mark subscribers seen failed (${response.statusCode})');
+      throw Exception('Failed to mark subscribers as seen');
+    } catch (e) {
+      AppLogger.log('❌ UserService: Error marking subscribers seen: $e');
       rethrow;
     }
   }
@@ -583,18 +674,69 @@ class SuggestedCreator {
   }
 }
 
+/// One page of subscribers plus the badge state that came with it
+class SubscribersPage {
+  final List<Subscriber> subscribers;
+  final String? nextCursor;
+  final bool hasMore;
+  final int total;
+  final int newCount;
+
+  const SubscribersPage({
+    required this.subscribers,
+    required this.nextCursor,
+    required this.hasMore,
+    required this.total,
+    required this.newCount,
+  });
+
+  factory SubscribersPage.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> rawSubscribers = json['subscribers'] ?? const [];
+    final subscribers = rawSubscribers
+        .whereType<Map>()
+        .map((item) => Subscriber.fromJson(Map<String, dynamic>.from(item)))
+        .where((subscriber) => subscriber.id.isNotEmpty)
+        .toList();
+
+    return SubscribersPage(
+      subscribers: subscribers,
+      nextCursor: json['nextCursor']?.toString(),
+      hasMore: json['hasMore'] == true,
+      total: int.tryParse(json['total']?.toString() ?? '') ?? subscribers.length,
+      newCount: int.tryParse(json['newCount']?.toString() ?? '') ?? 0,
+    );
+  }
+
+  /// Newest subscription timestamp in this page — the watermark to mark as seen
+  DateTime? get newestSubscribedAt {
+    DateTime? newest;
+    for (final subscriber in subscribers) {
+      final subscribedAt = subscriber.subscribedAt;
+      if (subscribedAt == null) continue;
+      if (newest == null || subscribedAt.isAfter(newest)) newest = subscribedAt;
+    }
+    return newest;
+  }
+}
+
 /// Subscriber model for subscriber-only content
 class Subscriber {
   final String id;
   final String name;
   final String email;
   final String? profilePic;
+  final DateTime? subscribedAt;
+
+  /// Subscribed after the creator last opened their subscriber list
+  final bool isNew;
 
   Subscriber({
     required this.id,
     required this.name,
     required this.email,
     this.profilePic,
+    this.subscribedAt,
+    this.isNew = false,
   });
 
   factory Subscriber.fromJson(Map<String, dynamic> json) {
@@ -603,6 +745,9 @@ class Subscriber {
       name: json['name']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       profilePic: json['profilePic']?.toString(),
+      subscribedAt:
+          DateTime.tryParse(json['subscribedAt']?.toString() ?? '')?.toLocal(),
+      isNew: json['isNew'] == true,
     );
   }
 
@@ -612,6 +757,8 @@ class Subscriber {
       'name': name,
       'email': email,
       'profilePic': profilePic,
+      'subscribedAt': subscribedAt?.toIso8601String(),
+      'isNew': isNew,
     };
   }
 }

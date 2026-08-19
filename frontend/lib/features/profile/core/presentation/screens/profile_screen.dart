@@ -27,6 +27,7 @@ import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/features/profile/analytics/presentation/screens/creator_revenue_screen.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/help_pill_button.dart';
 import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/features/profile/core/data/services/user_service.dart';
 import 'package:vayug/features/profile/core/data/services/notification_service.dart';
@@ -42,10 +43,12 @@ import 'package:vayug/features/profile/core/presentation/widgets/profile_menu_wi
 import 'package:vayug/features/profile/core/presentation/widgets/profile_tabs_widget.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_dialogs_widget.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_header_widget.dart';
+import 'package:vayug/features/profile/core/presentation/widgets/subscribers_bottom_sheet.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/yug_grid_tab.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/vayu_grid_tab.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/about_user_tab.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
+import 'package:vayug/features/auth/presentation/controllers/auth_flow.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/core/providers/navigation_providers.dart';
 
@@ -139,6 +142,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     // Load referral stats
     _loadReferralStats();
     _fetchVerifiedReferralStats();
+    // Red dot for subscribers the creator has not looked at yet
+    _refreshSubscribersBadge();
 
     // NO SETSTATE NEEDED: The UI components that need the active tab index 
     // use a ValueListenableBuilder for granular updates.
@@ -159,6 +164,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   }
 
   void onProfileTabSelected() {
+    _refreshSubscribersBadge();
+
     // **OPTIMIZED: Only load if data is completely missing or stale (> 5 minutes)**
     if (_profileStateManager.userData == null || _profileStateManager.isDataPartial) {
       AppLogger.log('📡 ProfileScreen: Initializing data fetch (isDataPartial: ${_profileStateManager.isDataPartial})');
@@ -318,6 +325,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         _checkUpiIdStatus(),
       ]);
 
+      _refreshSubscribersBadge(force: true);
+
       AppLogger.log('✅ ProfileScreen: Manual refresh completed');
       if (mounted) {
         VayuSnackBar.showSuccess(context, 'Profile refreshed');
@@ -406,36 +415,35 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
       if (mounted) setState(() => _isSigningIn = true);
 
-      final userData = await authController.signIn();
-      if (!mounted) return;
-      
-      if (userData != null) {
-        // **OPTIMIZED: Parallel state refresh and pre-fetch**
-        if (mounted) {
+      // Single shared flow owns the outcome message, so a failed backend
+      // exchange can never surface as a successful sign-in.
+      final result = await AuthFlow.signIn(
+        context,
+        ref,
+        successMessage: AppText.get('profile_sign_in_success'),
+        onSuccess: () async {
+          if (!mounted) return;
+          // **OPTIMIZED: Parallel state refresh and pre-fetch**
           final mainController = ref.read(mainControllerProvider);
-          // 2. Perform parallel reset and pre-fetch
           await mainController.refreshAppStateAfterSwitch(ref);
-        }
 
-        AppLogger.log(
-            '🔄 ProfileScreen: Sign-in successful, loading own profile data...');
-        
-        // Force refresh to ensure final UI consistency
-        await _loadData(forceRefresh: true);
+          AppLogger.log(
+              'ProfileScreen: Sign-in successful, loading own profile data...');
 
-        if (mounted) {
-          VayuSnackBar.showSuccess(context, AppText.get('profile_sign_in_success'));
-        }
+          // Force refresh to ensure final UI consistency
+          await _loadData(forceRefresh: true);
+        },
+      );
+
+      if (result.isSuccess) {
         ProfileScreenLogger.logGoogleSignInSuccess();
-      } else {
-        if (mounted) {
-          VayuSnackBar.showError(context, authController.error ?? AppText.get('error_sign_in'));
-        }
+      } else if (result.isFailure) {
+        ProfileScreenLogger.logGoogleSignInError(result.message ?? 'unknown');
       }
     } catch (e) {
       ProfileScreenLogger.logGoogleSignInError(e.toString());
       if (mounted) {
-        VayuSnackBar.showError(context, '${AppText.get('error_sign_in')}: $e');
+        VayuSnackBar.showError(context, AppText.get('error_sign_in'));
       }
     } finally {
       if (mounted) setState(() => _isSigningIn = false);
@@ -1305,6 +1313,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                 onAddUpiId: _handleAddUpiId,
                 onReferFriends: _handleReferFriends,
                 onEarningsTap: _handleEarningsTap,
+                onSubscribersTap: _handleSubscribersTap,
                 onSaveProfile: _handleSaveProfile,
                 onCancelEdit: _handleCancelEdit,
               ),
@@ -1332,6 +1341,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   return ProfileTabsWidget(
                     activeIndex: activeIndex,
                     showTopCreators: isViewingOwnProfile,
+                    // Drives the underline directly off the swipe offset.
+                    animation: _tabController.animation,
                     onSelect: (i) {
                       _tabController.animateTo(i);
                       _activeProfileTabIndex.value = i;
@@ -1425,52 +1436,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
 
   List<Widget> _buildAppBarActions(ProfileStateManager stateManager, bool isViewingOwnProfile) {
-    final actions = <Widget>[
-      if (isViewingOwnProfile)
-        IconButton(
-          icon: const HugeIcon(
-            icon: HugeIcons.strokeRoundedMoreVertical,
-            color: AppColors.iconPrimary,
-            size: 20,
-          ),
-          tooltip: 'More',
-          onPressed: _showProfileActionsSheet,
-        )
-      else
-        IconButton(
-          icon: const HugeIcon(
-            icon: HugeIcons.strokeRoundedSearch01,
-            color: AppColors.iconPrimary,
-            size: 20,
-          ),
-          tooltip: 'Search',
-          onPressed: _openSearch,
-        ),
-    ];
-
-    if (isViewingOwnProfile && stateManager.isSelecting && stateManager.selectedVideoIds.isNotEmpty) {
-      actions.add(
-        IconButton(
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha:0.1),
-              shape: BoxShape.circle,
+    if (stateManager.isSelecting) {
+      return [
+        if (stateManager.selectedVideoIds.isNotEmpty)
+          IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha:0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const HugeIcon(icon: HugeIcons.strokeRoundedDelete02,
+                color: Colors.red,
+                size: 24,
+              ),
             ),
-            child: const HugeIcon(icon: HugeIcons.strokeRoundedDelete02,
-              color: Colors.red,
-              size: 24,
-            ),
+            tooltip: 'Delete Selected Videos',
+            onPressed: _handleDeleteSelectedVideos,
           ),
-          tooltip: 'Delete Selected Videos',
-          onPressed: _handleDeleteSelectedVideos,
-        ),
-      );
-      actions.add(const SizedBox(width: 8));
-    }
-
-    if (isViewingOwnProfile && stateManager.isSelecting) {
-      actions.add(
         IconButton(
           icon: Container(
             padding: const EdgeInsets.all(8),
@@ -1486,10 +1469,42 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           tooltip: 'Cancel Selection',
           onPressed: stateManager.exitSelectionMode,
         ),
-      );
+      ];
     }
 
-    return actions;
+    if (isViewingOwnProfile) {
+      return [
+        HelpPillButton(
+          onTap: _showFAQDialog,
+          margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        ),
+        IconButton(
+          icon: const HugeIcon(
+            icon: HugeIcons.strokeRoundedMoreVertical,
+            color: AppColors.iconPrimary,
+            size: 20,
+          ),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+          splashRadius: 20,
+          tooltip: 'More',
+          onPressed: _showProfileActionsSheet,
+        ),
+        const SizedBox(width: 8),
+      ];
+    }
+
+    return [
+      IconButton(
+        icon: const HugeIcon(
+          icon: HugeIcons.strokeRoundedSearch01,
+          color: AppColors.iconPrimary,
+          size: 20,
+        ),
+        tooltip: 'Search',
+        onPressed: _openSearch,
+      ),
+    ];
   }
 
   void _openSearch() {
@@ -1537,12 +1552,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                 icon: HugeIcons.strokeRoundedIdea01,
                 label: 'Feedback',
               ),
-              _buildProfileActionItem(
-                context: sheetContext,
-                value: 'help',
-                icon: HugeIcons.strokeRoundedHelpCircle,
-                label: 'Help',
-              ),
             ],
           ),
         ),
@@ -1557,9 +1566,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         return;
       case 'feedback':
         _showFeedbackDialog();
-        return;
-      case 'help':
-        _showFAQDialog();
         return;
     }
   }
@@ -1633,6 +1639,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   /// **NEW: Show Professional FAQ Dialog**
   void _showFAQDialog() {
     ProfileDialogsWidget.showFAQDialog(context);
+  }
+
+  /// Subscriber list sheet. Opening it marks subscribers as seen, which is
+  /// what clears the red dot on the Subscribers stat.
+  void _handleSubscribersTap() {
+    AppLogger.log('👥 ProfileScreen: Subscribers tapped - opening list');
+    showSubscribersBottomSheet(context);
+  }
+
+  /// Refreshes the unseen-subscriber count for the signed-in creator only.
+  /// Repeat calls are debounced inside the manager.
+  void _refreshSubscribersBadge({bool force = false}) {
+    if (_isLocalManager) return; // viewing someone else's profile
+    unawaited(
+      ref.read(subscribersBadgeManagerProvider).refresh(force: force),
+    );
   }
 
   /// **NEW: Navigate to Creator Revenue Screen when earnings is tapped**

@@ -52,6 +52,7 @@ import 'package:vayug/shared/widgets/share_options_sheet.dart';
 import 'package:vayug/shared/widgets/episode_grid_widget.dart';
 import 'video_feed_advanced/widgets/throttled_progress_bar.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/utils/feed_page_alignment.dart';
 import 'package:vayug/shared/utils/url_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vayug/features/onboarding/presentation/managers/app_initialization_manager.dart';
@@ -72,6 +73,7 @@ import 'package:vayug/core/interfaces/i_dubbing_service.dart';
 import 'package:vayug/features/video/dubbing/data/models/dubbing_models.dart';
 import 'package:vayug/features/video/dubbing/data/services/on_device_dubbing_service.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
+import 'package:vayug/features/auth/presentation/controllers/auth_flow.dart';
 import 'package:vayug/features/video/core/presentation/widgets/quiz_overlay.dart';
 import 'package:vayug/features/ads/domain/i_ad_service.dart';
 import 'package:vayug/core/interfaces/i_quiz_engine.dart';
@@ -149,6 +151,13 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
   bool _isInPictureInPicture = false;
   bool? _lastPictureInPicturePlayingState;
   double? _lastPictureInPictureAspectRatio;
+
+  /// Which video the picture-in-picture window is showing.
+  ///
+  /// Held as an id rather than an index because the feed trims leading entries
+  /// while the Activity is shrunk, and because the PageView the index refers to
+  /// does not survive picture-in-picture at all.
+  String? _pictureInPictureVideoId;
 
   @override
   bool get wantKeepAlive => true;
@@ -465,8 +474,40 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
 
   void _prepareYugPictureInPictureSurface() {
     if (!mounted || _isInPictureInPicture) return;
+    _capturePictureInPictureVideoId();
     setState(() => _isInPictureInPicture = true);
     _keepYugPlaybackActiveInPictureInPicture();
+  }
+
+  void _capturePictureInPictureVideoId() {
+    if (_currentIndex < 0 || _currentIndex >= _videos.length) return;
+    _pictureInPictureVideoId = _videos[_currentIndex].id;
+  }
+
+  /// Puts the viewport back on the video picture-in-picture was showing.
+  ///
+  /// The picture-in-picture tree replaces the PageView outright, so leaving it
+  /// builds a fresh one that starts at `initialPage` — page 0 for the main feed
+  /// — while `_currentIndex` and the playing controller still belong to the
+  /// video the user was watching. That is what shows one video and plays
+  /// another. Resolving by id also covers the list having dropped leading
+  /// entries while the Activity was shrunk.
+  void _restoreYugPageAfterPictureInPicture() {
+    final videoId = _pictureInPictureVideoId;
+    _pictureInPictureVideoId = null;
+    if (videoId == null) return;
+    // Deferred by a frame: the PageView is remounted by the build this exit
+    // triggers, so it has no scroll position to move yet.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isInPictureInPicture) return;
+      final index = FeedPageAlignment.indexOfVideoId(_videos, videoId);
+      if (index == -1) return;
+      // Positions shifted while the Activity was shrunk. Route through the
+      // normal page-change path so pinning, persistence and preload all see the
+      // move; it also sets _currentIndex, which keeps the jump below silent.
+      if (index != _currentIndex) _onPageChanged(index);
+      FeedPageAlignment.jumpToIndex(_pageController, index);
+    });
   }
 
   void _keepYugPlaybackActiveInPictureInPicture() {
@@ -479,10 +520,13 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
     if (!mounted) return;
     setState(() => _isInPictureInPicture = isActive);
     if (isActive) {
+      _capturePictureInPictureVideoId();
       _keepYugPlaybackActiveInPictureInPicture();
       _tryAutoplayCurrent();
       return;
     }
+
+    _restoreYugPageAfterPictureInPicture();
 
     final lifecycleState = WidgetsBinding.instance.lifecycleState;
     if (lifecycleState == AppLifecycleState.resumed) {
@@ -1693,32 +1737,20 @@ class _VideoFeedAdvancedState extends ConsumerState<VideoFeedAdvanced>
         );
       }
 
-      final user = await authController.signIn();
-      if (user != null) {
-        AppLogger.log('✅ Sign-in successful after like/comment action');
-        final userId =
-            (user['googleId'] ?? user['id'] ?? user['_id'])?.toString();
-        if (userId != null && userId.isNotEmpty && mounted) {
-          setState(() => _currentUserId = userId);
-        }
-        if (mounted) {
-          VayuSnackBar.showSuccess(
-            context,
-            'Signed in successfully',
-            duration: const Duration(seconds: 2),
-          );
-        }
-      } else {
-        AppLogger.log('ℹ️ User cancelled sign-in');
-      }
-      if (user == null && mounted) {
-        VayuSnackBar.showInfo(
-          context,
-          'Google sign-in was cancelled',
-          duration: const Duration(seconds: 2),
-        );
-      }
-      return user != null;
+      final result = await AuthFlow.signIn(
+        context,
+        ref,
+        onSuccess: () async {
+          AppLogger.log('✅ Sign-in successful after like/comment action');
+          final user = ref.read(googleSignInProvider).userData;
+          final userId =
+              (user?['googleId'] ?? user?['id'] ?? user?['_id'])?.toString();
+          if (userId != null && userId.isNotEmpty && mounted) {
+            setState(() => _currentUserId = userId);
+          }
+        },
+      );
+      return result.isSuccess;
     } catch (e) {
       AppLogger.log('❌ Error triggering sign-in: $e');
       _showSnackBar('Failed to sign in. Please try again.', isError: true);

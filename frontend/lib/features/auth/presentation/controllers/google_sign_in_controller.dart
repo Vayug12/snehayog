@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/core/interfaces/i_auth_service.dart';
+import 'package:vayug/features/auth/domain/entities/auth_result.dart';
+import 'package:vayug/shared/utils/app_text.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -11,11 +13,20 @@ class GoogleSignInController extends ChangeNotifier {
   bool _isInitialized = false;
   String? _error;
   Map<String, dynamic>? _userData;
+  bool _isSigningIn = false;
+
+  /// Set once an interactive sign-in has produced a session. The background
+  /// init reads stale storage, so it must never overwrite a session that was
+  /// established while it was still in flight.
+  bool _hasInteractiveSession = false;
 
   bool get isLoading => _isLoading;
   bool get isInitialized => _isInitialized;
   String? get error => _error;
   bool get isSignedIn => _userData != null;
+
+  /// True while a Google sign-in sheet/exchange is in flight.
+  bool get isSigningIn => _isSigningIn;
   Map<String, dynamic>? get userData => _userData;
 
   /// Manually check and refresh authentication status
@@ -33,6 +44,7 @@ class GoogleSignInController extends ChangeNotifier {
 
   Future<void> _initInBackground() async {
     try {
+      if (_hasInteractiveSession) return;
       // **FIXED: Try cached data first for instant UI (no network call)**
       try {
         final prefs = await SharedPreferences.getInstance();
@@ -42,6 +54,7 @@ class GoogleSignInController extends ChangeNotifier {
 
         // If token is missing/expired, treat as signed-out
         if (needsLogin || jwt == null || jwt.isEmpty) {
+          if (_hasInteractiveSession) return;
           _userData = null;
           _error = needsLogin ? 'Session expired - please sign in again' : null;
           return;
@@ -49,6 +62,7 @@ class GoogleSignInController extends ChangeNotifier {
 
         // Load from cache instantly — user sees profile immediately
         if (fallbackUser != null) {
+          if (_hasInteractiveSession) return;
           final cachedData = jsonDecode(fallbackUser);
           _userData = {
             'id': cachedData['id'],
@@ -75,17 +89,19 @@ class GoogleSignInController extends ChangeNotifier {
       // Check if user is already logged in
       final isLoggedIn = await _authService.isLoggedIn();
       if (isLoggedIn) {
-        _userData = await _authService.getUserData();
+        final data = await _authService.getUserData();
+        if (_hasInteractiveSession) return;
+        _userData = data;
       } else {
         // Try to silently recover session once (refresh token / Google silent sign-in)
         final refreshed = await _authService.refreshAccessToken();
-        if (refreshed != null) {
-          _userData = await _authService.getUserData();
-        } else {
-          _userData = null;
-        }
+        final data =
+            refreshed != null ? await _authService.getUserData() : null;
+        if (_hasInteractiveSession) return;
+        _userData = data;
       }
     } catch (e) {
+      if (_hasInteractiveSession) return;
       _error = e.toString();
       _userData = null;
     } finally {
@@ -95,38 +111,55 @@ class GoogleSignInController extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>?> signIn() async {
+  /// The one Google sign-in entry point for the whole app.
+  ///
+  /// Never reports success for an attempt that failed: a session exists only
+  /// when the backend returned one. Callers should route the result through
+  /// [AuthFlow.signIn] so the user-facing message stays consistent.
+  Future<AuthResult> signIn() async {
+    if (_isSigningIn) {
+      // Debounce: a second tap must not open a second Google sheet.
+      return AuthResult.failed(
+        AppText.get('error_sign_in_in_progress'),
+        kind: AuthFailureKind.unknown,
+      );
+    }
+
+    _isSigningIn = true;
     try {
-
-
       _isLoading = true;
       _error = null;
       notifyListeners();
 
       final userInfo = await _authService.signInWithGoogle();
-      if (userInfo != null) {
-        _userData = userInfo;
+
+      if (userInfo == null) {
+        // Google sheet dismissed — not an error, so no error state.
         _error = null;
-        // Clear "needs login" flag on successful sign-in
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('auth_needs_login', false);
-        } catch (_) {}
-
-      } else {
-        _error = 'Sign in failed';
-
+        return AuthResult.cancelled;
       }
 
-      _isLoading = false;
-      notifyListeners();
-      return userInfo;
-    } catch (e) {
+      _userData = userInfo;
+      _hasInteractiveSession = true;
+      _error = null;
+      // Clear "needs login" flag on successful sign-in
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('auth_needs_login', false);
+      } catch (_) {}
 
-      _error = e.toString();
+      return AuthResult.success(userInfo);
+    } on AuthException catch (e) {
+      _error = e.message;
+      return AuthResult.failed(e.message, kind: e.kind);
+    } catch (e) {
+      final message = AppText.get('error_sign_in');
+      _error = message;
+      return AuthResult.failed(message);
+    } finally {
+      _isSigningIn = false;
       _isLoading = false;
       notifyListeners();
-      return null;
     }
   }
 
@@ -159,6 +192,7 @@ class GoogleSignInController extends ChangeNotifier {
       );
       if (userInfo != null) {
         _userData = userInfo;
+        _hasInteractiveSession = true;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('auth_needs_login', false);
       }
@@ -179,6 +213,7 @@ class GoogleSignInController extends ChangeNotifier {
       await _authService.signOut();
 
       // **FIXED: Clear ALL state and force refresh**
+      _hasInteractiveSession = false;
       _userData = null;
       _error = null;
       _isLoading = false;
@@ -208,6 +243,7 @@ class GoogleSignInController extends ChangeNotifier {
       
       if (needsLogin) {
         // Session definitively expired — clear state immediately to trigger sign-in UI
+        _hasInteractiveSession = false;
         _userData = null;
         _error = 'Session expired. Please sign in again.';
         _isLoading = false;
@@ -231,6 +267,7 @@ class GoogleSignInController extends ChangeNotifier {
         _error = null;
       } else if (_userData == null || sessionInvalidated) {
         // Without an existing session, a null profile means sign-in is still needed.
+        _hasInteractiveSession = false;
         _userData = null;
         _error = 'Session expired. Please sign in again.';
       } else {

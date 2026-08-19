@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:vayug/core/interfaces/i_auth_service.dart';
 import 'package:vayug/features/auth/data/services/logout_service.dart';
+import 'package:vayug/features/auth/presentation/controllers/auth_flow.dart';
 import 'package:vayug/features/ads/presentation/screens/create_ad_screen_refactored.dart';
 import 'package:vayug/features/ads/presentation/screens/ad_management_screen.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
@@ -292,12 +293,15 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           ),
           AppButton(
             onPressed: () async {
-              final authController = ref.read(googleSignInProvider);
               Navigator.pop(context);
-              await authController.signIn();
-              if (mounted) {
-                await LogoutService.refreshAllState(ref);
-              }
+              if (!mounted) return;
+              await AuthFlow.signIn(
+                context,
+                ref,
+                onSuccess: () async {
+                  if (mounted) await LogoutService.refreshAllState(ref);
+                },
+              );
             },
             label: AppText.get('btn_sign_in'),
             variant: AppButtonVariant.primary,

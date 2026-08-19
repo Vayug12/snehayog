@@ -2,7 +2,6 @@ import { BannerAdSource } from './sources/BannerAdSource.js';
 import { CarouselAdSource } from './sources/CarouselAdSource.js';
 import { ContextualTargeter } from './targeters/ContextualTargeter.js';
 import { DemographicTargeter } from './targeters/DemographicTargeter.js';
-import { AISemanticTargeter } from './targeters/AISemanticTargeter.js';
 
 /**
  * **AdEngine**
@@ -20,8 +19,7 @@ export class AdEngine {
     // Register targeting pipelines
     this.targeters = targeters.length > 0 ? targeters : [
       new ContextualTargeter(),
-      new DemographicTargeter(),
-      new AISemanticTargeter()
+      new DemographicTargeter()
     ];
   }
 

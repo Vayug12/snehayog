@@ -44,6 +44,22 @@ node generate.js --platform substack --topic "building a creator-first video pla
 
 When no topic is provided, the selected AI provider automatically suggests a fresh project-relevant topic using the project context and previous post history. It then researches that topic on the web before writing the post.
 
+### Trending Topic Posts
+
+Generate posts based on trending news in specific categories:
+
+```powershell
+node generate.js custom AI
+node generate.js custom AI linkedin
+node generate.js custom technology x --provider opencode
+node generate.js custom startup reddit --count 3
+node generate.js custom "creator economy" --loop --count 3
+```
+
+Available categories: `ai`, `technology`, `startup`, `indian startup`, `creator economy`, `digital marketing`, `fintech`, `edtech`, `saas`, `web3`, `sustainability`
+
+The `custom` keyword triggers trending mode - it searches for latest news in the specified category and creates content based on trending topics.
+
 Select a provider. If omitted, it is `opencode`:
 
 ```powershell

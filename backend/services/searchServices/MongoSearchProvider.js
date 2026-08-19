@@ -1,7 +1,6 @@
 import { ISearchProvider } from './ISearchProvider.js';
 import Video from '../../models/Video.js';
 import User from '../../models/User.js';
-import aiSemanticService from '../yugFeedServices/aiSemanticService.js';
 
 /**
  * MongoDB Implementation of ISearchProvider (MongoDB Atlas + Regex Fallbacks).
@@ -20,35 +19,7 @@ export default class MongoSearchProvider extends ISearchProvider {
     console.log(`🔍 MongoSearchProvider: Querying videos for "${q}"`);
 
     try {
-      // 1. Generate Query Vector for Semantic Search
-      const queryEmbedding = await aiSemanticService.getEmbedding(q);
-      
-      let semanticVideos = [];
-      
-      // 2. Perform Vector Search (if embedding was successfully generated)
-      if (queryEmbedding && queryEmbedding.length > 0) {
-        try {
-          console.log(`🧠 MongoSearchProvider: Executing Semantic Vector Search...`);
-          semanticVideos = await Video.aggregate([
-            {
-              $vectorSearch: {
-                index: 'vector_index',
-                path: 'vectorEmbedding',
-                queryVector: queryEmbedding,
-                numCandidates: 100,
-                limit: limit
-              }
-            },
-            {
-              $addFields: { searchType: 'semantic', searchScore: { $meta: 'vectorSearchScore' } }
-            }
-          ]);
-        } catch (vectorErr) {
-          console.warn(`⚠️ MongoSearchProvider: Vector search failed (Index might not exist yet):`, vectorErr.message);
-        }
-      }
-
-      // 3. Perform Traditional Atlas Compound text search (Content-Aware)
+      // Atlas Compound text search (Content-Aware)
       console.log(`🔎 MongoSearchProvider: Executing Content-Aware Text Search...`);
       const textVideos = await Video.aggregate([
         {
@@ -91,44 +62,16 @@ export default class MongoSearchProvider extends ISearchProvider {
         }
       ]);
 
-      // 4. Merge, Deduplicate, and Populate
-      const combinedMap = new Map();
-      
-      // Add text videos first (exact matches usually preferred)
-      textVideos.forEach(v => {
-        combinedMap.set(v._id.toString(), v);
-      });
-      
-      // Add semantic videos, combining scores if they overlap
-      semanticVideos.forEach(v => {
-        const id = v._id.toString();
-        if (combinedMap.has(id)) {
-          const existing = combinedMap.get(id);
-          existing.searchScore = (existing.searchScore || 0) + (v.searchScore || 0);
-          existing.searchType = 'hybrid';
-        } else {
-          combinedMap.set(id, v);
-        }
-      });
-      
-      let mergedVideos = Array.from(combinedMap.values());
-      
-      // Sort by combined score
-      mergedVideos.sort((a, b) => (b.searchScore || 0) - (a.searchScore || 0));
-      
-      // Apply overall limit
-      mergedVideos = mergedVideos.slice(0, limit);
-      
-      // Populate uploader details for the merged results
-      await Video.populate(mergedVideos, { path: 'uploader', select: '_id googleId name profilePic' });
+      // Populate uploader details for the results
+      await Video.populate(textVideos, { path: 'uploader', select: '_id googleId name profilePic' });
 
-      return mergedVideos.map(v => ({
+      return textVideos.map(v => ({
         ...v,
         id: v._id.toString()
       }));
 
     } catch (err) {
-      console.error('❌ MongoSearchProvider Hybrid Search Error (videos):', err);
+      console.error('❌ MongoSearchProvider Search Error (videos):', err);
       
       // Fallback to basic case-insensitive regex search
       const fallback = await Video.find({

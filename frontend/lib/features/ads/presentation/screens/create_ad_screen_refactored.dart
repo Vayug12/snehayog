@@ -16,6 +16,7 @@ import 'package:vayug/features/ads/presentation/widgets/create_ad/advertising_be
 import 'package:vayug/features/ads/data/services/ad_service.dart';
 import 'package:vayug/shared/config/app_config.dart';
 import 'package:vayug/features/auth/data/services/logout_service.dart';
+import 'package:vayug/features/auth/presentation/controllers/auth_flow.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_static_views.dart';
 import 'package:vayug/shared/services/cloudflare_r2_service.dart';
 import 'package:vayug/features/ads/data/services/ad_refresh_notifier.dart';
@@ -427,10 +428,11 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                   hasScrollBody: false,
                   child: ProfileSignInView(
                     onGoogleSignIn: () async {
-                      final user = await authController.signIn();
-                      if (user != null) {
-                        await LogoutService.refreshAllState(ref);
-                      }
+                      await AuthFlow.signIn(
+                        context,
+                        ref,
+                        onSuccess: () => LogoutService.refreshAllState(ref),
+                      );
                     },
                   ),
                 ),

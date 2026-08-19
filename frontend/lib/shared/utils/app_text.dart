@@ -254,6 +254,18 @@ class AppText {
     'profile_sign_in_success': 'Signed in successfully!',
     'profile_logout_success': 'Logged out successfully',
 
+    // Subscribers sheet
+    'subscribers_title': 'Subscribers',
+    'subscribers_title_count': '{count} Subscribers',
+    'subscribers_subscribed_at': 'Subscribed {time}',
+    'subscribers_new_badge': 'NEW',
+    'subscribers_empty_title': 'No subscribers yet',
+    'subscribers_empty_hint':
+        'Share your videos - everyone who subscribes shows up here.',
+    'subscribers_load_error': 'Could not load subscribers',
+    'subscribers_error_hint': 'Check your connection and try again.',
+    'subscribers_retry': 'Retry',
+
     // Settings
     'settings_title': 'Settings',
     'settings_developer_header': 'Developer Settings',
@@ -290,6 +302,14 @@ class AppText {
     'error_update_profile': 'Error updating profile',
     'error_change_photo': 'Error changing profile photo',
     'error_sign_in': 'Error signing in',
+    'error_sign_in_network':
+        'No stable connection. Sign-in could not be completed — please retry.',
+    'error_sign_in_server':
+        'Sign-in service is unavailable right now. Please try again shortly.',
+    'auth_sign_in_cancelled': 'Sign-in cancelled',
+    'error_sign_in_in_progress': 'Sign-in is already in progress.',
+    'error_sign_in_partial':
+        'Signed in, but your profile could not be loaded. Pull to refresh.',
     'error_logout': 'Error logging out',
     'error_share': 'Unable to share right now. Please try again.',
     'error_whatsapp':

@@ -7,6 +7,15 @@ tags:
 - launchApp:
     stopApp: true
 
+# The emulator suppresses system error dialogs (see run-maestro.sh), but a
+# dialog raised before that setting lands still owns the accessibility window
+# and hides the app from every selector below. Dismiss it instead of failing.
+- runFlow:
+    when:
+      visible: "Wait"
+    commands:
+      - tapOn: "Wait"
+
 # A fresh release install shows five onboarding pages. An existing install
 # starts directly on Yug, so every onboarding interaction is optional.
 - extendedWaitUntil:

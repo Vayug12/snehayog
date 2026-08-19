@@ -7,7 +7,6 @@ import queueService from '../services/yugFeedServices/queueService.js';
 import { redisOptions } from '../services/yugFeedServices/queueService.js'; 
 import recommendationService from '../services/yugFeedServices/recommendationService.js';
 import redisService from '../services/caching/redisService.js';
-import geminiService from '../services/geminiService.js';
 import { sendNotificationToUser } from '../services/notificationServices/notificationService.js';
 import { beat, msSinceBeat } from '../utils/progressHeartbeat.js';
 import { markVideoUploadFailed } from '../services/uploadServices/videoUploadLifecycleService.js';
@@ -165,54 +164,6 @@ async function handleVideoProcessing(job) {
 }
 
 
-/**
- * Handle AI Video Analysis asynchronously in the background
- */
-async function handleVideoAnalysis(data) {
-  const { videoId } = data;
-  try {
-    const video = await Video.findById(videoId);
-    if (!video || !video.thumbnailUrl) {
-      console.warn(`⚠️ handleVideoAnalysis: Video or thumbnail missing for ${videoId}`);
-      return { status: 'skipped' };
-    }
-
-    if (!process.env.GEMINI_API_KEY) {
-      console.warn('⚠️ handleVideoAnalysis: Skipping because GEMINI_API_KEY is not set');
-      return { status: 'skipped' };
-    }
-
-    console.log(`🧠 Worker: Starting background Gemini analysis for ${videoId}...`);
-    
-    // We use the generated thumbnail as the primary input to save extraction latency
-    const analysisInput = [video.thumbnailUrl];
-
-    const metadata = await geminiService.getVideoContext(analysisInput, {
-      title: video.videoName,
-      category: video.category,
-      description: video.description
-    });
-    
-    if (metadata) {
-      await Video.findByIdAndUpdate(videoId, { 
-        aiSummary: metadata.summary,
-        language: metadata.language,
-        detectedRegion: metadata.region,
-        tags: [...new Set([...(video.tags || []), ...(metadata.keywords || [])])],
-        aiContextGenerated: true 
-      });
-      
-      // Update recommendation score with new metadata
-      await recommendationService.calculateAndUpdateVideoScore(videoId);
-      console.log(`✅ Worker: Background metadata enriched for ${videoId}`);
-    }
-    return { status: 'completed', videoId };
-  } catch (error) {
-    console.error(`❌ Worker: Background analysis failed for ${videoId}:`, error);
-    throw error;
-  }
-}
-
 // In-flight job count, owned by the processor rather than by the 'active' /
 // 'completed' / 'failed' listeners.
 //
@@ -247,9 +198,6 @@ const videoWorker = new Worker('video-processing', async (job) => {
         await recommendationService._calculateAndCacheRanks();
         return { status: 'completed' };
 
-      case 'analyze-video':
-        return await handleVideoAnalysis(job.data);
-        
       default:
         console.warn(`⚠️ Worker: Unknown job type ${job.name}`);
         return { status: 'ignored' };

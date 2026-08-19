@@ -124,59 +124,83 @@ class ProfileDialogsWidget {
     );
   }
 
+  /// Help sheet: a flow diagram guide and the walkthrough video, switched
+  /// from the icon toggle in the header corner. No title, no close button -
+  /// the user opened it, the handle closes it.
   static void showFAQDialog(BuildContext context) {
+    final section = ValueNotifier<_HelpSection>(_HelpSection.guide);
+
     VayuBottomSheet.show(
       context: context,
-      title: 'App Kaise Use Karein?',
-      icon: Icons.play_circle_outline,
       useDraggable: true,
-      initialChildSize: 0.9,
-      minChildSize: 0.5,
+      showCloseButton: false,
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
       maxChildSize: 0.95,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const OnboardingVideoPlayer(
-              videoUrl: 'https://cdn.snehayog.site/guide_video.mp4',
-              autoPlay: true,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Vayug ke baare mein sab kuch jo aapko jaanna chahiye',
-              style: TextStyle(
-                fontSize: 14, 
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildFAQItem(
-              question: "Creators ke liye kya fayde hai?",
-              answer:
-                  "Creators ko hum pehle din se monetization ka mauka dete hai. Aapko YouTube ki tarah lambe intezar ki zaroorat nahi hai. Creators can monetize from Day 1.",
-              icon: Icons.stars,
-              color: Colors.orange,
-            ),
-            _buildFAQItem(
-              question: "Kamaya hua paisa kab aur kaise milega?",
-              answer:
-                  "App ko kam se kam 2 logo ko share karein, uske baad aapko 'Setup Billing' ka option dikhega. Wahan apna UPI ID daalein. Bas phir har mahine ki 1st date ko aapka kamaya hua paisa automatic aapke bank account mein credit kar diya jayega.",
-              icon: Icons.account_balance_wallet_outlined,
-              color: Colors.blue,
-            ),
-            const SizedBox(height: 20),
-            AppButton(
-              isFullWidth: true,
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.check_circle_outline),
-              label: 'Samajh Gaya!',
-              variant: AppButtonVariant.primary,
-            ),
+      actions: [_HelpSectionToggle(section: section)],
+      child: ValueListenableBuilder<_HelpSection>(
+        valueListenable: section,
+        builder: (context, selected, _) => selected == _HelpSection.video
+            // Swapping the player out of the tree disposes its controller, so
+            // nothing keeps buffering while the guide is open.
+            ? _buildHelpVideoSection(context)
+            : _buildHelpGuideSection(context),
+      ),
+    ).whenComplete(section.dispose);
+  }
+
+  /// Two diagrams instead of two paragraphs: earning, then payout.
+  static Widget _buildHelpGuideSection(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _HelpFlow(
+          title: 'Kamai ka formula',
+          steps: [
+            _FlowStep(Icons.file_upload_outlined, '2 Videos\nUpload'),
+            _FlowStep(Icons.share_outlined, 'Ya 2 Friends\nKo Share'),
+            _FlowStep(Icons.lock_open_rounded, 'Billing\nUnlock'),
           ],
         ),
-      ),
+        const SizedBox(height: 24),
+        const _HelpFlow(
+          title: 'Paisa kaise aayega',
+          steps: [
+            _FlowStep(Icons.account_balance_wallet_outlined, 'UPI ID\nDalo'),
+            _FlowStep(Icons.calendar_month_outlined, '1st Ko\nScore'),
+            _FlowStep(Icons.account_balance_outlined, 'Bank\nMein'),
+          ],
+          note: 'Har mahine automatic',
+        ),
+        const SizedBox(height: 32),
+        AppButton(
+          isFullWidth: true,
+          onPressed: () => Navigator.pop(context),
+          label: 'Samajh Gaya',
+          variant: AppButtonVariant.primary,
+        ),
+      ],
+    );
+  }
+
+  static Widget _buildHelpVideoSection(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const OnboardingVideoPlayer(
+          videoUrl: 'https://cdn.snehayog.site/guide_video.mp4',
+          autoPlay: true,
+        ),
+        const SizedBox(height: 24),
+        AppButton(
+          isFullWidth: true,
+          onPressed: () => Navigator.pop(context),
+          label: 'Samajh Gaya',
+          variant: AppButtonVariant.primary,
+        ),
+      ],
     );
   }
 
@@ -668,4 +692,196 @@ class _VerticalLegalItemState extends State<_VerticalLegalItem> {
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
     );
   }
+}
+
+/// Which half of the help sheet is showing
+enum _HelpSection { guide, video }
+
+/// Icon-only segmented toggle for the help sheet header corner.
+class _HelpSectionToggle extends StatelessWidget {
+  const _HelpSectionToggle({required this.section});
+
+  final ValueNotifier<_HelpSection> section;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<_HelpSection>(
+      valueListenable: section,
+      builder: (context, selected, _) => Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundSecondary,
+          borderRadius: BorderRadius.circular(100),
+          border: Border.all(color: AppColors.borderPrimary),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSegment(
+              value: _HelpSection.guide,
+              selected: selected,
+              icon: Icons.article_outlined,
+              label: 'Guide',
+            ),
+            _buildSegment(
+              value: _HelpSection.video,
+              selected: selected,
+              icon: Icons.play_arrow_rounded,
+              label: 'Video',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSegment({
+    required _HelpSection value,
+    required _HelpSection selected,
+    required IconData icon,
+    required String label,
+  }) {
+    final isSelected = value == selected;
+
+    // The icon carries the meaning; the label stays for screen readers.
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => section.value = value,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: isSelected ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(100),
+          ),
+          child: Icon(
+            icon,
+            size: 16,
+            color: isSelected ? AppColors.white : AppColors.textTertiary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One node of a help flow diagram.
+class _FlowStep {
+  const _FlowStep(this.icon, this.label);
+
+  final IconData icon;
+  final String label;
+}
+
+/// Icon nodes joined by arrows, so the guide reads as a picture instead of a
+/// paragraph. The last node is the outcome and carries the accent.
+class _HelpFlow extends StatelessWidget {
+  const _HelpFlow({
+    required this.title,
+    required this.steps,
+    this.note,
+  });
+
+  final String title;
+  final List<_FlowStep> steps;
+
+  /// Only for what the diagram cannot show, e.g. when the money lands.
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = <Widget>[];
+    for (var i = 0; i < steps.length; i++) {
+      if (i > 0) row.add(_buildArrow());
+      row.add(
+        Expanded(
+          child: _buildNode(steps[i], isOutcome: i == steps.length - 1),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: AppTypography.titleSmall.copyWith(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: row),
+        if (note != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            note!,
+            style: AppTypography.bodySmall.copyWith(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Sized to the node tile so the arrow lands on the tile's centre line.
+  Widget _buildArrow() {
+    return const SizedBox(
+      height: _tileSize,
+      width: 24,
+      child: Center(
+        child: Icon(
+          Icons.arrow_forward_rounded,
+          size: 16,
+          color: AppColors.textTertiary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNode(_FlowStep step, {required bool isOutcome}) {
+    return Column(
+      children: [
+        Container(
+          height: _tileSize,
+          width: _tileSize,
+          decoration: BoxDecoration(
+            color: isOutcome
+                ? AppColors.primary.withValues(alpha: 0.12)
+                : AppColors.backgroundSecondary,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isOutcome
+                  ? AppColors.primary.withValues(alpha: 0.4)
+                  : AppColors.borderPrimary,
+            ),
+          ),
+          child: Icon(
+            step.icon,
+            size: 20,
+            color: isOutcome ? AppColors.primaryLight : AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          step.label,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: AppTypography.labelSmall.copyWith(
+            color: isOutcome ? AppColors.textPrimary : AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static const double _tileSize = 48;
 }

@@ -20,4 +20,7 @@ const FollowerSchema = new mongoose.Schema({
 // Unique index to prevent duplicate follows
 FollowerSchema.index({ follower: 1, following: 1 }, { unique: true });
 
+// Newest-first subscriber listing + "new since last seen" counting for a creator
+FollowerSchema.index({ following: 1, createdAt: -1 });
+
 export default mongoose.models.Follower || mongoose.model('Follower', FollowerSchema);

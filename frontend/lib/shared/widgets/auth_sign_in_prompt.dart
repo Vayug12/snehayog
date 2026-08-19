@@ -4,6 +4,7 @@ import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/spacing.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
+import 'package:vayug/features/auth/presentation/controllers/auth_flow.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 
@@ -34,10 +35,9 @@ class AuthSignInPrompt extends ConsumerWidget {
   /// triggers a pointless reload. Callers must guard their own `mounted`.
   final Future<void> Function()? onSignedIn;
 
-  Future<void> _handleSignIn(WidgetRef ref) async {
-    final user = await ref.read(googleSignInProvider).signIn();
-    if (user == null) return; // cancelled or failed — controller surfaces it
-    await onSignedIn?.call();
+  Future<void> _handleSignIn(BuildContext context, WidgetRef ref) async {
+    // One shared flow owns the outcome message for every locked surface.
+    await AuthFlow.signIn(context, ref, onSuccess: onSignedIn);
   }
 
   @override
@@ -72,7 +72,7 @@ class AuthSignInPrompt extends ConsumerWidget {
             ],
             AppSpacing.vSpace32,
             AppButton(
-              onPressed: isLoading ? null : () => _handleSignIn(ref),
+              onPressed: isLoading ? null : () => _handleSignIn(context, ref),
               label: AppText.get('btn_sign_in_google'),
               variant: AppButtonVariant.primary,
               isFullWidth: true,

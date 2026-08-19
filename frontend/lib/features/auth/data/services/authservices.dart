@@ -17,6 +17,8 @@ import 'package:vayug/shared/services/notification_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:vayug/core/interfaces/i_auth_service.dart';
+import 'package:vayug/features/auth/domain/entities/auth_result.dart';
+import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/di/dependency_injection.dart';
 
 class AuthService implements IAuthService {
@@ -131,366 +133,343 @@ class AuthService implements IAuthService {
   @override
   Future<Map<String, dynamic>?> signInWithGoogle(
       {bool forceAccountPicker = true}) async {
-    try {
-      AppLogger.log('🔐 Starting Google Sign-In process...');
+    AppLogger.log('🔐 Starting Google Sign-In process...');
 
-      // **OPTIMIZED: Start fetching platform ID immediately (in parallel)**
-      final platformIdFuture = PlatformIdService().getPlatformId();
+    // **OPTIMIZED: Start fetching platform ID immediately (in parallel)**
+    final platformIdFuture = PlatformIdService().getPlatformId();
 
-      // **NEW: Check configuration before proceeding**
-      if (!GoogleSignInConfig.isConfigured) {
-        AppLogger.log('❌ Google Sign-In not properly configured!');
-        GoogleSignInConfig.printConfig();
-        throw Exception(
-            'Google Sign-In configuration missing. Please set OAuth 2.0 Client IDs.');
-      }
+    _assertGoogleSignInConfigured();
 
-      // **NEW: Validate OAuth 2.0 Client ID format**
-      if (!GoogleSignInConfig.isValidClientId) {
-        final error = GoogleSignInConfig.getConfigurationError();
-        AppLogger.log('❌ OAuth 2.0 Client ID validation failed: $error');
-        GoogleSignInConfig.printConfig();
-        throw Exception('OAuth 2.0 Client ID validation failed: $error');
-      }
-
-      // **NEW: Print configuration for debugging**
-      GoogleSignInConfig.printConfig();
-
-      // **IMPROVED: Only clear Google session if we want to force account picker (manual sign-in)**
-      // This preserves Google session caching for auto-login flows
-      // **FIXED: Don't clear fallback_user here - preserve it until successful sign-in**
-      if (forceAccountPicker) {
-        AppLogger.log(
-            '🔄 Force account picker enabled - clearing previous Google session...');
-        try {
-          // **OPTIMIZED: Only signOut, DO NOT disconnect.**
-          // Disconnect revokes consent and slows down re-login.
-          await _googleSignIn.signOut(); 
-        } catch (e) {
-          AppLogger.log('ℹ️ Pre sign-in signOut ignored: $e');
-        }
-
-        // **IMPROVED: Keep fallback_user until successful sign-in to prevent data loss**
-        // Only clear it after we have new valid token and user data
-        AppLogger.log('ℹ️ Preserving fallback_user until successful sign-in');
-      } else {
-        AppLogger.log(
-            'ℹ️ Preserving Google session cache for seamless sign-in');
-      }
-
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) {
-        AppLogger.log('❌ User cancelled Google Sign-In');
-        return null;
-      }
-
-      AppLogger.log('✅ Google Sign-In successful for: ${googleUser.email}');
-
-      // Acquire ID token; on web, try multiple methods with fallback
-      String? idToken;
+    // **IMPROVED: Only clear Google session if we want to force account picker (manual sign-in)**
+    // This preserves Google session caching for auto-login flows.
+    // fallback_user is deliberately preserved until a sign-in actually succeeds.
+    if (forceAccountPicker) {
+      AppLogger.log(
+          '🔄 Force account picker enabled - clearing previous Google session...');
       try {
-        if (kIsWeb) {
-          // Try getTokens first (preferred method for web)
-          try {
-            final tokens = await GoogleSignInPlatform.instance
-                .getTokens(email: googleUser.email);
-            idToken = tokens.idToken;
-            AppLogger.log('✅ Got ID token using getTokens method');
-          } catch (getTokensError) {
-            AppLogger.log(
-                '⚠️ getTokens failed, trying authentication method: $getTokensError');
-            // Fallback: try authentication method
-            try {
-              final GoogleSignInAuthentication googleAuth =
-                  await googleUser.authentication;
-              idToken = googleAuth.idToken;
-              AppLogger.log('✅ Got ID token using authentication method');
-            } catch (authError) {
-              AppLogger.log('❌ authentication method also failed: $authError');
-              rethrow;
-            }
-          }
-        } else {
-          final GoogleSignInAuthentication googleAuth =
-              await googleUser.authentication;
-          idToken = googleAuth.idToken;
-        }
+        // **OPTIMIZED: Only signOut, DO NOT disconnect.**
+        // Disconnect revokes consent and slows down re-login.
+        await _googleSignIn.signOut();
       } catch (e) {
-        AppLogger.log('❌ Error obtaining Google tokens: $e');
-        AppLogger.log('❌ Error details: ${e.toString()}');
+        AppLogger.log('ℹ️ Pre sign-in signOut ignored: $e');
       }
+    } else {
+      AppLogger.log('ℹ️ Preserving Google session cache for seamless sign-in');
+    }
 
-      if (idToken == null) {
-        AppLogger.log('❌ Failed to get ID token from Google');
-        throw Exception(
-            'Failed to get authentication token from Google. Please check your Google Cloud Console configuration for authorized JavaScript origins and redirect URIs.');
-      }
+    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) {
+      AppLogger.log('❌ User cancelled Google Sign-In');
+      return null; // cancelled — not a failure
+    }
+
+    AppLogger.log('✅ Google Sign-In successful for: ${googleUser.email}');
+
+    try {
+      final idToken = await _resolveGoogleIdToken(googleUser);
 
       AppLogger.log('🔑 Got ID token, attempting backend authentication...');
 
-      // **OPTIMIZED: Await platform info that was started earlier**
       final deviceId = await platformIdFuture;
       final platformIdService = PlatformIdService();
-      final deviceName = await platformIdService.getDeviceName();
-      final platform = platformIdService.getPlatformType();
-      
-      // **NEW: Fetch App Version**
       final packageInfo = await PackageInfo.fromPlatform();
-      final appVersion = '${packageInfo.version}+${packageInfo.buildNumber}';
+      final payload = <String, dynamic>{
+        'idToken': idToken,
+        'serverAuthCode': googleUser.serverAuthCode,
+        'deviceId': deviceId,
+        'deviceName': await platformIdService.getDeviceName(),
+        'platform': platformIdService.getPlatformType(),
+        'appVersion': '${packageInfo.version}+${packageInfo.buildNumber}',
+      };
 
-      // First, authenticate with backend to get JWT
-      try {
-        // **OPTIMIZED: Reduced timeout from 8s to 5s for faster sign-in**
-        final authResponse = await http
-            .post(
-              Uri.parse(NetworkHelper.authEndpoint),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({
-                'idToken': idToken,
-                'serverAuthCode': googleUser.serverAuthCode,
-                'deviceId': deviceId,
-                'deviceName': deviceName,
-                'platform': platform,
-                'appVersion': appVersion,
-              }),
-            )
-            .timeout(const Duration(seconds: 5));
+      final authData = await _exchangeGoogleTokenForSession(payload);
+      return await _persistGoogleSession(googleUser, authData, deviceId);
+    } catch (e) {
+      // A half-finished attempt must not look like a session. Drop the Google
+      // session so the next attempt re-prompts instead of silently reusing it.
+      await _abandonSignIn();
+      if (e is AuthException) rethrow;
+      throw AuthException(
+        AuthFailureKind.unknown,
+        AppText.get('error_sign_in'),
+        cause: e,
+      );
+    }
+  }
 
-        AppLogger.log(
-            '📡 Backend auth response status: ${authResponse.statusCode}');
-        AppLogger.log('📡 Backend auth response body: ${authResponse.body}');
+  void _assertGoogleSignInConfigured() {
+    if (!GoogleSignInConfig.isConfigured) {
+      AppLogger.log('❌ Google Sign-In not properly configured!');
+      GoogleSignInConfig.printConfig();
+      throw const AuthException(
+        AuthFailureKind.configuration,
+        'Google Sign-In is not configured on this build.',
+      );
+    }
 
-        if (authResponse.statusCode == 200) {
-          final authData = jsonDecode(authResponse.body);
-          AppLogger.log('✅ Backend authentication successful');
-          
-          // **FIXED: Use accessToken (new backend format)**
-          final token = authData['accessToken'] ?? authData['token'];
+    if (!GoogleSignInConfig.isValidClientId) {
+      final error = GoogleSignInConfig.getConfigurationError();
+      AppLogger.log('❌ OAuth 2.0 Client ID validation failed: $error');
+      GoogleSignInConfig.printConfig();
+      throw const AuthException(
+        AuthFailureKind.configuration,
+        'Google Sign-In is not configured on this build.',
+      );
+    }
+
+    if (kDebugMode) GoogleSignInConfig.printConfig();
+  }
+
+  /// Obtains the Google ID token, with the web-only getTokens fallback.
+  Future<String> _resolveGoogleIdToken(GoogleSignInAccount googleUser) async {
+    String? idToken;
+    try {
+      if (kIsWeb) {
+        try {
+          final tokens = await GoogleSignInPlatform.instance
+              .getTokens(email: googleUser.email);
+          idToken = tokens.idToken;
+          AppLogger.log('✅ Got ID token using getTokens method');
+        } catch (getTokensError) {
           AppLogger.log(
-              '🔑 JWT Token received: ${token?.toString().substring(0, 20)}...');
-
-          // Save JWT in shared preferences
-          SharedPreferences prefs = await SharedPreferences.getInstance();
-          await prefs.setString('jwt_token', token);
-          await prefs.setString('google_id', googleUser.id);
-          
-          // **NEW: Save Refresh Token**
-          if (authData['refreshToken'] != null) {
-            await prefs.setString('refresh_token', authData['refreshToken']);
-            await _markSlidingRefreshActivity(prefs);
-            AppLogger.log('🔑 Refresh Token received and saved');
-          }
-
-          // **NEW: Register E2EE Keys**
-          _registerE2eeKeysNonBlocking();
-
-          // **OPTIMIZED: Retry saving FCM token non-blocking (fire and forget)**
-          unawaited(() async {
-            try {
-              final notificationService = NotificationService();
-              if (notificationService.isInitialized) {
-                await notificationService.retrySaveToken();
-              }
-            } catch (e) {
-              AppLogger.log('⚠️ Error retrying FCM token save: $e');
-            }
-          }());
-
-          // **OPTIMIZED: Sync watch history non-blocking (fire and forget)**
-          // This ensures watched videos don't appear again after login
-          // Don't block sign-in completion for this
-          unawaited(() async {
-            try {
-              final platformId = await PlatformIdService().getPlatformId();
-              final syncResponse = await httpClientService.post(
-                Uri.parse('${NetworkHelper.apiBaseUrl}/videos/sync-watch-history'),
-                headers: {
-                  'Content-Type': 'application/json',
-                'Authorization': 'Bearer ${authData['accessToken'] ?? authData['token']}',
-                  if (platformId.isNotEmpty) 'x-device-id': platformId,
-                },
-                body: jsonEncode({
-                  'platformId': platformId,
-                }),
-                timeout: const Duration(seconds: 3),
-              );
-
-              if (syncResponse.statusCode == 200) {
-                final syncData = jsonDecode(syncResponse.body);
-                AppLogger.log(
-                    '✅ Watch history synced successfully: ${syncData['syncedCount']} videos');
-              } else {
-                AppLogger.log(
-                    '⚠️ Watch history sync failed: ${syncResponse.statusCode}');
-              }
-            } catch (e) {
-              // Non-critical - don't fail login if sync fails
-              AppLogger.log(
-                  '⚠️ Error syncing watch history (non-critical): $e');
-            }
-          }());
-
-          // **OPTIMIZED: User registration is handled by /api/auth endpoint**
-          // We no longer need a separate call to /api/users/register
-
-          final backendUser = authData['user'];
-          final isNewUser = backendUser?['isNewUser'] ?? false;
-
-          if (isNewUser) {
-             AppLogger.log('✅ New user detected via Auth endpoint');
-             // Fire and forget - don't block sign-in completion
-             unawaited(_trackReferralCodeAsync());
-
-              // Show location onboarding for new users
-              // Add small delay to ensure context is available
-              Future.delayed(const Duration(milliseconds: 500), () {
-                _showLocationOnboardingAfterSignIn();
-              });
-          }
-
-          // **FIXED: Use Google account data if backend data is missing**
-          // Priority: 1) Backend registered data, 2) Google account data
-          final finalName =
-              backendUser?['name'] ?? googleUser.displayName ?? 'User';
-          final finalProfilePic = backendUser?['profilePic'] ??
-              backendUser?['profilePicture'] ??
-              googleUser.photoUrl;
-
-          // Save to SharedPreferences with fresh Google data
-          final fallbackData = {
-            'id': googleUser.id,
-            'googleId': googleUser.id,
-            'name': finalName,
-            'email': googleUser.email,
-            'profilePic': finalProfilePic,
-          };
-          await prefs.setString('fallback_user', jsonEncode(fallbackData));
-          AppLogger.log('✅ Saved fallback_user with Google account data');
-
-          // **OPTIMIZED: Store device ID in parallel (non-blocking)**
-          // Device ID storage is critical but doesn't need to block sign-in completion
-          unawaited(_ensurePlatformIdStored(deviceId));
-
-          // Return combined user data immediately (device ID storage happens in background)
-          return {
-            'id': googleUser.id,
-            'googleId': googleUser.id,
-            'name': finalName,
-            'email': googleUser.email,
-            'profilePic': finalProfilePic,
-            'token': token,
-          };
-        } else {
-          AppLogger.log(
-              '❌ Backend authentication failed: ${authResponse.body}');
-
-          // **IMPROVED: Better error messages for JWT issues**
-          final errorBody = jsonDecode(authResponse.body);
-          String errorMessage = 'Backend authentication failed';
-
-          if (errorBody['error'] != null) {
-            errorMessage = errorBody['error'];
-            if (errorBody['details'] != null) {
-              errorMessage += ': ${errorBody['details']}';
-            }
-          }
-
-          // Check for specific JWT/Google auth errors
-          if (errorMessage.contains('JWT_SECRET') ||
-              errorMessage.contains('GOOGLE_CLIENT_ID')) {
-            errorMessage =
-                '🔐 Backend configuration error: $errorMessage\n\nPlease check your backend .env file for missing variables.';
-          } else if (errorMessage.contains('Google SignIn failed')) {
-            errorMessage =
-                '🔐 Google authentication failed: $errorMessage\n\nPlease verify your Google OAuth configuration.';
-          }
-
-          // Try to provide a fallback for development/testing
-          if (AppConfig.baseUrl.contains('localhost') ||
-              AppConfig.baseUrl.contains('192.168')) {
-            AppLogger.log(
-                '🔄 Backend appears to be local, creating fallback session...');
-            return await _createFallbackSession(googleUser);
-          }
-
-          throw Exception(errorMessage);
+              '⚠️ getTokens failed, trying authentication method: $getTokensError');
+          final GoogleSignInAuthentication googleAuth =
+              await googleUser.authentication;
+          idToken = googleAuth.idToken;
+          AppLogger.log('✅ Got ID token using authentication method');
         }
-      } catch (e) {
-        AppLogger.log('❌ Backend communication error: $e');
-
-        // If backend is unreachable, try to reconnect and retry
-        if (e.toString().contains('SocketException') ||
-            e.toString().contains('Connection refused') ||
-            e.toString().contains('timeout')) {
-          AppLogger.log(
-              '🔄 Backend unreachable, checking server connectivity...');
-
-          // Try to find a working server
-          try {
-            await AppConfig.checkAndUpdateServerUrl();
-            AppLogger.log('🔄 Retrying with updated server URL...');
-
-            // Retry the authentication with new URL
-            final authResponse = await http
-                .post(
-                  Uri.parse(NetworkHelper.authEndpoint),
-                  headers: {'Content-Type': 'application/json'},
-                  body: jsonEncode({
-                    'idToken': idToken,
-                    'deviceId': deviceId,
-                    'deviceName': deviceName,
-                    'platform': platform,
-                  }),
-                )
-                .timeout(const Duration(seconds: 5));
-
-            if (authResponse.statusCode == 200) {
-              final authData = jsonDecode(authResponse.body);
-              SharedPreferences prefs = await SharedPreferences.getInstance();
-              await prefs.setString('jwt_token', authData['token']);
-
-              // Continue with user registration...
-              final userData = {
-                'googleId': googleUser.id,
-                'name': googleUser.displayName ?? 'User',
-                'email': googleUser.email,
-                'profilePic': googleUser.photoUrl,
-              };
-
-              await httpClientService.post(
-                Uri.parse('${NetworkHelper.usersEndpoint}/register'),
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode(userData),
-              );
-
-              // **CRITICAL: ALWAYS store device ID after successful retry authentication**
-              await _ensurePlatformIdStored(deviceId);
-
-              // **NEW: Register E2EE Keys**
-              _registerE2eeKeysNonBlocking();
-
-              return {
-                'id': googleUser.id,
-                'googleId': googleUser.id,
-                'name': googleUser.displayName ?? 'User',
-                'email': googleUser.email,
-                'profilePic': googleUser.photoUrl,
-                'token': authData['token'],
-              };
-            }
-          } catch (retryError) {
-            AppLogger.log('❌ Retry failed: $retryError');
-          }
-
-          AppLogger.log('🔄 All servers failed, creating fallback session...');
-          return await _createFallbackSession(googleUser);
-        }
-
-        throw Exception('Failed to communicate with backend: $e');
+      } else {
+        final GoogleSignInAuthentication googleAuth =
+            await googleUser.authentication;
+        idToken = googleAuth.idToken;
       }
     } catch (e) {
-      AppLogger.log('❌ Google Sign-In Error: $e');
-      throw Exception('Sign-in failed: $e');
+      AppLogger.log('❌ Error obtaining Google tokens: $e');
+    }
+
+    if (idToken == null || idToken.isEmpty) {
+      throw const AuthException(
+        AuthFailureKind.configuration,
+        'Google did not return an authentication token. Please try again.',
+      );
+    }
+    return idToken;
+  }
+
+  /// Posts to the auth endpoint, retrying once against a re-resolved server URL
+  /// when the first attempt never reached the backend.
+  ///
+  /// Returns the decoded 200 body. Throws [AuthException] otherwise — there is
+  /// deliberately no local "fallback session": a device that never reached the
+  /// backend has no session, and pretending otherwise shows a success message
+  /// for an account that cannot like, upload, or earn.
+  Future<Map<String, dynamic>> _exchangeGoogleTokenForSession(
+      Map<String, dynamic> payload) async {
+    http.Response response;
+    try {
+      response = await _postAuth(payload);
+    } catch (e) {
+      if (!_isConnectivityError(e)) {
+        AppLogger.log('❌ Backend communication error: $e');
+        throw AuthException(
+          AuthFailureKind.server,
+          AppText.get('error_sign_in_server'),
+          cause: e,
+        );
+      }
+
+      AppLogger.log('🔄 Backend unreachable, checking server connectivity...');
+      try {
+        await AppConfig.checkAndUpdateServerUrl();
+        AppLogger.log('🔄 Retrying with updated server URL...');
+        response = await _postAuth(payload);
+      } catch (retryError) {
+        AppLogger.log('❌ Retry failed: $retryError');
+        throw AuthException(
+          AuthFailureKind.network,
+          AppText.get('error_sign_in_network'),
+          cause: retryError,
+        );
+      }
+    }
+
+    AppLogger.log('📡 Backend auth response status: ${response.statusCode}');
+
+    if (response.statusCode == 200) {
+      try {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (e) {
+        throw AuthException(
+          AuthFailureKind.server,
+          AppText.get('error_sign_in_server'),
+          cause: e,
+        );
+      }
+    }
+
+    AppLogger.log('❌ Backend authentication failed: ${response.statusCode}');
+    throw AuthException(
+      AuthFailureKind.server,
+      AppText.get('error_sign_in_server'),
+      cause: _describeAuthError(response),
+    );
+  }
+
+  Future<http.Response> _postAuth(Map<String, dynamic> payload) {
+    return http
+        .post(
+          Uri.parse(NetworkHelper.authEndpoint),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(payload),
+        )
+        .timeout(const Duration(seconds: 10));
+  }
+
+  bool _isConnectivityError(Object e) {
+    if (e is TimeoutException) return true;
+    final text = e.toString().toLowerCase();
+    return text.contains('socketexception') ||
+        text.contains('connection refused') ||
+        text.contains('connection closed') ||
+        text.contains('failed host lookup') ||
+        text.contains('network is unreachable') ||
+        text.contains('timeout');
+  }
+
+  /// Internal-only detail kept out of the user-facing message.
+  String _describeAuthError(http.Response response) {
+    try {
+      final body = jsonDecode(response.body);
+      final error = body['error'];
+      final details = body['details'];
+      if (error != null) {
+        return details != null ? '$error: $details' : '$error';
+      }
+    } catch (_) {}
+    return 'HTTP ${response.statusCode}';
+  }
+
+  /// Everything that turns a verified backend response into a live session.
+  Future<Map<String, dynamic>> _persistGoogleSession(
+    GoogleSignInAccount googleUser,
+    Map<String, dynamic> authData,
+    String deviceId,
+  ) async {
+    AppLogger.log('✅ Backend authentication successful');
+
+    // **FIXED: Use accessToken (new backend format)**
+    final token = (authData['accessToken'] ?? authData['token'])?.toString();
+    if (token == null || token.isEmpty) {
+      throw const AuthException(
+        AuthFailureKind.server,
+        'Sign-in response was incomplete. Please try again.',
+      );
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('jwt_token', token);
+    await prefs.setString('google_id', googleUser.id);
+    await prefs.setBool('auth_needs_login', false);
+
+    if (authData['refreshToken'] != null) {
+      await prefs.setString('refresh_token', authData['refreshToken']);
+      await _markSlidingRefreshActivity(prefs);
+      AppLogger.log('🔑 Refresh Token received and saved');
+    }
+
+    // **NEW: Register E2EE Keys**
+    _registerE2eeKeysNonBlocking();
+
+    // **OPTIMIZED: Retry saving FCM token non-blocking (fire and forget)**
+    unawaited(() async {
+      try {
+        final notificationService = NotificationService();
+        if (notificationService.isInitialized) {
+          await notificationService.retrySaveToken();
+        }
+      } catch (e) {
+        AppLogger.log('⚠️ Error retrying FCM token save: $e');
+      }
+    }());
+
+    // **OPTIMIZED: Sync watch history non-blocking (fire and forget)**
+    // Ensures watched videos don't appear again after login.
+    unawaited(_syncWatchHistoryNonBlocking(token));
+
+    final backendUser = authData['user'];
+    if (backendUser?['isNewUser'] == true) {
+      AppLogger.log('✅ New user detected via Auth endpoint');
+      unawaited(_trackReferralCodeAsync());
+
+      // Show location onboarding for new users once the frame settles.
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _showLocationOnboardingAfterSignIn();
+      });
+    }
+
+    // **FIXED: Use Google account data if backend data is missing**
+    final finalName = backendUser?['name'] ?? googleUser.displayName ?? 'User';
+    final finalProfilePic = backendUser?['profilePic'] ??
+        backendUser?['profilePicture'] ??
+        googleUser.photoUrl;
+
+    await prefs.setString(
+        'fallback_user',
+        jsonEncode({
+          'id': googleUser.id,
+          'googleId': googleUser.id,
+          'name': finalName,
+          'email': googleUser.email,
+          'profilePic': finalProfilePic,
+        }));
+    AppLogger.log('✅ Saved fallback_user with Google account data');
+
+    // **OPTIMIZED: Store device ID in parallel (non-blocking)**
+    unawaited(_ensurePlatformIdStored(deviceId));
+
+    return {
+      'id': googleUser.id,
+      'googleId': googleUser.id,
+      'name': finalName,
+      'email': googleUser.email,
+      'profilePic': finalProfilePic,
+      'token': token,
+    };
+  }
+
+  Future<void> _syncWatchHistoryNonBlocking(String token) async {
+    try {
+      final platformId = await PlatformIdService().getPlatformId();
+      final syncResponse = await httpClientService.post(
+        Uri.parse('${NetworkHelper.apiBaseUrl}/videos/sync-watch-history'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+          if (platformId.isNotEmpty) 'x-device-id': platformId,
+        },
+        body: jsonEncode({'platformId': platformId}),
+        timeout: const Duration(seconds: 3),
+      );
+
+      if (syncResponse.statusCode == 200) {
+        AppLogger.log('✅ Watch history synced successfully');
+      } else {
+        AppLogger.log(
+            '⚠️ Watch history sync failed: ${syncResponse.statusCode}');
+      }
+    } catch (e) {
+      // Non-critical - never fails a login.
+      AppLogger.log('⚠️ Error syncing watch history (non-critical): $e');
+    }
+  }
+
+  /// Clears the Google session left behind by an attempt that never produced a
+  /// backend session, so the account picker reappears on the next try.
+  Future<void> _abandonSignIn() async {
+    try {
+      await _googleSignIn.signOut();
+    } catch (e) {
+      AppLogger.log('ℹ️ Post-failure signOut ignored: $e');
     }
   }
 
@@ -601,57 +580,6 @@ class AuthService implements IAuthService {
     return result;
   }
 
-  // **NEW: Create fallback session when backend is unavailable**
-  Future<Map<String, dynamic>?> _createFallbackSession(
-      GoogleSignInAccount googleUser) async {
-    try {
-      AppLogger.log('🔄 Creating fallback session for: ${googleUser.email}');
-
-      // Generate a temporary token for local use
-      final tempToken =
-          'temp_${DateTime.now().millisecondsSinceEpoch}_${googleUser.id}';
-
-      // Save temporary token
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('jwt_token', tempToken);
-      await prefs.setString(
-          'fallback_user',
-          jsonEncode({
-            'id': googleUser.id,
-            'googleId': googleUser.id, // Add explicit googleId field
-            'name': googleUser.displayName ?? 'User',
-            'email': googleUser.email,
-            'profilePic': googleUser.photoUrl,
-            'isFallback': true,
-          }));
-
-      // **CRITICAL: ALWAYS store platform ID even in fallback mode**
-      await _ensurePlatformIdStored(await PlatformIdService().getPlatformId());
-
-      // **NEW: Register E2EE Keys**
-      _registerE2eeKeysNonBlocking();
-
-      AppLogger.log('✅ Fallback session created successfully');
-
-      // Show location onboarding for fallback users too
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _showLocationOnboardingAfterSignIn();
-      });
-
-      return {
-        'id': googleUser.id,
-        'googleId': googleUser.id, // Add explicit googleId field
-        'name': googleUser.displayName ?? 'User',
-        'email': googleUser.email,
-        'profilePic': googleUser.photoUrl,
-        'token': tempToken,
-        'isFallback': true,
-      };
-    } catch (e) {
-      AppLogger.log('❌ Failed to create fallback session: $e');
-      return null;
-    }
-  }
 
   // **NEW: Show location onboarding after successful sign in**
   static void _showLocationOnboardingAfterSignIn() async {
@@ -1630,10 +1558,11 @@ class AuthService implements IAuthService {
         return true;
       }
 
-      // Check if it's a fallback token (starts with "temp_")
+      // Legacy offline "fallback" token from an older build. It was never
+      // accepted by the backend, so it must not count as a session.
       if (token.startsWith('temp_')) {
-        AppLogger.log('Fallback token detected, skipping expiry check');
-        return false; // Fallback tokens are always considered valid
+        AppLogger.log('Legacy fallback token detected, forcing re-login');
+        return true;
       }
 
       // Expired access token: try refresh once before forcing re-login.

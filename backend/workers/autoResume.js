@@ -1,7 +1,6 @@
 import cron from 'node-cron';
 import mongoose from 'mongoose';
 import Video from '../models/Video.js';
-import apiRateLimiter from '../services/rateLimiting/apiRateLimiter.js';
 
 /**
  * Auto-Resume Cron
@@ -61,17 +60,10 @@ class AutoResumeCron {
   }
 
   /**
-   * Reset all rate limiter daily counters
+   * Log rate limiter status (monitoring only)
    */
   async _resetRateLimiters() {
-    apiRateLimiter.reset();
-    console.log('🔄 AutoResumeCron: Rate limiter counters reset');
-
-    // Log current stats
-    const stats = apiRateLimiter.getStats();
-    for (const [provider, data] of Object.entries(stats)) {
-      console.log(`   ${provider}: ${data.dailyCount}/${data.dailyLimit} used today`);
-    }
+    console.log('ℹ️ AutoResumeCron: Rate limiter reset skipped (provider-managed)');
   }
 
   /**
@@ -127,11 +119,9 @@ class AutoResumeCron {
   async getStats() {
     try {
       const pendingCount = await Video.countDocuments({ embeddingVersion: 'pending' });
-      const rateLimitStats = apiRateLimiter.getStats();
 
       return {
         pendingVideos: pendingCount,
-        rateLimits: rateLimitStats,
         lastRun: this._lastRun || null
       };
     } catch (error) {

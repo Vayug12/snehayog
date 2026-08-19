@@ -74,6 +74,13 @@ const UserSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // **NEW: Last time the creator opened their subscriber list.**
+  // Followers created after this instant are "unseen" and drive the red dot
+  // on the profile Subscribers stat. `null` = never opened.
+  subscribersSeenAt: {
+    type: Date,
+    default: null
+  },
   preferredCurrency: {
     type: String,
     enum: ['INR', 'USD', 'EUR', 'GBP', 'CAD', 'AUD'],

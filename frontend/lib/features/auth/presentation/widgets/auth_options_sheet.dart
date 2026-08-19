@@ -136,8 +136,14 @@ class _AuthOptionsSheetState extends State<_AuthOptionsSheet> {
       _error = null;
     });
     try {
-      final user = await widget.authController.signIn();
-      if (mounted && user != null) Navigator.of(context).pop(user);
+      final result = await widget.authController.signIn();
+      if (!mounted) return;
+      if (result.isSuccess) {
+        Navigator.of(context).pop(result.user);
+      } else if (result.isFailure) {
+        // Cancelling leaves the sheet untouched; only real failures explain.
+        setState(() => _error = result.message);
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _error = e.toString().replaceFirst('Exception: ', ''));

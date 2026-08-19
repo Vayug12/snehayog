@@ -184,3 +184,61 @@ export const PROVIDER_MODELS = {
   'claude-code': process.env.POST_AGENT_CLAUDE_CODE_MODEL,
   claude: process.env.POST_AGENT_CLAUDE_MODEL || 'claude-sonnet-5',
 };
+
+export const TRENDING_CATEGORIES = {
+  ai: {
+    name: 'AI & Machine Learning',
+    queries: ['artificial intelligence news this week', 'AI startup trends latest', 'generative AI breakthroughs'],
+    hashtags: ['#AI', '#MachineLearning', '#GenerativeAI', '#LLM', '#ArtificialIntelligence'],
+  },
+  technology: {
+    name: 'Technology',
+    queries: ['technology news today', 'tech industry trends', 'latest tech product launches'],
+    hashtags: ['#Technology', '#TechNews', '#Innovation', '#DigitalTransformation'],
+  },
+  startup: {
+    name: 'Startups',
+    queries: ['startup funding news this week', 'new startup launches', 'founder stories startup'],
+    hashtags: ['#Startup', '#Founders', '#VentureCapital', '#StartupLife'],
+  },
+  'indian startup': {
+    name: 'Indian Startups',
+    queries: ['Indian startup funding news', 'India tech startup news', 'Indian founders stories'],
+    hashtags: ['#IndiaStartup', '#MadeInIndia', '#BharatTech', '#IndianFounders'],
+  },
+  'creator economy': {
+    name: 'Creator Economy',
+    queries: ['creator economy news', 'creator monetization trends', 'social media creator updates'],
+    hashtags: ['#CreatorEconomy', '#CreatorMonetization', '#ContentCreators'],
+  },
+  'digital marketing': {
+    name: 'Digital Marketing',
+    queries: ['digital marketing trends latest', 'social media marketing news', 'SEO algorithm updates'],
+    hashtags: ['#DigitalMarketing', '#MarketingTrends', '#SocialMediaMarketing'],
+  },
+  fintech: {
+    name: 'Fintech',
+    queries: ['fintech news this week', 'digital payments trends', 'neobank latest updates'],
+    hashtags: ['#Fintech', '#DigitalPayments', '#BankingTech'],
+  },
+  edtech: {
+    name: 'EdTech',
+    queries: ['edtech news latest', 'online learning trends', 'education technology updates'],
+    hashtags: ['#EdTech', '#OnlineLearning', '#FutureOfEducation'],
+  },
+  saas: {
+    name: 'SaaS',
+    queries: ['SaaS news this week', 'B2B software trends', 'SaaS company updates'],
+    hashtags: ['#SaaS', '#B2B', '#SoftwareAsAService'],
+  },
+  web3: {
+    name: 'Web3 & Blockchain',
+    queries: ['web3 news latest', 'blockchain technology updates', 'crypto market trends'],
+    hashtags: ['#Web3', '#Blockchain', '#Crypto', '#Decentralized'],
+  },
+  sustainability: {
+    name: 'Sustainability',
+    queries: ['sustainability news this week', 'green tech trends', 'climate tech updates'],
+    hashtags: ['#Sustainability', '#GreenTech', '#ClimateAction'],
+  },
+};

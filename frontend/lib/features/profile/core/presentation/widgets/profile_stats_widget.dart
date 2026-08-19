@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vayug/core/design/radius.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
+import 'package:vayug/features/profile/core/presentation/widgets/new_subscribers_dot.dart';
 import 'package:vayug/shared/services/profile_screen_logger.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/shared/utils/app_text.dart';
@@ -17,6 +18,9 @@ class ProfileStatsWidget extends ConsumerWidget {
   final VoidCallback? onEarningsTap;
   final int? refreshKey;
 
+  /// Own profile only — shows the red dot while subscribers are unseen
+  final bool showNewSubscribersDot;
+
   const ProfileStatsWidget({
     super.key,
     required this.stateManager,
@@ -26,6 +30,7 @@ class ProfileStatsWidget extends ConsumerWidget {
     this.onFollowersTap,
     this.onEarningsTap,
     this.refreshKey,
+    this.showNewSubscribersDot = false,
   });
 
   @override
@@ -77,6 +82,7 @@ class ProfileStatsWidget extends ConsumerWidget {
                 isFollowersLoaded ? _getFollowersCount(context, ref) : '...',
                 isLoading: !isFollowersLoaded,
                 onTap: onFollowersTap,
+                showNewSubscribersDot: showNewSubscribersDot,
               ),
             ),
             Container(width: 1, height: 40, color: AppColors.borderPrimary),
@@ -107,33 +113,49 @@ class ProfileStatsWidget extends ConsumerWidget {
     VoidCallback? onTap,
     bool isLoading = false,
     String? loadingText,
+    bool showNewSubscribersDot = false,
   }) {
+    final Widget valueText = Text(
+      isLoading
+          ? (loadingText ?? '...')
+          : (isEarnings
+              ? (value is double
+                      ? value
+                      : double.tryParse(value.toString()) ?? 0.0)
+                  .toStringAsFixed(2)
+              : value.toString()),
+      style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.5,
+          ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+    );
+
     return RepaintBoundary(
       child: Column(
         children: [
           GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: onTap,
             child: MouseRegion(
               cursor: isEarnings && onTap != null
                   ? SystemMouseCursors.click
                   : SystemMouseCursors.basic,
-              child: Text(
-                isLoading
-                    ? (loadingText ?? '...')
-                    : (isEarnings
-                        ? (value is double
-                                ? value
-                                : double.tryParse(value.toString()) ?? 0.0)
-                            .toStringAsFixed(2)
-                        : value.toString()),
-                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
-                    ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-              ),
+              child: showNewSubscribersDot
+                  ? Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        valueText,
+                        const Positioned(
+                          top: -1,
+                          right: -12,
+                          child: NewSubscribersDot(),
+                        ),
+                      ],
+                    )
+                  : valueText,
             ),
           ),
           const SizedBox(height: 8),

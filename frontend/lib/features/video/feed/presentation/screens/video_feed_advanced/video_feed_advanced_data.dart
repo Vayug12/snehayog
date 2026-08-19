@@ -322,9 +322,31 @@ extension _VideoFeedDataOperations on _VideoFeedAdvancedState {
         final removedVideoIds =
             _videos.take(actualRemoveCount).map((v) => v.id).toList();
 
+        // Remember the video on screen by id, not by arithmetic: an index that
+        // lands one slot off after the shift silently selects a different video
+        // instead of failing.
+        final currentVideoId =
+            (_currentIndex >= 0 && _currentIndex < _videos.length)
+                ? _videos[_currentIndex].id
+                : null;
+
         _videos.removeRange(0, actualRemoveCount);
-        _currentIndex =
-            (_currentIndex - actualRemoveCount).clamp(0, _videos.length - 1);
+
+        final shiftedIndex =
+            FeedPageAlignment.indexOfVideoId(_videos, currentVideoId);
+        _currentIndex = shiftedIndex != -1
+            ? shiftedIndex
+            : (_currentIndex - actualRemoveCount).clamp(0, _videos.length - 1);
+
+        // Every index below the viewport just moved, but the PageView keeps its
+        // old scroll offset, so without this the feed displays one video and
+        // plays another. Deferred because this runs inside setState and a
+        // scroll cannot be started during a build.
+        final targetIndex = _currentIndex;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          FeedPageAlignment.jumpToIndex(_pageController, targetIndex);
+        });
 
         _cleanupVideoStateMapsByIds(removedVideoIds);
       }

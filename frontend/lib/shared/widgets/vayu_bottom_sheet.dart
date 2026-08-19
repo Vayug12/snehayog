@@ -10,6 +10,7 @@ class VayuBottomSheet extends StatelessWidget {
   final IconData? icon;
   final Color? iconColor;
   final bool showHandle;
+  final bool showCloseButton;
   final EdgeInsetsGeometry? padding;
   final List<Widget>? actions;
   final ScrollController? scrollController;
@@ -24,6 +25,7 @@ class VayuBottomSheet extends StatelessWidget {
     this.icon,
     this.iconColor,
     this.showHandle = true,
+    this.showCloseButton = true,
     this.padding,
     this.actions,
     this.scrollController,
@@ -41,6 +43,7 @@ class VayuBottomSheet extends StatelessWidget {
     IconData? icon,
     Color? iconColor,
     bool showHandle = true,
+    bool showCloseButton = true,
     bool isScrollControlled = true,
     EdgeInsetsGeometry? padding,
     List<Widget>? actions,
@@ -69,6 +72,7 @@ class VayuBottomSheet extends StatelessWidget {
               icon: icon,
               iconColor: iconColor,
               showHandle: showHandle,
+              showCloseButton: showCloseButton,
               padding: padding,
               actions: actions,
               scrollController: scrollController,
@@ -84,6 +88,7 @@ class VayuBottomSheet extends StatelessWidget {
           icon: icon,
           iconColor: iconColor,
           showHandle: showHandle,
+          showCloseButton: showCloseButton,
           padding: padding,
           actions: actions,
           height: height,
@@ -146,33 +151,38 @@ class VayuBottomSheet extends StatelessWidget {
                     ),
                   ),
                 
-                // Header
-                if (title != null)
+                // Header. A titleless sheet still gets one when it has actions,
+                // so a corner control has somewhere to sit.
+                if (title != null || (actions?.isNotEmpty ?? false))
                   Padding(
                     padding: EdgeInsets.fromLTRB(20, showHandle ? 0 : (isLandscape ? 8 : 20), 12, isLandscape ? 6 : 12),
                     child: Row(
                       children: [
-                        if (icon != null) ...[
-                          Icon(icon, color: iconColor ?? AppColors.primary, size: isLandscape ? 18 : 22),
-                          const SizedBox(width: 12),
-                        ],
-                        Expanded(
-                          child: Text(
-                            title!,
-                            style: AppTypography.titleMedium.copyWith(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.5,
-                              fontSize: isLandscape ? 14.0 : null,
+                        if (title != null) ...[
+                          if (icon != null) ...[
+                            Icon(icon, color: iconColor ?? AppColors.primary, size: isLandscape ? 18 : 22),
+                            const SizedBox(width: 12),
+                          ],
+                          Expanded(
+                            child: Text(
+                              title!,
+                              style: AppTypography.titleMedium.copyWith(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: -0.5,
+                                fontSize: isLandscape ? 14.0 : null,
+                              ),
                             ),
                           ),
-                        ),
+                        ] else
+                          const Spacer(),
                         if (actions != null) ...actions!,
-                        IconButton(
-                          icon: const Icon(Icons.close, color: AppColors.textTertiary, size: 18),
-                          onPressed: () => Navigator.pop(context),
-                          visualDensity: VisualDensity.compact,
-                        ),
+                        if (showCloseButton)
+                          IconButton(
+                            icon: const Icon(Icons.close, color: AppColors.textTertiary, size: 18),
+                            onPressed: () => Navigator.pop(context),
+                            visualDensity: VisualDensity.compact,
+                          ),
                       ],
                     ),
                   ),

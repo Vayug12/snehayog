@@ -16,7 +16,6 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
   final ValueNotifier<Duration> scrubbingTargetTimeVN = ValueNotifier<Duration>(Duration.zero);
   final ValueNotifier<Duration> scrubbingDeltaVN = ValueNotifier<Duration>(Duration.zero);
   final ValueNotifier<bool> isForwardVN = ValueNotifier<bool>(true);
-  final ValueNotifier<bool> isScrollingLockedVN = ValueNotifier<bool>(false);
   final ValueNotifier<bool> isControlsLockedVN = ValueNotifier<bool>(false);
   final ValueNotifier<bool> isSeekingBufferingVN = ValueNotifier<bool>(false);
 
@@ -26,7 +25,6 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
   Duration get scrubbingTargetTime => scrubbingTargetTimeVN.value;
   Duration get scrubbingDelta => scrubbingDeltaVN.value;
   bool get isForward => isForwardVN.value;
-  bool get isScrollingLocked => isScrollingLockedVN.value;
   bool get isControlsLocked => isControlsLockedVN.value;
   bool get isSeekingBuffering => isSeekingBufferingVN.value;
 
@@ -175,7 +173,6 @@ mixin VayuPlayerGesturesMixin<T extends StatefulWidget> on State<T> {
     scrubbingTargetTimeVN.dispose();
     scrubbingDeltaVN.dispose();
     isForwardVN.dispose();
-    isScrollingLockedVN.dispose();
     isControlsLockedVN.dispose();
     isSeekingBufferingVN.dispose();
   }

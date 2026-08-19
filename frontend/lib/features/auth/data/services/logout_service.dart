@@ -23,6 +23,7 @@ class LogoutService {
       final userProv = ref.read(userProvider);
       final videoProv = ref.read(videoProvider);
       final profileStateManager = ref.read(profileStateManagerProvider);
+      final subscribersBadge = ref.read(subscribersBadgeManagerProvider);
 
       // **OPTIMIZED: parallelized logout for speed**
       await Future.wait([
@@ -52,6 +53,12 @@ class LogoutService {
           print('🚪 LogoutService: Clearing ProfileStateManager...');
           profileStateManager.clearData();
         }),
+
+        // Badge counts are per-creator: never carry them into the next session
+        Future.microtask(() {
+          print('🚪 LogoutService: Clearing subscribers badge...');
+          subscribersBadge.reset();
+        }),
       ]);
 
       // **NEW: Invalidate pure providers to ensure fresh state everywhere**
@@ -74,6 +81,7 @@ class LogoutService {
       final userProv = ref.read(userProvider);
       final videoProv = ref.read(videoProvider);
       final profileStateManager = ref.read(profileStateManagerProvider);
+      final subscribersBadge = ref.read(subscribersBadgeManagerProvider);
 
       // **OPTIMIZED: parallelized refresh for speed**
       await Future.wait([
@@ -95,6 +103,12 @@ class LogoutService {
         Future.microtask(() {
           print('🔄 LogoutService: Resetting ProfileStateManager cached data...');
           profileStateManager.clearData();
+        }),
+
+        // Next account re-fetches its own unseen count
+        Future.microtask(() {
+          print('🔄 LogoutService: Resetting subscribers badge...');
+          subscribersBadge.reset();
         }),
       ]);
 

@@ -30,14 +30,21 @@ class CreatorSuggestionsRail extends ConsumerStatefulWidget {
 class _CreatorSuggestionsRailState
     extends ConsumerState<CreatorSuggestionsRail> {
   static const int _pageSize = 12;
-  static const double _cardWidth = 104;
-  static const double _avatarRadius = 22;
+  static const double _cardWidth = 112;
+  static const double _avatarRadius = 24;
   static const double _buttonHeight = 32;
 
+  /// Tap target around the subscribe pill. The pill itself stays 32 high; the
+  /// extra few pixels are reach, not layout, so they are kept small — a card
+  /// this short shows any slack as a hole between the name and the button.
+  static const double _buttonTapHeight = 40;
+
   /// Shared by the card and its skeleton so both measure identically.
-  static EdgeInsets get _cardPadding => EdgeInsets.symmetric(
-        horizontal: AppSpacing.spacing2,
-        vertical: AppSpacing.spacing3,
+  static EdgeInsets get _cardPadding => EdgeInsets.fromLTRB(
+        AppSpacing.spacing2,
+        AppSpacing.spacing3,
+        AppSpacing.spacing2,
+        AppSpacing.spacing2,
       );
 
   final UserService _userService = UserService();
@@ -226,50 +233,51 @@ class _CreatorSuggestionsRailState
       onTap: () => _openProfile(creator),
       child: SizedBox(
         width: _cardWidth,
-        child: AspectRatio(
-          aspectRatio: 9 / 16,
-          child: Container(
-            padding: _cardPadding,
-            decoration: BoxDecoration(
-              color: AppColors.backgroundSecondary,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-            ),
-            child: Column(
-              children: [
-                CircleAvatar(
-                  radius: _avatarRadius,
-                  backgroundColor: AppColors.backgroundTertiary,
-                  backgroundImage: creator.profilePic.isNotEmpty
-                      ? CachedNetworkImageProvider(creator.profilePic)
-                      : null,
-                  child: creator.profilePic.isEmpty
-                      ? const Icon(Icons.person_outline,
-                          size: 22, color: AppColors.textTertiary)
-                      : null,
-                ),
-                SizedBox(height: AppSpacing.spacing2),
-                Text(
-                  creator.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: AppTypography.titleMedium.copyWith(height: 1.2),
-                ),
-                Text(
-                  '${FormatUtils.formatViews(creator.followerCount)} subs',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.labelSmall
-                      .copyWith(color: AppColors.textTertiary, height: 1.2),
-                ),
-                const Spacer(),
-                _buildSubscribeButton(
-                  isSubscribed: isSubscribed,
-                  isPending: isPending,
-                  onTap: () => _toggleSubscription(creator),
-                ),
-              ],
-            ),
+        // Height comes from the content. The 9:16 frame this replaced was
+        // taller than avatar + name + subs + button ever needed, and a Spacer
+        // pushed the whole surplus into one gap above the button.
+        child: Container(
+          padding: _cardPadding,
+          decoration: BoxDecoration(
+            color: AppColors.backgroundSecondary,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: _avatarRadius,
+                backgroundColor: AppColors.backgroundTertiary,
+                backgroundImage: creator.profilePic.isNotEmpty
+                    ? CachedNetworkImageProvider(creator.profilePic)
+                    : null,
+                child: creator.profilePic.isEmpty
+                    ? const Icon(Icons.person_outline,
+                        size: 24, color: AppColors.textTertiary)
+                    : null,
+              ),
+              SizedBox(height: AppSpacing.spacing2),
+              Text(
+                creator.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: AppTypography.titleMedium.copyWith(height: 1.2),
+              ),
+              Text(
+                '${FormatUtils.formatViews(creator.followerCount)} subs',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.labelSmall
+                    .copyWith(color: AppColors.textTertiary, height: 1.2),
+              ),
+              SizedBox(height: AppSpacing.spacing2),
+              _buildSubscribeButton(
+                isSubscribed: isSubscribed,
+                isPending: isPending,
+                onTap: () => _toggleSubscription(creator),
+              ),
+            ],
           ),
         ),
       ),
@@ -285,7 +293,7 @@ class _CreatorSuggestionsRailState
       onTap: isPending ? null : onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        height: 44,
+        height: _buttonTapHeight,
         child: Center(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
@@ -338,31 +346,29 @@ class _CreatorSuggestionsRailState
 
     return SizedBox(
       width: _cardWidth,
-      child: AspectRatio(
-        aspectRatio: 9 / 16,
-        child: Container(
-          padding: _cardPadding,
-          decoration: BoxDecoration(
-            color: AppColors.backgroundSecondary.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-          ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: _avatarRadius,
-                backgroundColor:
-                    AppColors.backgroundTertiary.withValues(alpha: 0.4),
-              ),
-              SizedBox(height: AppSpacing.spacing2),
-              bar(72, AppTypography.fontSizeBase * 1.2),
-              bar(40, AppTypography.fontSizeXS * 1.2),
-              const Spacer(),
-              SizedBox(
-                height: 44,
-                child: Center(child: bar(double.infinity, _buttonHeight)),
-              ),
-            ],
-          ),
+      child: Container(
+        padding: _cardPadding,
+        decoration: BoxDecoration(
+          color: AppColors.backgroundSecondary.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: _avatarRadius,
+              backgroundColor:
+                  AppColors.backgroundTertiary.withValues(alpha: 0.4),
+            ),
+            SizedBox(height: AppSpacing.spacing2),
+            bar(72, AppTypography.fontSizeBase * 1.2),
+            bar(40, AppTypography.fontSizeXS * 1.2),
+            SizedBox(height: AppSpacing.spacing2),
+            SizedBox(
+              height: _buttonTapHeight,
+              child: Center(child: bar(double.infinity, _buttonHeight)),
+            ),
+          ],
         ),
       ),
     );

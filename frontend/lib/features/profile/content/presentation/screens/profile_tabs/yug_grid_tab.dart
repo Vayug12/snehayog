@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_videos_widget.dart';
-import 'package:vayug/features/profile/core/presentation/widgets/profile_dialogs_widget.dart';
-import 'package:vayug/shared/utils/app_text.dart';
-import 'package:vayug/core/design/colors.dart';
 
 class YugGridTab extends StatelessWidget {
   final ProfileStateManager manager;
@@ -56,31 +53,6 @@ class YugGridTab extends StatelessWidget {
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.green.shade500),
                     ),
                   ),
-                ),
-              ),
-            ),
-          if (manager.isOwner &&
-              manager.videoError == null &&
-              !manager.isVideosLoading)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 24.0, bottom: 24.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    GestureDetector(
-                      onTap: () => ProfileDialogsWidget.showFAQDialog(context),
-                      child: Text(
-                        AppText.get('profile_help_guide', fallback: 'Help? Watch Guide Video'),
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),

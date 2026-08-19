@@ -10,8 +10,6 @@ class VayuVideoProgressBar extends StatefulWidget {
   final double barHeight;
   final double activeBarHeight;
   final double thumbRadius;
-  final VoidCallback? onDragStart;
-  final VoidCallback? onDragEnd;
   final Future<void> Function() onResumeAfterSeek;
   final VoidCallback? onSeekStarted;
   final void Function(double relative, Duration position)? onProgressUpdate;
@@ -24,8 +22,6 @@ class VayuVideoProgressBar extends StatefulWidget {
     this.barHeight = 2.0, // Ultra-thin idle state
     this.activeBarHeight = 8.0, // Substantial interaction state
     this.thumbRadius = 6.0,
-    this.onDragStart,
-    this.onDragEnd,
     required this.onResumeAfterSeek,
     this.onSeekStarted,
     this.onProgressUpdate,
@@ -123,7 +119,6 @@ class _VayuVideoProgressBarState extends State<VayuVideoProgressBar> with Ticker
     }
 
     _expansionController.forward();
-    widget.onDragStart?.call();
     HapticFeedback.mediumImpact();
   }
 
@@ -170,7 +165,6 @@ class _VayuVideoProgressBarState extends State<VayuVideoProgressBar> with Ticker
     }
 
     _expansionController.reverse();
-    widget.onDragEnd?.call();
     HapticFeedback.lightImpact();
   }
 

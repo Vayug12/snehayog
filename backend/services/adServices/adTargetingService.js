@@ -1,13 +1,10 @@
 import AdCreative from '../../models/AdCreative.js';
-import aiSemanticService from '../yugFeedServices/aiSemanticService.js';
 import { servableCampaignMatch, servableCampaignStage } from './campaignServability.js';
 
 /**
  * **AD TARGETING SERVICE**
  * Handles intelligent ad-video matching based on interests and categories
  * with fallback system for limited content
- * 
- * **ENHANCED: Now includes free AI-powered semantic matching**
  */
 class AdTargetingService {
   
@@ -49,11 +46,9 @@ class AdTargetingService {
   /**
    * **GET TARGETED ADS FOR VIDEO**
    * Returns ads that match the video's category and interests
-   * 
-   * **NEW: Hybrid approach with AI semantic matching**
-   * 1. Try AI semantic matching first (free, no manual rules)
-   * 2. Fallback to keyword-based matching (existing system)
-   * 3. Final fallback to any available ads
+   *
+   * 1. Keyword-based matching on category + interests
+   * 2. Fallback to any available ads
    */
   static async getTargetedAdsForVideo(videoData, options = {}) {
     const {
@@ -64,42 +59,7 @@ class AdTargetingService {
 
     try {
       console.log('🎯 AdTargetingService: Getting targeted ads for video:', videoData.id);
-      
-      // **NEW: Try AI semantic matching first**
-      try {
-        // Get all available ads for AI to choose from. The campaign must still
-        // be servable — this path previously ignored campaign state entirely,
-        // so exhausted and expired campaigns could be surfaced by AI matching.
-        const allAds = (await AdCreative.find({
-          adType: adType,
-          isActive: true,
-          reviewStatus: 'approved'
-        })
-          .populate({ path: 'campaignId', match: servableCampaignMatch() })
-          .limit(20)
-          .lean())
-          .filter(ad => ad.campaignId !== null);
 
-        if (allAds.length > 0) {
-          console.log('🤖 Attempting AI semantic matching...');
-          const aiMatchedAds = await aiSemanticService.matchSemantically(
-            videoData,
-            allAds
-          );
-          
-          if (aiMatchedAds && aiMatchedAds.length > 0) {
-            console.log(`✅ AI found ${aiMatchedAds.length} semantically matched ads`);
-            return aiMatchedAds.slice(0, limit);
-          } else {
-            console.log('⚠️ AI matching returned no results, trying keyword-based approach');
-          }
-        }
-      } catch (aiError) {
-        // AI failed, continue to fallback
-        console.log('⚠️ AI matching failed, using keyword-based fallback:', aiError.message);
-      }
-      
-      // **EXISTING: Fallback to keyword-based targeting**
       const videoCategories = this.extractVideoCategories(videoData);
       const videoInterests = this.extractVideoInterests(videoData);
       

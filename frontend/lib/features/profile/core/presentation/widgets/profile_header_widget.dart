@@ -7,6 +7,7 @@ import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/core/providers/user_data_providers.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
+import 'package:vayug/features/profile/core/presentation/widgets/new_subscribers_dot.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/utils/url_utils.dart';
@@ -20,6 +21,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
   final VoidCallback? onAddUpiId;
   final VoidCallback? onReferFriends;
   final VoidCallback? onEarningsTap;
+  final VoidCallback? onSubscribersTap;
   final VoidCallback? onSaveProfile;
   final VoidCallback? onCancelEdit;
 
@@ -33,6 +35,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
     this.onAddUpiId,
     this.onReferFriends,
     this.onEarningsTap,
+    this.onSubscribersTap,
     this.onSaveProfile,
     this.onCancelEdit,
   });
@@ -64,6 +67,9 @@ class ProfileHeaderWidget extends ConsumerWidget {
                             label: AppText.get('profile_stat_subscribers'),
                             value: _getFollowersCountString(
                                 context, stateManager, ref),
+                            onTap:
+                                isViewingOwnProfile ? onSubscribersTap : null,
+                            showNewSubscribersDot: isViewingOwnProfile,
                           ),
                         ),
                         Container(
@@ -229,20 +235,38 @@ class ProfileHeaderWidget extends ConsumerWidget {
     required String value,
     bool isHighlighted = false,
     VoidCallback? onTap,
+    bool showNewSubscribersDot = false,
   }) {
     final bool isLoadingText = value.contains('Loading');
+    final Widget valueText = Text(
+      value,
+      style: AppTypography.titleMedium.copyWith(
+        color: isHighlighted ? AppColors.primary : AppColors.textPrimary,
+        fontSize: isLoadingText ? 10 : 18,
+        fontWeight: isLoadingText ? FontWeight.w600 : FontWeight.w700,
+      ),
+    );
+
     return GestureDetector(
+      // Opaque so the whole stat column responds, not just the glyphs
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Column(
         children: [
-          Text(
-            value,
-            style: AppTypography.titleMedium.copyWith(
-              color: isHighlighted ? AppColors.primary : AppColors.textPrimary,
-              fontSize: isLoadingText ? 10 : 18,
-              fontWeight: isLoadingText ? FontWeight.w600 : FontWeight.w700,
-            ),
-          ),
+          if (showNewSubscribersDot)
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                valueText,
+                const Positioned(
+                  top: -1,
+                  right: -12,
+                  child: NewSubscribersDot(),
+                ),
+              ],
+            )
+          else
+            valueText,
           const SizedBox(height: 2),
           Text(
             label,

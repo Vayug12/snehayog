@@ -665,6 +665,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                         currentIndex: mainController.currentIndex,
                         icon: HugeIcons.strokeRoundedPlayCircle02,
                         activeIcon: HugeIcons.strokeRoundedPlayCircle02,
+                        navId: 'nav_yug',
                         label: 'Yug',
                         onTap: () => _handleNavTap(0, mainController),
                         mainController: mainController,
@@ -674,6 +675,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                         currentIndex: mainController.currentIndex,
                         icon: HugeIcons.strokeRoundedVideo01,
                         activeIcon: HugeIcons.strokeRoundedVideo01,
+                        navId: 'nav_vayu',
                         label: 'Vayu',
                         onTap: () => _handleNavTap(1, mainController),
                         mainController: mainController,
@@ -683,6 +685,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                         currentIndex: mainController.currentIndex,
                         icon: HugeIcons.strokeRoundedAddCircleHalfDot,
                         activeIcon: HugeIcons.strokeRoundedAddCircleHalfDot,
+                        navId: 'nav_upload',
                         label: 'Upload',
                         onTap: () => _handleNavTap(2, mainController),
                         mainController: mainController,
@@ -692,6 +695,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                         currentIndex: mainController.currentIndex,
                         icon: HugeIcons.strokeRoundedUserMultiple02,
                         activeIcon: HugeIcons.strokeRoundedUserMultiple02,
+                        navId: 'nav_subscriptions',
                         label: 'Subs',
                         onTap: () => _handleNavTap(3, mainController),
                         mainController: mainController,
@@ -701,6 +705,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                         currentIndex: mainController.currentIndex,
                         icon: HugeIcons.strokeRoundedUser,
                         activeIcon: HugeIcons.strokeRoundedUser,
+                        navId: 'nav_account',
                         label: 'Account',
                         onTap: () => _handleNavTap(4, mainController),
                         mainController: mainController,
@@ -715,11 +720,15 @@ class _MainScreenState extends ConsumerState<MainScreen>
   }
 
   /// Build navigation item with double-tap support for Yug tab
+  /// [navId] is the automation contract for this tab and is deliberately
+  /// independent of [label]: display copy is remote-configurable, so deriving
+  /// the identifier from it would silently break the Maestro journeys.
   Widget _buildNavItem({
     required int index,
     required int currentIndex,
     required dynamic icon,
     required dynamic activeIcon,
+    required String navId,
     required String label,
     required VoidCallback onTap,
     required MainController mainController,
@@ -730,7 +739,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
     return Expanded(
       child: Semantics(
-        identifier: 'nav_${label.toLowerCase()}',
+        identifier: navId,
         label: label,
         button: true,
         selected: isSelected,

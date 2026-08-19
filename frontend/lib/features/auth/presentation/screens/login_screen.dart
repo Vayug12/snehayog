@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
+import 'package:vayug/features/auth/presentation/controllers/auth_flow.dart';
 import 'package:vayug/core/providers/navigation_providers.dart';
 import 'package:vayug/features/onboarding/data/services/location_onboarding_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
@@ -17,6 +18,43 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _isLocalLoading = false;
+
+  /// The login screen's only sign-in path.
+  ///
+  /// Outcome messaging lives in [AuthFlow], so a timed-out backend exchange
+  /// reports the failure instead of dropping the user on the home feed with a
+  /// session that does not exist.
+  Future<void> _signInAndContinue() async {
+    ref.read(googleSignInProvider).clearError();
+
+    final result = await AuthFlow.signIn(
+      context,
+      ref,
+      onSuccess: () async {
+        if (!mounted) return;
+        // **OPTIMIZED: Parallel state refresh and pre-fetch**
+        setState(() => _isLocalLoading = true);
+        try {
+          await ref
+              .read(mainControllerProvider)
+              .refreshAppStateAfterSwitch(ref);
+        } finally {
+          if (mounted) setState(() => _isLocalLoading = false);
+        }
+      },
+    );
+
+    if (!result.isSuccess || !mounted) return;
+
+    final granted =
+        await LocationOnboardingService.showLocationOnboarding(context);
+    AppLogger.log(granted
+        ? 'User granted location permission'
+        : 'User denied location permission');
+
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, '/home');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -232,32 +270,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                             flex: 3,
                                             child: AppButton(
                                               isFullWidth: true,
-                                              onPressed: () async {
-                                                // Clear error and retry
-                                                authController.clearError();
-                                                final user =
-                                                    await authController
-                                                        .signIn();
-                                                if (user != null &&
-                                                    context.mounted) {
-                                                  // Show location permission dialog for new user
-                                                  final result =
-                                                      await LocationOnboardingService
-                                                          .showLocationOnboarding(
-                                                              context);
-                                                  if (result) {
-                                                    AppLogger.log(
-                                                        '✅ User granted location permission');
-                                                  } else {
-                                                    AppLogger.log(
-                                                        '❌ User denied location permission');
-                                                  }
-
-                                                  Navigator
-                                                      .pushReplacementNamed(
-                                                          context, '/home');
-                                                }
-                                              },
+                                              onPressed: _signInAndContinue,
                                               icon: const Icon(
                                                 Icons.refresh_rounded,
                                                 size: 18,
@@ -311,36 +324,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 AppButton(
                                   isFullWidth: true,
                                   isDisabled: authController.isLoading,
-                                  onPressed: () async {
-                                    final user = await authController.signIn();
-                                    if (user != null && context.mounted) {
-                                      final result =
-                                          await LocationOnboardingService
-                                              .showLocationOnboarding(context);
-                                      if (result) {
-                                        AppLogger.log(
-                                            '✅ User granted location permission');
-                                      } else {
-                                        AppLogger.log(
-                                            '❌ User denied location permission');
-                                      }
-
-                                      // **OPTIMIZED: Parallel state refresh and pre-fetch**
-                                      if (context.mounted) {
-                                        setState(() => _isLocalLoading = true);
-                                        final mainController =
-                                            ref.read(mainControllerProvider);
-                                        await mainController
-                                            .refreshAppStateAfterSwitch(
-                                                ref);
-                                      }
-
-                                      if (context.mounted) {
-                                        Navigator.pushReplacementNamed(
-                                            context, '/home');
-                                      }
-                                    }
-                                  },
+                                  onPressed: _signInAndContinue,
                                   icon: Image.network(
                                     'https://www.google.com/favicon.ico',
                                     height: 24,

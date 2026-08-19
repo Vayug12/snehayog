@@ -187,23 +187,14 @@ class ProfileVideosWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildConfirmedEmptyState(ProfileStateManager manager) {
-    if (!hasReferralBillingUnlock) {
-      return const SizedBox.shrink();
-    }
+  Widget _buildConfirmedEmptyState() {
     return const RepaintBoundary(
       child: Padding(
         padding: EdgeInsets.fromLTRB(24, 34, 24, 34),
         child: Column(
           children: [
-            Icon(
-              Icons.video_library_outlined,
-              size: 40,
-              color: AppColors.textTertiary,
-            ),
-            SizedBox(height: 12),
             Text(
-              'You haven\'t uploaded any videos yet.',
+              "You haven't uploaded any videos yet.",
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 15,
@@ -216,6 +207,7 @@ class ProfileVideosWidget extends StatelessWidget {
       ),
     );
   }
+
 
   Widget _buildFilteredEmptyState() {
     final label = filterVideoType?.toLowerCase() == 'vayu' ? 'Vayu' : 'Yug';
@@ -297,7 +289,7 @@ class ProfileVideosWidget extends StatelessWidget {
               manager.hasLoadedVideosSuccessfully && manager.totalVideoCount == 0;
           return _asSliver(
             isConfirmedEmpty
-                ? _buildConfirmedEmptyState(manager)
+                ? _buildConfirmedEmptyState()
                 : _buildVideoLoadError(context, manager),
           );
         }

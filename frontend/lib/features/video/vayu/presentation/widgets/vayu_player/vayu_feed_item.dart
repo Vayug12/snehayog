@@ -29,7 +29,6 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   final void Function(double, Offset) onVerticalDragUpdate;
   final VoidCallback onVerticalDragEnd;
   final void Function(double) onUnifiedHorizontalDrag;
-  final void Function(bool) onScrollingLock;
   final void Function(String) onShowSnackBar;
   final Widget Function(int) buildAdSection;
   final Widget Function(int) buildVideoInfo; // Legacy support or direct call
@@ -70,7 +69,6 @@ class VayuFeedItem extends ConsumerStatefulWidget {
     required this.onVerticalDragUpdate,
     required this.onVerticalDragEnd,
     required this.onUnifiedHorizontalDrag,
-    required this.onScrollingLock,
     required this.onShowSnackBar,
     required this.buildAdSection,
     required this.buildVideoInfo,
@@ -408,15 +406,12 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                             _scale = 1.0;
                             _offset = Offset.zero;
                           });
-                          widget.onScrollingLock(false);
                         }
                         if (_activeGesture == GestureType.horizontal) {
                           widget.onHorizontalDragEnd();
-                          widget.onScrollingLock(false);
                         }
                         if (_activeGesture == GestureType.vertical) {
                           widget.onVerticalDragEnd();
-                          widget.onScrollingLock(false);
                         }
                         _activeGesture = GestureType.none;
                         _dragHorizontalDeltaAccumulated = 0;
@@ -431,7 +426,6 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                           _scale = 1.0;
                           _offset = Offset.zero;
                         });
-                        widget.onScrollingLock(false);
                       }
                       if (_activeGesture == GestureType.horizontal) {
                         widget.onHorizontalDragEnd();
@@ -449,7 +443,6 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                       onDoubleTapDown: widget.onDoubleTapToSeek,
                       onVerticalDragStart: (_) {
                         _activeGesture = GestureType.vertical;
-                        widget.onScrollingLock(true);
                       },
                       onVerticalDragUpdate: (details) {
                         widget.onVerticalDragUpdate(
@@ -457,14 +450,12 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                       },
                       onVerticalDragEnd: (_) {
                         _activeGesture = GestureType.none;
-                        widget.onScrollingLock(false);
                         widget.onVerticalDragEnd();
                       },
                       onScaleStart: (details) {
                         if (_pointers >= 2) {
                           _isScaling = true;
                           _baseScale = _scale;
-                          widget.onScrollingLock(true);
                         }
                       },
                       onScaleUpdate: (details) {
@@ -483,7 +474,6 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                           if (_dragHorizontalDeltaAccumulated.abs() >
                               _gestureThreshold) {
                             _activeGesture = GestureType.horizontal;
-                            widget.onScrollingLock(true);
                           }
                         }
 
@@ -495,7 +485,6 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                       onScaleEnd: (details) {
                         if (_activeGesture == GestureType.horizontal) {
                           widget.onHorizontalDragEnd();
-                          widget.onScrollingLock(false);
                         }
                         _activeGesture = GestureType.none;
                         _dragHorizontalDeltaAccumulated = 0;
@@ -669,10 +658,6 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                                       activeBarHeight: isFull ? 10 : 4,
                                       thumbRadius: isFull ? 8 : 0,
                                       barCenterOffset: isFull ? null : 10,
-                                      onDragStart: () =>
-                                          widget.onScrollingLock(true),
-                                      onDragEnd: () =>
-                                          widget.onScrollingLock(false),
                                       onResumeAfterSeek:
                                           widget.onResumeAfterSeek,
                                       onSeekStarted:

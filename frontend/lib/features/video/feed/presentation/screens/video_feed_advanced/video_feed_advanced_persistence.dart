@@ -32,16 +32,12 @@ extension _VideoFeedPersistence on _VideoFeedAdvancedState {
 
       // **NEW: Try to restore by video ID first (more reliable than index)**
       if (savedVideoId != null && _videos.isNotEmpty) {
-        final videoIndex = _videos.indexWhere((v) => v.id == savedVideoId);
+        final videoIndex =
+            FeedPageAlignment.indexOfVideoId(_videos, savedVideoId);
         if (videoIndex != -1) {
           AppLogger.log(
               '✅ Restored to video ID: $savedVideoId at index $videoIndex');
-          _currentIndex = videoIndex;
-          if (_pageController.hasClients) {
-            _pageController.jumpToPage(_currentIndex);
-          }
-          WidgetsBinding.instance
-              .addPostFrameCallback((_) => _tryAutoplayCurrent());
+          _applyRestoredIndex(videoIndex);
           return;
         }
       }
@@ -52,15 +48,36 @@ extension _VideoFeedPersistence on _VideoFeedAdvancedState {
           savedIndex < _videos.length &&
           (savedType == null || savedType == widget.videoType)) {
         AppLogger.log('✅ Restored to index: $savedIndex');
-        _currentIndex = savedIndex;
-        if (_pageController.hasClients) {
-          _pageController.jumpToPage(_currentIndex);
-        }
-        WidgetsBinding.instance
-            .addPostFrameCallback((_) => _tryAutoplayCurrent());
+        _applyRestoredIndex(savedIndex);
       }
     } catch (e) {
       AppLogger.log('❌ Error restoring background state: $e');
+    }
+  }
+
+  /// Moves the index field and the viewport together, or neither.
+  ///
+  /// `_currentIndex` used to be assigned outside the `hasClients` check while
+  /// the `jumpToPage` beside it sat inside, so a restore that ran with the
+  /// PageView detached — the app resuming while the picture-in-picture tree was
+  /// still mounted — moved the index without moving the viewport, and the feed
+  /// went on playing one video while displaying another. Waiting a frame keeps
+  /// the restore working in that case instead of dropping it.
+  void _applyRestoredIndex(int index) {
+    void apply() {
+      if (!mounted || !_pageController.hasClients) return;
+      // Set before the jump: _onPageChanged returns early for an index it
+      // already holds, so the realignment does not re-run page-change work.
+      _currentIndex = index;
+      FeedPageAlignment.jumpToIndex(_pageController, index);
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _tryAutoplayCurrent());
+    }
+
+    if (_pageController.hasClients) {
+      apply();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => apply());
     }
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vayug/features/profile/core/presentation/managers/profile_state_manager.dart';
+import 'package:vayug/features/profile/core/presentation/managers/subscribers_badge_manager.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
 import 'package:vayug/core/providers/video_providers.dart';
 import 'package:vayug/core/providers/user_service_providers.dart';
@@ -22,4 +23,11 @@ final profileStateManagerProvider = ChangeNotifierProvider<ProfileStateManager>(
     noticeService: noticeService,
     paymentSetupService: paymentSetupService,
   );
+});
+
+/// Red-dot state for unseen subscribers on the profile Subscribers stat.
+/// Kept app-wide so the badge survives profile screen rebuilds.
+final subscribersBadgeManagerProvider =
+    ChangeNotifierProvider<SubscribersBadgeManager>((ref) {
+  return SubscribersBadgeManager();
 });
