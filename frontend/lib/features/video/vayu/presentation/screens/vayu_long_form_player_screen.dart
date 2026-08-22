@@ -115,21 +115,29 @@ class _VayuLongFormPlayerScreenState
   /// itself — the video then buffered forever until the page was revisited.
   /// Keyed by id rather than index because pagination shifts indices.
   final Map<String, Future<VideoPlayerController?>> _controllerRequests = {};
+  final Set<String> _controllerSetupsInFlight = {};
+
+  static const int _maxAutomaticControllerRetries = 2;
+  static const Duration _controllerRetryDelay = Duration(milliseconds: 750);
+  static const Duration _positionRestoreTimeout = Duration(seconds: 2);
+  /// A controller can finish `initialize()` while ExoPlayer is still unable to
+  /// render its first HLS frame. Treat that as a startup failure rather than
+  /// leaving an initialized-but-stalled player on screen forever.
+  static const Duration _firstFrameStartTimeout = Duration(seconds: 4);
+  static const Duration _playCommandTimeout = Duration(seconds: 2);
+  static const int _maxFirstFrameRecoveryAttempts = 2;
+  final Map<String, int> _controllerRetryCounts = {};
+  final Map<String, Timer> _controllerRetryTimers = {};
+  final Set<String> _controllerLoadFailures = {};
+  final Map<String, int> _firstFrameRecoveryAttempts = {};
+  Timer? _playbackStartVerificationTimer;
 
   /// Defers the expensive part of a page change until the scroll settles.
   Timer? _pageChangeDebounce;
 
-  /// Neighbour preloads held back until the video on screen is really running.
-  ///
-  /// A neighbour's controller opens a second stream over the same connection,
-  /// so starting one while the current video is still filling its buffer splits
-  /// the bandwidth between them: the page the user is looking at keeps spinning
-  /// while the page they did not ask for finishes first. The window opens only
-  /// once the current video reports real progress — or after
-  /// [_neighbourPreloadGrace], so a stalled current video cannot leave its
-  /// neighbours permanently unloaded.
-  static const Duration _neighbourPreloadGrace = Duration(seconds: 6);
-  Timer? _neighbourPreloadTimer;
+  /// Neighbour preloads wait for real playback progress. A fallback timer used
+  /// to start them while the visible stream was stalled, which divided the
+  /// connection exactly when the current video most needed it.
   int? _pendingNeighbourPreloadIndex;
 
   /// How many pages one replenish attempt may walk past before giving up.
@@ -262,7 +270,10 @@ class _VayuLongFormPlayerScreenState
 
     _videos.add(widget.video);
     if (widget.relatedVideos.isNotEmpty) {
-      final otherVideos = List<VideoModel>.from(widget.relatedVideos);
+      final seenVideoIds = <String>{widget.video.id};
+      final otherVideos = widget.relatedVideos
+          .where((video) => seenVideoIds.add(video.id))
+          .toList();
       otherVideos.shuffle();
       _videos.addAll(otherVideos);
     }
@@ -304,6 +315,7 @@ class _VayuLongFormPlayerScreenState
         _pinCurrentVideo();
         // Downloads started by the feed this screen was opened from are still
         // running, and would compete with the video the user just tapped.
+        // Keep only the visible video's cache work until it is playing.
         _cancelOffWindowPrefetches(_currentIndex);
         _initializePlayer(_currentIndex);
         _requestNeighbourPreload();
@@ -573,7 +585,9 @@ class _VayuLongFormPlayerScreenState
   List<double>? _pictureInPictureSourceRect() {
     final sourceContext = _pictureInPictureSourceKey.currentContext;
     final renderBox = sourceContext?.findRenderObject();
-    if (sourceContext == null || renderBox is! RenderBox || !renderBox.hasSize) {
+    if (sourceContext == null ||
+        renderBox is! RenderBox ||
+        !renderBox.hasSize) {
       return null;
     }
     final origin = renderBox.localToGlobal(Offset.zero);
@@ -635,16 +649,36 @@ class _VayuLongFormPlayerScreenState
       return false;
     }
 
-    final didPlay = await _playbackCoordinator.requestPlay(
-      _playbackSession,
-      controller,
-      reason: 'vayu index $index',
-    );
+    final bool didPlay;
+    try {
+      didPlay = await _playbackCoordinator
+          .requestPlay(
+            _playbackSession,
+            controller,
+            reason: 'vayu index $index',
+          )
+          .timeout(_playCommandTimeout);
+    } on TimeoutException {
+      AppLogger.log(
+          'Vayu play command timed out for ${_videos[index].id}; startup watchdog will recover');
+      _playbackCoordinator.pause(_playbackSession);
+      return false;
+    } catch (error) {
+      AppLogger.log(
+          'Vayu play command failed for ${_videos[index].id}: $error');
+      _playbackCoordinator.pause(_playbackSession);
+      return false;
+    }
     if (!didPlay || !_canPlayCurrentVideo(index, controller)) {
       _playbackCoordinator.pause(_playbackSession);
       return false;
     }
 
+    final value = controller.value;
+    AppLogger.log(
+        'Vayu play accepted for ${_videos[index].id} '
+        '(playing=${value.isPlaying}, buffering=${value.isBuffering}, '
+        'position=${value.position.inMilliseconds}ms)');
     _enableWakelock();
     return true;
   }
@@ -688,7 +722,8 @@ class _VayuLongFormPlayerScreenState
     _validateAndRestoreControllers();
     final controller = _controllers[_currentIndex];
     if (controller != null && controller.value.isInitialized) {
-      _playIfAllowed(_currentIndex, controller);
+      _verifyPlaybackStarted(_currentIndex, controller);
+      unawaited(_playIfAllowed(_currentIndex, controller));
     }
   }
 
@@ -751,9 +786,10 @@ class _VayuLongFormPlayerScreenState
         final bool serverHasMore = response['hasMore'] as bool? ?? true;
 
         final existingIds = _videos.map((v) => v.id).toSet();
-        final freshVideos =
-            fetched.where((v) => !existingIds.contains(v.id)).toList()
-              ..shuffle();
+        final freshVideos = fetched
+            .where((v) => !existingIds.contains(v.id))
+            .toList()
+          ..shuffle();
 
         if (freshVideos.isNotEmpty) {
           setState(() {
@@ -832,7 +868,13 @@ class _VayuLongFormPlayerScreenState
     if (inFlight != null) return inFlight;
 
     final request = _createControllerFor(index, video, highPriority)
-        .whenComplete(() => _controllerRequests.remove(video.id));
+        .whenComplete(() {
+      // Do not use the expression form here. `Map.remove` returns the removed
+      // value, which is this very Future. `whenComplete` then waits for that
+      // returned Future, creating a self-referential completion deadlock: the
+      // controller reaches the pool, but `_initializePlayer` never resumes.
+      _controllerRequests.remove(video.id);
+    });
     _controllerRequests[video.id] = request;
     return request;
   }
@@ -859,8 +901,13 @@ class _VayuLongFormPlayerScreenState
       );
       if (!admitted || _isStaleRequest(index)) return null;
 
-      controller =
-          await VideoControllerFactory.createController(_effectiveVideo(video));
+      // ExoPlayer is the only downloader during first-frame startup. The
+      // factory's optional HLS warm-up opens several parallel segment requests
+      // and can starve the stream the user is actually watching.
+      controller = await VideoControllerFactory.createController(
+        _effectiveVideo(video),
+        warmUpHls: false,
+      );
       if (_isStaleRequest(index)) {
         await controller.dispose();
         return null;
@@ -894,13 +941,115 @@ class _VayuLongFormPlayerScreenState
 
     final controller = await _acquireController(index, highPriority: true);
     // The request may have been served after the user moved on.
-    if (controller == null || _isStaleRequest(index)) return;
-
-    if (!identical(_controllers[index], controller)) {
-      _detachControllerListeners(index);
-      setState(() => _controllers[index] = controller);
+    if (_isStaleRequest(index)) return;
+    if (controller == null) {
+      _scheduleControllerRetry(index);
+      return;
     }
-    _setupLateInitialization(index, controller);
+
+    final videoId = _videos[index].id;
+    _controllerRetryTimers.remove(videoId)?.cancel();
+    _controllerRetryCounts.remove(videoId);
+    final hadLoadFailure = _controllerLoadFailures.contains(videoId);
+    final controllerChanged = !identical(_controllers[index], controller);
+    if (controllerChanged) {
+      _detachControllerListeners(index);
+    }
+    if (controllerChanged || hadLoadFailure) {
+      setState(() {
+        _controllerLoadFailures.remove(videoId);
+        if (controllerChanged) _controllers[index] = controller;
+      });
+    }
+    _scheduleControllerSetup(index, controller);
+  }
+
+  /// Starts the platform player as soon as its initialized controller has been
+  /// published to the widget tree.
+  ///
+  /// Playback does not depend on a Flutter post-frame callback: a callback
+  /// registered while the scheduler is finishing a frame can remain queued
+  /// until another UI action requests the next frame. ExoPlayer does not need
+  /// its texture widget to have painted before `play()` is called, so waiting
+  /// here only creates a startup deadlock.
+  void _scheduleControllerSetup(
+    int index,
+    VideoPlayerController controller,
+  ) {
+    if (index < 0 || index >= _videos.length) return;
+    final videoId = _videos[index].id;
+    if (!_controllerSetupsInFlight.add(videoId)) {
+      AppLogger.log('Vayu controller setup coalesced for $videoId');
+      return;
+    }
+
+    if (!mounted ||
+        index != _currentIndex ||
+        !identical(_controllers[index], controller)) {
+      _controllerSetupsInFlight.remove(videoId);
+      return;
+    }
+
+    AppLogger.log('Vayu controller ready; starting playback for $videoId');
+    unawaited(_runControllerSetup(index, controller, videoId));
+  }
+
+  Future<void> _runControllerSetup(
+    int index,
+    VideoPlayerController controller,
+    String videoId,
+  ) async {
+    try {
+      await _setupLateInitialization(index, controller);
+    } catch (error, stackTrace) {
+      AppLogger.log(
+          'Vayu controller setup failed for $videoId: $error\n$stackTrace');
+      if (mounted &&
+          index == _currentIndex &&
+          identical(_controllers[index], controller)) {
+        await _recoverFromFirstFrameStall(index, controller);
+      }
+    } finally {
+      _controllerSetupsInFlight.remove(videoId);
+    }
+  }
+
+  void _scheduleControllerRetry(int index) {
+    if (!mounted || index != _currentIndex || index >= _videos.length) return;
+    final videoId = _videos[index].id;
+    if (_controllerRetryTimers.containsKey(videoId) ||
+        _controllerLoadFailures.contains(videoId)) {
+      return;
+    }
+
+    final retryCount = _controllerRetryCounts[videoId] ?? 0;
+    if (retryCount >= _maxAutomaticControllerRetries) {
+      AppLogger.log('Controller initialization exhausted retries for $videoId');
+      setState(() => _controllerLoadFailures.add(videoId));
+      return;
+    }
+
+    _controllerRetryCounts[videoId] = retryCount + 1;
+    final delay = _controllerRetryDelay * (retryCount + 1);
+    _controllerRetryTimers[videoId] = Timer(delay, () {
+      _controllerRetryTimers.remove(videoId);
+      if (!mounted ||
+          _currentIndex >= _videos.length ||
+          _videos[_currentIndex].id != videoId) {
+        return;
+      }
+      _initializePlayer(_currentIndex);
+    });
+  }
+
+  void _retryController(int index) {
+    if (!mounted || index < 0 || index >= _videos.length) return;
+    final videoId = _videos[index].id;
+    _controllerRetryTimers.remove(videoId)?.cancel();
+    _controllerRetryCounts.remove(videoId);
+    _firstFrameRecoveryAttempts.remove(videoId);
+    setState(() => _controllerLoadFailures.remove(videoId));
+    _initializePlayer(index);
   }
 
   /// Removes this screen's listeners from whatever controller currently sits
@@ -925,6 +1074,12 @@ class _VayuLongFormPlayerScreenState
     int index,
     VideoPlayerController controller,
   ) async {
+    if (!mounted ||
+        index != _currentIndex ||
+        !identical(_controllers[index], controller)) {
+      return;
+    }
+
     if (index == _currentIndex) {
       _playbackCoordinator.attachController(_playbackSession, controller);
     }
@@ -948,21 +1103,25 @@ class _VayuLongFormPlayerScreenState
       return;
     }
 
-    final didApplySharedPosition =
-        await _applyInitialSharePosition(index, controller);
-    if (!_isCurrentPlaybackTarget(index, controller)) {
-      await controller.pause();
-      return;
-    }
-    if (!didApplySharedPosition) {
-      await _resumePlayback(index);
-    }
-    if (!_isCurrentPlaybackTarget(index, controller)) {
-      await controller.pause();
-      return;
-    }
-
+    // Capture this before playback ticks start updating _lastKnownPositions;
+    // otherwise the restore task mistakes the new 0.x-second position for a
+    // previously saved resume point and never reads the persisted position.
+    final memoryResumePosition = _lastKnownPositions[index];
+    // Arm this before awaiting the platform play call. Some Android player
+    // failures leave play() unresolved; arming it afterwards meant recovery
+    // was never scheduled for exactly that failure mode.
+    _verifyPlaybackStarted(index, controller);
     if (!await _playIfAllowed(index, controller)) return;
+    // Position restoration must never gate first playback. In particular,
+    // ExoPlayer can leave an HLS seek pending until playback starts; awaiting
+    // that seek here stranded the first opened video, while tab return worked
+    // because _resumeCurrentVideo calls play directly.
+    unawaited(_restorePlaybackPositionAfterStart(
+      index,
+      controller,
+      memoryResumePosition,
+    ));
+    if (!mounted || !_isCurrentPlaybackTarget(index, controller)) return;
     if (showControls) startHideControlsTimer(MediaQuery.orientationOf(context));
     try {
       brightnessValue = await ScreenBrightness().application;
@@ -983,6 +1142,11 @@ class _VayuLongFormPlayerScreenState
       }
       return;
     }
+    if (_hasCurrentVideoMadeProgress(index, controller)) {
+      _playbackStartVerificationTimer?.cancel();
+      _playbackStartVerificationTimer = null;
+      _firstFrameRecoveryAttempts.remove(_videos[index].id);
+    }
     if (isSeekingBufferingVN.value && controller.value.isPlaying) {
       isSeekingBufferingVN.value = false;
     }
@@ -992,6 +1156,102 @@ class _VayuLongFormPlayerScreenState
     }
     unawaited(_syncPictureInPictureState());
     _onPositionChanged();
+  }
+
+  void _verifyPlaybackStarted(
+    int index,
+    VideoPlayerController controller,
+  ) {
+    _playbackStartVerificationTimer?.cancel();
+    _playbackStartVerificationTimer = Timer(_firstFrameStartTimeout, () {
+      _playbackStartVerificationTimer = null;
+      if (!_isCurrentPlaybackTarget(index, controller)) {
+        return;
+      }
+      if (_hasCurrentVideoMadeProgress(index, controller)) return;
+      unawaited(_recoverFromFirstFrameStall(index, controller));
+    });
+  }
+
+  /// Replaces an initialized controller that never produced a first frame.
+  /// Repeating `play()` on that instance was not enough: revisiting the page
+  /// worked only because it retried setup later, after the HLS/decoder state
+  /// had changed. This makes that recovery deliberate and bounded.
+  Future<void> _recoverFromFirstFrameStall(
+    int index,
+    VideoPlayerController controller,
+  ) async {
+    if (!_isCurrentPlaybackTarget(index, controller)) {
+      return;
+    }
+    if (_hasCurrentVideoMadeProgress(index, controller)) return;
+
+    final videoId = _videos[index].id;
+    final attempts = _firstFrameRecoveryAttempts[videoId] ?? 0;
+    if (attempts >= _maxFirstFrameRecoveryAttempts) {
+      AppLogger.log(
+          'Vayu first-frame recovery exhausted for $videoId; waiting for user retry');
+      await _discardStalledController(index, controller, showLoadError: true);
+      return;
+    }
+
+    _firstFrameRecoveryAttempts[videoId] = attempts + 1;
+    AppLogger.log(
+        'Vayu first-frame stall for $videoId; rebuilding controller (${attempts + 1}/$_maxFirstFrameRecoveryAttempts)');
+    await _discardStalledController(index, controller);
+
+    // The pool frees a hardware decoder after a short disposal grace period.
+    // Do not allocate the replacement while the stalled decoder is still held.
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted || index != _currentIndex) return;
+    _initializePlayer(index);
+  }
+
+  Future<void> _discardStalledController(
+    int index,
+    VideoPlayerController controller, {
+    bool showLoadError = false,
+  }) async {
+    if (index < 0 || index >= _videos.length) return;
+    final videoId = _videos[index].id;
+    _detachControllerListeners(index);
+    if (mounted && identical(_controllers[index], controller)) {
+      setState(() {
+        _controllers.remove(index);
+        if (showLoadError) _controllerLoadFailures.add(videoId);
+      });
+    }
+    if (_controllerPool.videoIdForController(controller) == videoId) {
+      await _controllerPool.disposeController(videoId);
+      return;
+    }
+    // Another surface may have replaced this video's pooled instance while
+    // this watchdog was waiting. Never evict that healthy replacement.
+    if (!_controllerPool.isControllerDisposed(controller)) {
+      try {
+        await controller.dispose();
+      } catch (_) {}
+    }
+  }
+
+  bool _hasCurrentVideoMadeProgress(
+    int index,
+    VideoPlayerController controller,
+  ) {
+    if (!mounted ||
+        index != _currentIndex ||
+        !identical(_controllers[index], controller)) {
+      return false;
+    }
+    try {
+      final value = controller.value;
+      return value.isInitialized &&
+          value.isPlaying &&
+          !value.isBuffering &&
+          value.position >= const Duration(milliseconds: 250);
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> _applyInitialSharePosition(
@@ -1015,6 +1275,30 @@ class _VayuLongFormPlayerScreenState
     _lastKnownPositions[index] = safePosition;
     _hasAppliedInitialSharePosition = true;
     return true;
+  }
+
+  Future<void> _restorePlaybackPositionAfterStart(
+    int index,
+    VideoPlayerController controller,
+    Duration? memoryResumePosition,
+  ) async {
+    try {
+      final didApplySharedPosition = await _applyInitialSharePosition(
+        index,
+        controller,
+      ).timeout(_positionRestoreTimeout);
+      if (!_isCurrentPlaybackTarget(index, controller)) return;
+      if (!didApplySharedPosition) {
+        await _resumePlayback(index, controller, memoryResumePosition)
+            .timeout(_positionRestoreTimeout);
+      }
+    } on TimeoutException {
+      AppLogger.log(
+          'Playback position restore timed out for ${_videos[index].id}');
+    } catch (error) {
+      AppLogger.log(
+          'Playback position restore failed for ${_videos[index].id}: $error');
+    }
   }
 
   /// Returns true when [controller] is in an error state, so the caller can
@@ -1103,7 +1387,11 @@ class _VayuLongFormPlayerScreenState
     // Also drops this session's pool pin — see PlaybackCoordinator.release.
     _playbackCoordinator.release(_playbackSession);
     _pageChangeDebounce?.cancel();
-    _neighbourPreloadTimer?.cancel();
+    _playbackStartVerificationTimer?.cancel();
+    for (final timer in _controllerRetryTimers.values) {
+      timer.cancel();
+    }
+    _controllerRetryTimers.clear();
     _disableWakelock();
     appRouteObserver.unsubscribe(this);
     _seekingBufferingTimeout?.cancel();
@@ -1175,12 +1463,15 @@ class _VayuLongFormPlayerScreenState
     }
   }
 
-  Future<void> _resumePlayback(int index) async {
-    final controller = _controllers[index];
-    if (controller == null) return;
+  Future<void> _resumePlayback(
+    int index,
+    VideoPlayerController controller,
+    Duration? memoryResumePosition,
+  ) async {
+    if (!_isCurrentPlaybackTarget(index, controller)) return;
 
     // First try memory-cached position (for smooth orientation/tab switches)
-    final memoryPos = _lastKnownPositions[index];
+    final memoryPos = memoryResumePosition;
     if (memoryPos != null && memoryPos > Duration.zero) {
       if (memoryPos < controller.value.duration) {
         await controller.seekTo(memoryPos);
@@ -1190,6 +1481,7 @@ class _VayuLongFormPlayerScreenState
 
     // Fallback to persisted SharedPreferences (for app restarts)
     _prefs ??= await SharedPreferences.getInstance();
+    if (!_isCurrentPlaybackTarget(index, controller)) return;
     final savedSeconds = _prefs!.getInt('video_pos_${_videos[index].id}');
     if (savedSeconds != null && savedSeconds > 0) {
       final pos = Duration(seconds: savedSeconds);
@@ -1586,6 +1878,8 @@ class _VayuLongFormPlayerScreenState
   /// other on the UI isolate. That is the scroll jank.
   void _onPageChanged(int index) {
     if (index == _currentIndex) return;
+    _playbackStartVerificationTimer?.cancel();
+    _playbackStartVerificationTimer = null;
     final oldVideoId = _videos[_currentIndex].id;
     _quizEngine.reset(oldVideoId);
     // Stop this player's own controllers before switching the active index.
@@ -1600,10 +1894,17 @@ class _VayuLongFormPlayerScreenState
     // neighbour's LRU timestamp, which would otherwise make the video the user
     // is watching the pool's next eviction candidate.
     _pinCurrentVideo();
+    // A page change is a priority change. Stop stale cache prefetches before
+    // the new controller opens its HLS playlist, not after the settle delay.
+    _cancelOffWindowPrefetches(index);
     ref
         .read(mainControllerProvider)
         .updateCurrentVideoIndex(index, tabIndex: 1);
-    _initializePlayer(index);
+    if (_controllerLoadFailures.contains(_videos[index].id)) {
+      _retryController(index);
+    } else {
+      _initializePlayer(index);
+    }
 
     _pageChangeDebounce?.cancel();
     _pageChangeDebounce = Timer(const Duration(milliseconds: 300), () {
@@ -1637,15 +1938,20 @@ class _VayuLongFormPlayerScreenState
     return ids;
   }
 
-  /// Stops background downloads for everything outside the live window.
+  /// Stops background downloads outside the currently allowed preload window.
   ///
   /// Without this, prefetches started by the feed the user came from keep
   /// running and steal bandwidth from the video actually on screen — which is
   /// what makes a playing video buffer even though it is the only thing the
   /// user is watching.
-  void _cancelOffWindowPrefetches(int index) {
+  void _cancelOffWindowPrefetches(
+    int index, {
+    bool includeNeighbours = false,
+  }) {
     final keep = <String>{};
-    for (int i = index - 1; i <= index + 1; i++) {
+    final start = includeNeighbours ? index - 1 : index;
+    final end = includeNeighbours ? index + 1 : index;
+    for (int i = start; i <= end; i++) {
       if (i < 0 || i >= _videos.length) continue;
       final video = _videos[i];
       keep.addAll(cacheKeyUrlsFor(
@@ -1673,22 +1979,19 @@ class _VayuLongFormPlayerScreenState
 
   void _validateAndRestoreControllers() {
     if (_videos.isEmpty || !mounted) return;
-    final indices = {
-      _currentIndex,
-      if (_currentIndex + 1 < _videos.length) _currentIndex + 1,
-      if (_currentIndex - 1 >= 0) _currentIndex - 1
-    };
-    for (final idx in indices) {
-      if (!_controllers.containsKey(idx) ||
-          SharedVideoControllerPool().isControllerDisposed(_controllers[idx])) {
-        _initializePlayer(idx);
-      }
+    final currentController = _controllers[_currentIndex];
+    if (currentController == null ||
+        _controllerPool.isControllerDisposed(currentController)) {
+      // This runs from the coordinator's activation callback, including the
+      // very first route entry. Restoring neighbouring controllers here starts
+      // multiple HLS streams before the current video has rendered a frame.
+      // `_requestNeighbourPreload` owns neighbour creation after stable play.
+      _initializePlayer(_currentIndex);
     }
   }
 
-  /// True once the page on screen is genuinely streaming — initialized,
-  /// playing, and past its opening buffer. Anything less means it still needs
-  /// the connection to itself.
+  /// True once the page on screen has established stable playback. Keep all
+  /// speculative HLS work off the connection until this point.
   bool _hasCurrentVideoStarted(int index) {
     final controller = _controllers[index];
     if (controller == null) return false;
@@ -1696,25 +1999,19 @@ class _VayuLongFormPlayerScreenState
     return value.isInitialized &&
         value.isPlaying &&
         !value.isBuffering &&
-        value.position > Duration.zero;
+        value.position >= const Duration(seconds: 2);
   }
 
-  /// Opens the neighbour preload window — now if the current video is already
-  /// streaming, otherwise as soon as it starts. See [_neighbourPreloadGrace].
+  /// Opens the neighbour preload window only after the visible video is stable.
   void _requestNeighbourPreload() {
     final index = _currentIndex;
-    _neighbourPreloadTimer?.cancel();
-    _neighbourPreloadTimer = null;
-
     if (_hasCurrentVideoStarted(index)) {
       _pendingNeighbourPreloadIndex = null;
+      _cancelOffWindowPrefetches(index, includeNeighbours: true);
       _preloadNearbyVideos();
       return;
     }
-
     _pendingNeighbourPreloadIndex = index;
-    _neighbourPreloadTimer =
-        Timer(_neighbourPreloadGrace, () => _releaseNeighbourPreload(index));
   }
 
   /// Runs the deferred preload for [index], but only while it is still the page
@@ -1726,8 +2023,7 @@ class _VayuLongFormPlayerScreenState
       return;
     }
     _pendingNeighbourPreloadIndex = null;
-    _neighbourPreloadTimer?.cancel();
-    _neighbourPreloadTimer = null;
+    _cancelOffWindowPrefetches(index, includeNeighbours: true);
     _preloadNearbyVideos();
   }
 
@@ -2114,6 +2410,7 @@ class _VayuLongFormPlayerScreenState
           index: index,
           video: v,
           controller: _controllers[index],
+          hasControllerLoadError: _controllerLoadFailures.contains(v.id),
           isCurrent: index == _currentIndex,
           isFullScreenManual: _isFullScreenManual,
           showControlsVN: showControlsVN,
@@ -2124,7 +2421,13 @@ class _VayuLongFormPlayerScreenState
           pictureInPictureSourceKey:
               index == _currentIndex ? _pictureInPictureSourceKey : null,
           onOpenExternalPlayer: () => _openInExternalPlayer(v),
-          onHandleTap: () => handleTap(MediaQuery.orientationOf(context)),
+          onHandleTap: () {
+            if (_controllerLoadFailures.contains(v.id)) {
+              _retryController(index);
+              return;
+            }
+            handleTap(MediaQuery.orientationOf(context));
+          },
           onDoubleTapToSeek: (details) => handleDoubleTapToSeek(details,
               MediaQuery.sizeOf(context), MediaQuery.orientationOf(context)),
           onHorizontalDragEnd: handleHorizontalDragEnd,

@@ -331,24 +331,6 @@ export const cleanupTempHLS = async (req, res) => {
   }
 };
 
-export const generateSignedUrl = async (req, res) => {
-  try {
-    const { folder } = req.body;
-    const { default: cloudinary } = await import('cloudinary');
-    const signature = cloudinary.v2.utils.api_sign_request(
-      { timestamp: Math.round(new Date().getTime() / 1000), folder },
-      process.env.CLOUD_SECRET
-    );
-    res.json({ signature, timestamp: Math.round(new Date().getTime() / 1000), cloudName: process.env.CLOUD_NAME, apiKey: process.env.CLOUD_KEY });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to generate signature' });
-  }
-};
-
-export const getCloudinaryConfig = async (req, res) => {
-  res.json({ cloudName: process.env.CLOUD_NAME, apiKey: process.env.CLOUD_KEY, uploadPreset: 'ml_default' });
-};
-
 export const cleanupOrphaned = async (req, res) => {
   try {
     const videos = await Video.find({}).select('uploader').lean();

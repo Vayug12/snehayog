@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:video_player/video_player.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/shared/services/video_player_config_service.dart';
-import 'package:vayug/shared/managers/smart_cache_manager.dart';
 import 'package:vayug/shared/services/hls_warmup_service.dart';
 import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
@@ -13,7 +12,9 @@ import 'package:vayug/shared/exceptions/app_exceptions.dart';
 /// Factory for creating VideoPlayerController instances with optimized configuration
 class VideoControllerFactory {
   static Future<VideoPlayerController> createController(
-      VideoModel video) async {
+    VideoModel video, {
+    bool warmUpHls = true,
+  }) async {
     AppLogger.log(
         '🎬 VideoControllerFactory: createController() called for video ID: ${video.id}, isSubscriberOnly: ${video.isSubscriberOnly}');
     // **NEW: Fetch and register E2EE symmetric key if video is subscriber-only**
@@ -90,31 +91,7 @@ class VideoControllerFactory {
       videoUrl = video.hlsMasterPlaylistUrl!;
     }
 
-    // Get standardized 480p quality preset
-    final qualityPreset =
-        VideoPlayerConfigService.getQualityPreset('standard_480p');
-
-    // **CACHING INTEGRATION: Use SmartCacheManager for URL optimization**
-    final smartCache = SmartCacheManager();
-
-    // Ensure cache is initialized before use
-    if (!smartCache.isInitialized) {
-      await smartCache.initialize();
-    }
-
-    final cacheKey = 'video_url_${video.id}_${videoUrl.hashCode}';
-
-    // Get optimized video URL with caching
-    final optimizedUrl = await smartCache.get<String>(
-          cacheKey,
-          fetchFn: () async {
-            return VideoPlayerConfigService.getOptimizedVideoUrl(
-                videoUrl, qualityPreset);
-          },
-          cacheType: 'videos',
-          maxAge: const Duration(minutes: 30),
-        ) ??
-        VideoPlayerConfigService.getOptimizedVideoUrl(videoUrl, qualityPreset);
+    final optimizedUrl = videoUrl;
 
     // **ROUTING: E2EE/subscriber-only → local proxy (decryption needed)
     //            Global/public feed → direct CDN URL (no proxy overhead)**
@@ -142,7 +119,7 @@ class VideoControllerFactory {
     // Get buffering configuration
 
     // Best-effort warm-up for HLS (manifest + first segments)
-    if (optimizedUrl.contains('.m3u8')) {
+    if (warmUpHls && optimizedUrl.contains('.m3u8')) {
       // Fire-and-forget warm-up to avoid blocking UI
       HlsWarmupService().warmUp(optimizedUrl);
     }
@@ -221,10 +198,7 @@ class VideoControllerFactory {
       videoUrl = video.hlsMasterPlaylistUrl!;
     }
 
-    final qualityPreset =
-        VideoPlayerConfigService.getQualityPreset(qualityUseCase);
-    final optimizedUrl =
-        VideoPlayerConfigService.getOptimizedVideoUrl(videoUrl, qualityPreset);
+    final optimizedUrl = videoUrl;
 
     // **ROUTING: createControllerWithQuality is for public/non-E2EE content.
     //            Direct CDN URL — no proxy overhead needed.**

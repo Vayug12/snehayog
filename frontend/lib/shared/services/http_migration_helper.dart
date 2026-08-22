@@ -43,7 +43,6 @@
 /// - payment_setup_service.dart ✅ (completed)
 /// - report_service.dart ✅ (completed)
 /// - video_view_tracker.dart ✅ (completed)
-/// - signed_url_service.dart ✅ (completed)
 /// - city_search_service.dart ✅ (completed)
 /// - ad_impression_service.dart ✅ (completed)
 /// - ad_comment_service.dart ✅ (completed)

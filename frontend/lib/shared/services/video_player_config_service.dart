@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:vayug/shared/utils/app_logger.dart';
 
 /// Service for managing video player configuration and quality optimization
 class VideoPlayerConfigService {
@@ -20,61 +19,6 @@ class VideoPlayerConfigService {
   /// Get quality preset (always returns 480p standard)
   static VideoQualityPreset getQualityPreset(String useCase) {
     return _qualityPresets['standard_480p']!;
-  }
-
-  /// Get optimized video URL for specific quality preset
-  static String getOptimizedVideoUrl(
-      String originalUrl, VideoQualityPreset preset) {
-    try {
-      // Check if URL is already HLS
-      if (originalUrl.contains('.m3u8') || originalUrl.contains('f_hls')) {
-        // AppLogger.log('$_tag: URL is already HLS, no transformation needed');
-        return originalUrl;
-      }
-
-      // Transform MP4 to HLS for Cloudinary URLs
-      if (originalUrl.contains('cloudinary.com') &&
-          originalUrl.contains('.mp4')) {
-        final hlsUrl = _transformCloudinaryMp4ToHls(originalUrl, preset);
-        // AppLogger.log('$_tag: Transformed Cloudinary MP4 to HLS: $hlsUrl');
-        return hlsUrl;
-      }
-
-      // For other MP4 URLs, return as-is (consider implementing transformation)
-      // AppLogger.log('$_tag: Non-Cloudinary MP4 detected, using original URL');
-      return originalUrl;
-    } catch (e) {
-      AppLogger.log('$_tag: Error optimizing video URL: $e', isError: true);
-      return originalUrl;
-    }
-  }
-
-  /// Transform Cloudinary MP4 URLs to HLS with quality optimization
-  static String _transformCloudinaryMp4ToHls(
-      String mp4Url, VideoQualityPreset preset) {
-    try {
-      // Base HLS transformation
-      String transformation = 'f_hls,q_auto,fl_sanitize';
-
-      // Always use 480p resolution
-      transformation += ',w_854,h_480';
-
-      // Add bitrate optimization
-      transformation += ',br_${(preset.maxBitrate / 1000).round()}k';
-
-      // Add HLS-specific optimizations
-      transformation += ',fl_attachment,fl_progressive';
-
-      // Replace the upload path with transformation
-      final hlsUrl =
-          mp4Url.replaceAll('/video/upload/', '/video/upload/$transformation/');
-
-
-      return hlsUrl;
-    } catch (e) {
-      print('$_tag: Error in HLS transformation: $e');
-      return mp4Url;
-    }
   }
 
   /// Get HTTP headers optimized for video streaming

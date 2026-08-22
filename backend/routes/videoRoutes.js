@@ -70,8 +70,6 @@ router.post('/bulk-delete', verifyToken, managementController.bulkDeleteVideos);
  * Utility & Cleanup Routes
  */
 router.post('/cleanup-temp-hls', managementController.cleanupTempHLS);
-router.post('/generate-signed-url', verifyToken, managementController.generateSignedUrl);
-router.get('/cloudinary-config', managementController.getCloudinaryConfig);
 router.post('/cleanup-orphaned', managementController.cleanupOrphaned);
 router.post('/cleanup-broken-videos', managementController.cleanupBrokenVideos);
 router.post('/sync-user-video-arrays', managementController.syncUserVideoArrays);

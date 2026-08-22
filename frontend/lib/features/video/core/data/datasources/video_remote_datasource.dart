@@ -324,10 +324,6 @@ class VideoRemoteDataSource {
       } else if (errorMessage.contains('User not found')) {
         throw const AuthenticationException(
             'User not found. Please sign in again.');
-      } else if (errorMessage.contains('Cloudinary upload failed')) {
-        throw const ServerException(
-          'Video upload service is temporarily unavailable. Please try again later.',
-        );
       } else {
         throw ServerException(errorMessage);
       }

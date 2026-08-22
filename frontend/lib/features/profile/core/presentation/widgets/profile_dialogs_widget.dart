@@ -168,7 +168,7 @@ class ProfileDialogsWidget {
           title: 'Paisa kaise aayega',
           steps: [
             _FlowStep(Icons.account_balance_wallet_outlined, 'UPI ID\nDalo'),
-            _FlowStep(Icons.calendar_month_outlined, '1st Ko\nScore'),
+            _FlowStep(Icons.calendar_month_outlined, '1st Ko\nRewards'),
             _FlowStep(Icons.account_balance_outlined, 'Bank\nMein'),
           ],
           note: 'Har mahine automatic',

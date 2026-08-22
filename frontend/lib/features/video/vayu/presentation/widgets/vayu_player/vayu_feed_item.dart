@@ -14,6 +14,7 @@ class VayuFeedItem extends ConsumerStatefulWidget {
   final int index;
   final VideoModel video;
   final VideoPlayerController? controller;
+  final bool hasControllerLoadError;
   final bool isCurrent;
   final bool isFullScreenManual;
   final ValueNotifier<bool> showControlsVN;
@@ -55,6 +56,7 @@ class VayuFeedItem extends ConsumerStatefulWidget {
     required this.index,
     required this.video,
     this.controller,
+    this.hasControllerLoadError = false,
     required this.isCurrent,
     required this.isFullScreenManual,
     required this.showControlsVN,
@@ -265,12 +267,12 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
 
     bool controllerIsHealthy = false;
     bool isPlaying = false;
-    bool hasVideoError = false;
+    bool hasVideoError = widget.hasControllerLoadError;
     try {
       if (controller != null) {
         controllerIsHealthy = controller.value.isInitialized;
         isPlaying = controller.value.isPlaying;
-        hasVideoError = controller.value.hasError;
+        hasVideoError = hasVideoError || controller.value.hasError;
       }
     } catch (_) {
       controllerIsHealthy = false;
@@ -334,7 +336,7 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                                           color: Colors.white70, size: 32),
                                       SizedBox(height: 8),
                                       Text(
-                                        "Couldn't load video. Retrying…",
+                                        "Couldn't load video. Tap to retry.",
                                         style: TextStyle(
                                             color: Colors.white70,
                                             fontSize: 13),
@@ -367,7 +369,10 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                             scale: _scale,
                             child: AspectRatio(
                               aspectRatio: 16 / 9,
-                              child: VideoPlayer(controller!),
+                              child: VideoPlayer(
+                                controller!,
+                                key: ValueKey(controller),
+                              ),
                             ),
                           ),
                         ),

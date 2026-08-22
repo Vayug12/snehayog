@@ -307,53 +307,6 @@ class AppConfig {
   static const int maxImageSize = 5 * 1024 * 1024;
   static const int maxVideoSize = 700 * 1024 * 1024; // 700MB
 
-  // **NEW: Cloudinary Configuration for HLS Streaming**
-  // Note: API credentials should be fetched from backend for security
-  static const String cloudinaryCloudName = 'dkklingts';
-
-  // SECURITY WARNING: Never hardcode API secrets in frontend code!
-  // These should be fetched from backend API endpoints
-  static const String cloudinaryApiKey = ''; // Empty - fetch from backend
-  static const String cloudinaryApiSecret =
-      ''; // Empty - never store in frontend
-
-  // Cloudinary streaming profiles - Cost optimized (720p max)
-  static const Map<String, Map<String, dynamic>> streamingProfiles = {
-    'portrait_reels': {
-      'name': 'Portrait Reels',
-      'aspect_ratio': '9:16',
-      'quality_levels': [
-        {
-          'resolution': '720x1280',
-          'bitrate': '1.8 Mbps',
-          'profile': 'HD'
-        }, // 720p as highest
-        {'resolution': '480x854', 'bitrate': '0.9 Mbps', 'profile': 'SD'},
-        {'resolution': '360x640', 'bitrate': '0.6 Mbps', 'profile': 'SD'},
-        {'resolution': '240x427', 'bitrate': '0.3 Mbps', 'profile': 'LOW'},
-      ],
-      'segment_duration': 2,
-      'keyframe_interval': 2,
-      'optimized_for': 'Mobile Scrolling - Cost Optimized'
-    },
-    'landscape_standard': {
-      'name': 'Landscape Standard',
-      'aspect_ratio': '16:9',
-      'quality_levels': [
-        {
-          'resolution': '1280x720',
-          'bitrate': '2.0 Mbps',
-          'profile': 'HD'
-        }, // 720p as highest
-        {'resolution': '854x480', 'bitrate': '1.0 Mbps', 'profile': 'SD'},
-        {'resolution': '640x360', 'bitrate': '0.5 Mbps', 'profile': 'LOW'},
-      ],
-      'segment_duration': 2,
-      'keyframe_interval': 2,
-      'optimized_for': 'Standard Video - Cost Optimized'
-    }
-  };
-
   // HLS streaming configuration
   static const Map<String, dynamic> hlsConfig = {
     'segment_duration': 2, // 2 seconds per segment

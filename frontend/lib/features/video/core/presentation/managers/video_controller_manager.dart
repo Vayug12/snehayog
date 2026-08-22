@@ -49,7 +49,7 @@ class VideoControllerManager {
     _onRoutePoppedCallback?.call();
   }
 
-  /// Choose a playback URL preferring Cloudflare/R2 or backend HLS over Cloudinary
+  /// Choose a playback URL, preferring backend HLS over a raw source URL.
   String _selectPlaybackUrl(VideoModel video) {
 
     // Prefer explicit HLS URLs if present (served by backend/CDN)
@@ -74,7 +74,7 @@ class VideoControllerManager {
       }
     }
 
-    // Avoid Cloudinary for playback when possible; if original is Cloudflare/CDN use it
+    // No HLS playlist: use the original URL when it is already CDN-served.
     final origLower = video.videoUrl.toLowerCase();
     final isCdn = origLower.contains('cdn.snehayog.site') ||
         origLower.contains('cdn.snehayog.com') ||
@@ -98,7 +98,7 @@ class VideoControllerManager {
  
   Future<VideoPlayerController> getController(
       int index, VideoModel video) async {
-    // Decide final URL without Cloudinary signing (prefer Cloudflare/CDN)
+    // Decide the final URL up front (prefer HLS, then CDN).
     String finalUrl = _selectPlaybackUrl(video);
     // AppLogger.log('🎯 VideoControllerManager: Selected playback URL: $finalUrl');
 
@@ -237,16 +237,6 @@ class VideoControllerManager {
       );
       AppLogger.log('🔴 EXO-DIAG: Stack trace: $stack', isError: true);
 
-      // Try fallback URL if this is an HLS URL
-      if (finalUrl.contains('.m3u8')) {
-        final fallbackUrl = _getFallbackUrl(finalUrl);
-        if (fallbackUrl != finalUrl) {
-          AppLogger.log(
-              '🔄 VideoControllerManager: Trying fallback URL: $fallbackUrl');
-          final fallbackVideo = video.copyWith(videoUrl: fallbackUrl);
-          return await getController(index, fallbackVideo);
-        }
-      }
       rethrow;
     }
   }
@@ -577,25 +567,6 @@ class VideoControllerManager {
     // Videos now load directly through VideoPlayer for 480p content
     AppLogger.log(
         '🌐 VideoControllerManager: Network warming for 480p video: $url');
-  }
-
-  /// Get fallback URL for HLS streams
-  String _getFallbackUrl(String originalUrl) {
-    if (!originalUrl.contains('.m3u8')) return originalUrl;
-
-    // Try different Cloudinary streaming profiles
-    if (originalUrl.contains('sp_hd')) {
-      // Try SD profile instead of HD
-      return originalUrl.replaceAll('sp_hd', 'sp_sd');
-    } else if (originalUrl.contains('sp_sd')) {
-      // Try basic streaming profile
-      return originalUrl.replaceAll('sp_sd', 'sp_auto');
-    } else if (originalUrl.contains('sp_auto')) {
-      // Try without streaming profile
-      return originalUrl.replaceAll(RegExp(r'sp_[^,]+,'), '');
-    }
-
-    return originalUrl;
   }
 
   /// Clear all with proper MediaCodec cleanup
