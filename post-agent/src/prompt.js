@@ -158,7 +158,16 @@ export function buildTrendingPrompt({ platform, category, topic, newsItems, sugg
 
   const previous = recentTopics(history, 'No previous posts are available.');
 
-  return `You are the research-first social content writer for the Snehayog/Vayug project.
+  const projectFactsBlock = context.text
+    ? `PROJECT FACTS
+Use only facts supported by the project context below. The app is currently being built; do not claim user growth, revenue results, adoption, or completed functionality unless the context explicitly supports it. Say "is building", "is designed to", or "aims to" when describing intended outcomes.
+
+${context.text}
+
+`
+    : '';
+
+  return `You are a research-first social content writer.
 
 PLATFORM
 ${PLATFORM_RULES[platform]}
@@ -172,18 +181,13 @@ ${category}
 ASSIGNMENT
 Create a post about this trending topic in ${category}: ${topic}
 
-Use the trending news below as context and inspiration. Connect the trending topic to the Snehayog/Vayug project's vision and capabilities. Make the post timely and relevant.
+Use the trending news below as context and inspiration. Connect the trending topic to the creator economy and video platforms. Make the post timely and relevant.
 
 TRENDING NEWS
 ${newsContext}
 
-PROJECT FACTS
-Use only facts supported by the project context below. The app is currently being built; do not claim user growth, revenue results, adoption, or completed functionality unless the context explicitly supports it. Say "is building", "is designed to", or "aims to" when describing intended outcomes.
-
-${context.text}
-
-WEB RESEARCH
-Use the research to understand the real-world problem and current conversation. Do not copy wording. Do not treat an external source as proof that Snehayog has solved the problem.
+${projectFactsBlock}WEB RESEARCH
+Use the research to understand the real-world problem and current conversation. Do not copy wording. Do not treat an external source as proof that any single platform has solved the problem.
 
 ${sources}
 
@@ -196,13 +200,12 @@ OUTPUT RULES
 - Prefer qualitative findings from web research. Do not include exact external numbers.
 - Make the post timely - reference current events or trends.
 - Connect the trending topic to the creator economy and video platforms.
-- Make the project connection concrete and specific.
 - Keep the tone human, clear, and useful.
 
 HASHTAG RULES
 - End every post with 3-5 relevant hashtags on a new line.
 - Use these suggested hashtags as a starting point: ${suggestedHashtags.join(', ')}
-- Add 1-2 project-specific hashtags like #CreatorEconomy or #VideoPlatform.
+- Add 1-2 topic-specific hashtags like #CreatorEconomy or #VideoPlatform.
 - Vary hashtags based on the specific topic.
 `;
 }

@@ -262,7 +262,7 @@ async function generateTrending(args, index, state) {
   const draft = stripFences(await generateWithProvider(prompt, args.provider));
   if (!draft) throw new Error(`${args.provider} returned an empty post`);
   const post = args.critique
-    ? await critique({ platform, topic: trending.topic, context: state.context, post: draft, provider: args.provider })
+    ? await critique({ platform, topic: trending.topic, context: { text: '' }, post: draft, provider: args.provider })
     : draft;
   const directory = await saveOutput({
     platform,
@@ -284,7 +284,7 @@ async function generateTrending(args, index, state) {
 
 export async function runCli(mode) {
   if (mode === 'context') {
-    const context = await loadProjectContext();
+  const context = args.trending ? { text: '' } : await loadProjectContext();
     console.log(`Project root: ${context.projectRoot}\nFiles: ${context.files.join(', ')}`);
     return;
   }
@@ -293,7 +293,7 @@ export async function runCli(mode) {
     console.log(HELP);
     return;
   }
-  const context = await loadProjectContext();
+  const context = args.trending ? { text: '' } : await loadProjectContext();
   const state = { context, history: await readHistory() };
   const total = args.loop ? args.count : args.count;
 

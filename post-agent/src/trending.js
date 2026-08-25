@@ -1,7 +1,8 @@
 import { TRENDING_CATEGORIES } from './config.js';
-import { searchTavily, searchDuckDuckGo } from './research.js';
+import { runSearch } from './research.js';
 
-const SEARCH_TIMEOUT_MS = 20000;
+const DDG_DELAY_MS = 1500;
+function delay(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 export function isCategory(value) {
   return value && TRENDING_CATEGORIES[value.toLowerCase()] !== undefined;
@@ -19,11 +20,14 @@ export async function researchTrending(category) {
     throw new Error(`Unknown category: ${category}. Available: ${listCategories().join(', ')}`);
   }
 
-  const search = process.env.TAVILY_API_KEY ? searchTavily : searchDuckDuckGo;
-
-  const settled = await Promise.allSettled(
-    categoryConfig.queries.map((query) => search(query)),
-  );
+  // Run DDG queries sequentially with delay to avoid rate-limiting
+  const settled = [];
+  for (let i = 0; i < categoryConfig.queries.length; i++) {
+    if (i > 0 && !process.env.TAVILY_API_KEY && !process.env.BRAVE_API_KEY) {
+      await delay(DDG_DELAY_MS);
+    }
+    settled.push(await Promise.allSettled([runSearch(categoryConfig.queries[i])]).then((r) => r[0]));
+  }
 
   const allResults = settled
     .filter((item) => item.status === 'fulfilled')
