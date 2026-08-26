@@ -2,7 +2,9 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import axios from 'axios';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
+import { pipeline } from 'stream/promises';
 import { beat } from '../../utils/progressHeartbeat.js';
 
 class CloudflareR2Service {
@@ -44,27 +46,20 @@ class CloudflareR2Service {
    * @param {string} key - R2 file key
    * @param {string} localPath - Destination local path
    */
-  async downloadFile(key, localPath) {
+  async downloadFile(key, localPath, options = {}) {
     try {
       // Ensure directory exists
       const dir = path.dirname(localPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+      await fsp.mkdir(dir, { recursive: true });
 
       const command = new GetObjectCommand({
         Bucket: this.bucketName,
         Key: key,
       });
 
-      const response = await this.s3Client.send(command);
-      
-      // Pipe the stream to a file
-      return new Promise((resolve, reject) => {
-        const pipeline = response.Body.pipe(fs.createWriteStream(localPath));
-        pipeline.on('finish', resolve);
-        pipeline.on('error', reject);
-      });
+      const response = await this.s3Client.send(command, { abortSignal: options.signal });
+      await pipeline(response.Body, fs.createWriteStream(localPath), { signal: options.signal });
+      return localPath;
     } catch (error) {
        console.error(`❌ R2 Download Error for ${key}:`, error);
        throw error;
@@ -256,7 +251,7 @@ class CloudflareR2Service {
    * Upload generic file to R2 (for HLS segments, playlists, etc.)
    * Returns custom domain URL (cdn.snehayog.com) if configured
    */
-  async uploadFileToR2(filePath, key, contentType = 'application/octet-stream') {
+  async uploadFileToR2(filePath, key, contentType = 'application/octet-stream', options = {}) {
     try {
       const sanitizedKey = this.sanitizeKey(key);
       const fileSize = fs.statSync(filePath).size;
@@ -279,7 +274,7 @@ class CloudflareR2Service {
         CacheControl: cacheControl,
       });
   
-      await this.s3Client.send(command);
+      await this.s3Client.send(command, { abortSignal: options.signal });
       
       const publicUrl = this.getPublicUrl(sanitizedKey);
       console.log(`✅ File uploaded to R2: ${sanitizedKey}`);

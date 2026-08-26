@@ -1,30 +1,36 @@
 # AI Dubbing Implementation Plan
 
 Status: implementation-ready design  
-Target: Vayug backend and Flutter client  
+Target: Vayug backend channel-backfill script (API and Flutter integration later)\
 Constraint: no AI model inference on the developer or user device (8 GB RAM friendly)  
-Primary providers: Groq cloud STT + Groq cloud translation + Microsoft Edge online TTS
+Primary providers: Groq cloud STT + Microsoft Azure Translator + Microsoft Edge online TTS
 
 ## 1. Goal
 
-Add asynchronous Hindi/English video dubbing without downloading or running Whisper, translation, or TTS models locally.
+Add Hindi/English dubbing for videos that already exist in MongoDB/R2, without downloading or running Whisper, translation, or TTS models locally.
 
-The finished flow must:
+The current prototype is a standalone channel backfill command. It must not be connected to the existing video-upload pipeline, upload controllers, R2 upload events, Flutter requests, or an automatic post-upload hook. API/queue integration remains a later production phase.
 
-1. Accept a `videoId` and target language.
-2. Reuse the video's canonical MP4 from Cloudflare R2.
-3. Extract and compress speech audio with FFmpeg.
-4. Transcribe speech remotely with Groq Whisper and retain segment timestamps.
-5. Translate timestamped segments remotely with a Groq-hosted LLM.
-6. Generate one Edge TTS clip per translated segment.
-7. Align the clips to the original timeline.
-8. Mux the dubbed track with the original video.
-9. Upload the result to R2 and save its URL in MongoDB.
-10. Expose job progress to the existing Flutter polling client.
+The current finished flow must:
+
+1. Accept a creator channel name and target language.
+2. Resolve the channel through `User.name`, then fetch its existing videos through `Video.uploader`.
+3. Skip videos that already have a valid `dubbedUrls.<language>` value unless `--force` is explicitly supplied.
+4. Reuse each video's canonical MP4 from Cloudflare R2.
+5. Extract and compress speech audio with FFmpeg.
+6. Transcribe speech remotely with Groq Whisper and retain segment timestamps.
+7. Translate timestamped segments through Microsoft Azure Translator.
+8. Generate one Edge TTS clip per translated segment.
+9. Align the clips to the original timeline.
+10. Mux the dubbed track with the original video.
+11. Upload the result to R2 and save its URL in MongoDB.
+12. Remove every local source copy, chunk, transcript artifact, TTS clip, and output file after each video, on both success and failure.
 
 ## 2. Key architecture decision
 
-The public dubbing API and job orchestration should be implemented in the existing Node/Express backend, not duplicated inside the Python recommendation service.
+The current implementation is a standalone Node script in the existing backend. It reuses backend models, R2 storage, provider adapters, and media services, but it is not called by the upload pipeline or Flutter.
+
+If public dubbing is added later, its API and job orchestration should also be implemented in the existing Node/Express backend, not duplicated inside the Python recommendation service.
 
 Reasons:
 
@@ -69,49 +75,62 @@ This file lives in `video-recommender` as the implementation specification. The 
 ## 4. Target architecture
 
 ```text
-Flutter client
+npm run dub:channel -- --channel="Channel Name" --target=hi
     |
-    | POST /api/dubbing/request
     v
-Express API -- MongoDB DubbingJob -- Redis/BullMQ queue
-                                      |
-                                      v
-                               Dubbing worker
-                                      |
-              +-----------------------+-----------------------+
-              |                       |                       |
-              v                       v                       v
-       Groq Whisper STT       Groq LLM translation       Edge TTS
-              |                       |                       |
-              +---------- timestamped segments --------------+
-                                      |
-                                      v
-                              FFmpeg alignment/mux
-                                      |
-                                      v
-                           Cloudflare R2 + Video.dubbedUrls
+Resolve User.name -> query Video.uploader -> preflight summary/confirmation
+    |
+    v
+Process one existing video at a time (concurrency 1)
+    |
+    +--> valid Video.dubbedUrls.hi exists -> skip/cache hit
+    |
+    +--> R2 canonical MP4 -> isolated local temp workspace
+                               |
+             +-----------------+------------------+
+             |                 |                  |
+             v                 v                  v
+      Groq Whisper STT   Azure Translator     Edge TTS
+             +-----------------+------------------+
+                               |
+                               v
+                     FFmpeg alignment/mux
+                               |
+                               v
+              validate -> R2 upload -> Video.dubbedUrls.hi
+                               |
+                               v
+               finally: delete the complete local workspace
 ```
 
-Provider boundaries must be explicit. Swapping STT or translation later should not change controller, queue, media, or database code.
+Provider boundaries must be explicit. Swapping STT or translation later should not change the batch runner, media, or database code.
 
 ## 5. Scope
 
 ### MVP
 
+- Standalone channel backfill script only; no upload-pipeline integration.
+- Command: `npm run dub:channel -- --channel="<creator name>" --target=<hi|en>`.
+- Resolve the creator using an exact, case-insensitive `User.name` match.
+- Query all existing videos with `Video.uploader = creator._id`.
+- Process videos sequentially with concurrency `1` to bound local disk and memory usage.
 - Source languages: automatic detection, optimized for Hindi and English.
 - Target languages: Hindi and English.
 - STT: `whisper-large-v3-turbo` through Groq.
-- Translation: configurable Groq chat model.
+- Translation: Microsoft Azure Translator Text API (`en` <-> `hi`).
 - TTS voices:
   - Hindi: `hi-IN-SwaraNeural`
   - English: `en-US-AriaNeural`
 - Segment-level synchronization.
 - One dubbed MP4 per `(videoId, targetLanguage)`.
-- Background processing, progress polling, cancellation-safe cleanup, and R2 persistence.
+- Console progress, interrupt-safe cleanup, resumable cache skipping, and R2 persistence.
 - Maximum video duration configured for the free-tier budget; begin with 10 minutes.
 
 ### Not in MVP
 
+- Automatic dubbing during or after video upload.
+- Changes to the existing upload pipeline/controllers or R2 upload events.
+- Flutter-triggered dubbing, public dubbing request/status APIs, BullMQ, or a dedicated dubbing worker.
 - Voice cloning or impersonation.
 - Speaker-specific voices.
 - Lip synchronization.
@@ -121,16 +140,82 @@ Provider boundaries must be explicit. Swapping STT or translation later should n
 - Arbitrary URLs supplied directly by clients.
 - Unlimited free usage.
 
+### Channel batch command
+
+Add this backend script entry:
+
+```json
+{
+  "scripts": {
+    "dub:channel": "node scripts/dub-channel.js"
+  }
+}
+```
+
+Primary usage:
+
+```bash
+npm run dub:channel -- --channel="Snehayog" --target=hi
+```
+
+On Windows PowerShell use `npm.cmd run dub:channel -- ...`; the `npm.ps1` wrapper can consume arguments after `--` instead of forwarding them to the Node script.
+
+Useful operational options:
+
+```bash
+# Show the channel, selected videos, cache hits, and estimated minutes; do not dub
+npm run dub:channel -- --channel="Snehayog" --target=hi --dry-run
+
+# Regenerate even when the same-language dubbed URL already exists
+npm run dub:channel -- --channel="Snehayog" --target=hi --force
+
+# Non-interactive execution after preflight validation
+npm run dub:channel -- --channel="Snehayog" --target=hi --yes
+
+# Safe partial rollout
+npm run dub:channel -- --channel="Snehayog" --target=hi --limit=5
+```
+
+Command behavior:
+
+1. Require `--channel` and allow only target codes from the configured allowlist (`hi`, `en`).
+2. Match `User.name` exactly after trimming, case-insensitively. Do not use a loose substring match.
+3. If more than one user has the same name, abort without processing and print their IDs. Support `--channel-id=<userId>` as the unambiguous fallback.
+4. Fetch the channel's videos in one database query, sorted by `_id` or `uploadedAt` for deterministic reruns. Do not query the database once per video.
+5. Print total videos, cache hits, eligible videos, missing canonical MP4s, total duration, and the target language.
+6. Prompt `Start dubbing? (y/N)` unless `--yes` or `--dry-run` is present.
+7. Process eligible videos one at a time. A failure is recorded in the final summary and the next video continues unless `--fail-fast` is supplied.
+8. Treat `Video.dubbedUrls.<target>` as the resume checkpoint. Rerunning the same command skips completed videos without provider calls.
+9. Exit non-zero if channel resolution/preflight fails, and print a final completed/skipped/failed/not-suitable summary.
+
+### Local workspace and cleanup contract
+
+The batch may process many videos, but it must keep artifacts for only one video at a time.
+
+1. Create one random isolated directory per video under `DUBBING_TEMP_ROOT`, for example `/tmp/vayug-dubbing/dub-<random>`.
+2. Use an outer `try/finally` around the complete per-video pipeline. The `finally` block recursively deletes that exact validated workspace on success, provider failure, media failure, upload failure, DB failure, or skip after download.
+3. Delete large intermediates as soon as their next stage no longer needs them:
+   - audio chunks immediately after STT normalization;
+   - individual TTS MP3 files after the full dubbed timeline is created;
+   - extracted audio after transcription;
+   - muxed output only after R2 upload, media validation, and MongoDB update complete.
+4. Register `SIGINT`, `SIGTERM`, `uncaughtException`, and `unhandledRejection` handlers that stop accepting new videos, clean the active workspace, close MongoDB, and exit. Signal cleanup must be idempotent.
+5. On startup, remove only stale job directories older than `DUBBING_STALE_TEMP_HOURS` under the resolved temp root. Validate that every target is a direct child of that root; never delete the temp root, workspace root, home directory, or an arbitrary computed path.
+6. Default concurrency remains `1`. Do not begin the next download until the previous video's workspace is removed.
+7. Optionally fail preflight when available local disk is below `DUBBING_MIN_FREE_DISK_MB`.
+8. Cleanup applies only to local temporary artifacts. Never delete the source R2 object, an existing dubbed R2 object, or the newly published object.
+9. If a new dub replaces an old URL under `--force`, upload to a new versioned R2 key and update MongoDB only after validation. Remote orphan cleanup is a separate controlled task.
+
 ## 6. Provider strategy
 
 | Capability | MVP provider | Local model | Fallback |
 |---|---|---:|---|
 | Speech-to-text | Groq Whisper API | No | Existing Hugging Face adapter, feature-flagged |
-| Translation | Groq chat completion | No | Existing OpenAI adapter if configured |
+| Translation | Microsoft Azure Translator Text API | No | Feature-flagged provider adapter later |
 | Text-to-speech | `edge-tts` online service | No | Azure Speech for production SLA |
 | Media processing | FFmpeg | No AI model | None |
 | Storage | Cloudflare R2 | No | Existing storage abstraction |
-| Jobs | BullMQ + Redis | No | None |
+| Batch orchestration | Standalone Node channel script, concurrency 1 | No | BullMQ worker later |
 
 Free tiers are quotas, not guarantees. Do not encode provider limits as product promises. Read limits from environment configuration, record provider `429`/`Retry-After` headers, and provide an admin kill switch.
 
@@ -138,21 +223,16 @@ Useful current references:
 
 - Groq speech-to-text: <https://console.groq.com/docs/speech-to-text>
 - Groq rate limits: <https://console.groq.com/docs/rate-limits>
+- Azure Translator pricing: <https://azure.microsoft.com/pricing/details/cognitive-services/translator/>
+- Azure Translator limits: <https://learn.microsoft.com/azure/ai-services/translator/service-limits>
 - Edge TTS project: <https://github.com/rany2/edge-tts>
 
 ## 7. New backend module layout
 
 ```text
 backend/
-  models/
-    DubbingJob.js
-  routes/
-    dubbingRoutes.js
-  controllers/video/
-    dubbingController.js
   services/dubbing/
     DubbingPipeline.js
-    dubbingQueue.js
     languageConfig.js
     tempWorkspace.js
     providers/
@@ -160,7 +240,7 @@ backend/
       ITranslationProvider.js
       ITtsProvider.js
       GroqSttProvider.js
-      GroqTranslationProvider.js
+      AzureTranslationProvider.js
       EdgeTtsProvider.js
     media/
       audioExtractor.js
@@ -170,12 +250,13 @@ backend/
     validation/
       segmentSchemas.js
   scripts/
+    dub-channel.js
     edge_tts_synthesize.py
-  workers/
-    dubbingWorker.js
   tests/
     dubbing/
 ```
+
+`DubbingJob`, request/status routes, BullMQ queue, and `dubbingWorker.js` belong to the later public API phase, not the current channel-backfill MVP.
 
 Do not add Groq-specific code to controllers. Controllers validate requests and delegate to the queue/service only.
 
@@ -209,6 +290,8 @@ Validation rules:
 - Unknown fields from providers are discarded.
 
 ## 9. Database design
+
+This `DubbingJob` model is deferred until the later API/queue phase. The current channel script uses `Video.dubbedUrls.<target>` as its durable completion checkpoint and prints a per-run summary.
 
 Create `backend/models/DubbingJob.js`.
 
@@ -278,6 +361,8 @@ cancelled
 State changes must be monotonic except an explicit retry returning a failed job to `queued`.
 
 ## 10. API contract
+
+This entire API section is deferred. The current MVP is invoked only through `npm run dub:channel` and does not expose a Flutter/public request endpoint.
 
 ### Request a dub
 
@@ -394,29 +479,22 @@ Do not repeat the current summarization behavior that forces `language=hi`; that
 
 Normalize every provider response into the canonical segment contract. Reject a successful HTTP response that has malformed or empty segments.
 
-### Stage D: Groq translation
+### Stage D: Microsoft Azure Translator
 
-Translate batches of approximately 15-30 segments. Do not send one request per segment, and do not translate the entire video as one unstructured string.
+Use Azure Translator Text API v3 with `from=en&to=hi` or `from=hi&to=en`. If the source language is not trusted, omit `from` and record Azure's detected language.
 
-Translation prompt requirements:
+Send multiple segments as the request JSON array instead of making one request per segment. Keep every request below both Azure limits: at most 1,000 array elements and 50,000 total characters; use a lower configurable safety threshold such as 45,000 characters.
 
-- Return JSON only.
-- Preserve each `id` exactly once.
-- Do not return or alter timestamps.
-- Use natural spoken target language.
-- Preserve names, brands, URLs, and technical vocabulary.
-- Keep the translation concise enough for the original segment duration.
-- Avoid commentary, markdown, transliteration unless requested, and added facts.
+Segment/timestamp rules:
 
-After each response:
+1. Keep segment IDs and timestamps locally; send only each segment's `sourceText` in the corresponding request-array position.
+2. Require exactly one returned translation for every input array item and map it back by array position.
+3. Reject empty, missing, extra, or malformed results. Never allow Azure output to modify timestamps.
+4. Retry `429`, transient network errors, and `5xx` responses at most three times using `Retry-After` when present. Do not retry `400`, `401`, or `403`.
+5. Count source characters sent and record them in the run summary so the Azure F0 monthly allowance can be monitored.
+6. Translating the same source into multiple target languages multiplies billable characters; this command processes only the explicitly requested target.
 
-1. Parse JSON strictly.
-2. Compare output IDs with input IDs.
-3. Reject missing, duplicate, or unknown IDs.
-4. Retry malformed output once with a repair prompt.
-5. Fail safely if the second response is invalid.
-
-Pass a small glossary and one neighboring segment on each side when useful, but only write translations for the requested batch IDs.
+Azure standard translation is not prompt-driven, so it cannot reliably obey a request such as "make this shorter." Duration fitting must be handled conservatively during TTS/alignment. An optional LLM concise-retranslation fallback is a later feature, not part of the zero-cost MVP.
 
 ### Stage E: Edge TTS synthesis
 
@@ -444,7 +522,7 @@ For each segment:
 3. Measure the generated clip.
 4. Use FFmpeg `atempo` filters for final correction.
 5. Chain `atempo` filters when the ratio falls outside one filter's supported range.
-6. If a translation still cannot fit intelligibly, mark the segment for concise retranslation once.
+6. If a translation cannot fit within the configured intelligible rate limit, record a duration-mismatch warning and apply the deterministic MVP fallback; do not silently call another paid/LLM provider.
 7. Pad short clips with silence; do not stretch them unnaturally to fill the whole window.
 
 Create a full-duration dubbed audio timeline matching the source video duration. Handle gaps as silence. For MVP, resolve overlapping speech segments deterministically by trimming or shifting the lower-confidence segment and emit a metric.
@@ -468,14 +546,16 @@ Requirements:
 
 ### Stage H: R2 upload and persistence
 
-1. Upload to a deterministic immutable key such as `dubbed/<videoId>/<language>/<pipelineVersion>.mp4`.
+1. Upload to a versioned immutable key such as `dubbed/<videoId>/<language>/<sourceFingerprint>/<pipelineVersion>-<runId>.mp4`; never overwrite an existing R2 object in place.
 2. Reuse `cloudflareR2Service.uploadFileToR2`.
 3. Set `Video.dubbedUrls.<language>` only after upload and media validation succeed.
-4. Mark the job `completed` only after the MongoDB update succeeds.
+4. Count the video as completed only after the MongoDB update succeeds.
 5. If upload succeeds but DB update fails, retry the DB operation before treating the job as failed.
 6. Delete the local workspace in `finally`.
 
 ## 12. Queue and worker behavior
+
+Deferred until the later public API phase. The current MVP uses the standalone channel script with sequential concurrency `1`.
 
 Create a dedicated BullMQ queue called `video-dubbing`.
 
@@ -504,42 +584,44 @@ Simplest deployment is to let the existing `worker` process consume both video-p
 
 ## 13. Rate limiting and quota control
 
-Use two layers:
-
-1. User/product quota: protects the feature from abuse.
-2. Provider quota: protects Groq/Edge limits and handles `429` responses.
+The current script has only one operator and runs one video at a time, so Redis quota counters are not required for the MVP.
 
 Minimum controls:
 
-- Daily dubbing minutes per user.
-- Maximum source duration.
-- Maximum active jobs per user.
-- Global active job cap.
-- Per-provider concurrency cap.
-- Feature flag and emergency kill switch.
+- Preflight total eligible video count and audio duration before confirmation.
+- Maximum source duration per video.
+- Channel batch `--limit` for staged runs.
+- One-video concurrency cap.
+- Groq request/audio quota handling.
+- Azure source-character accounting and monthly usage visibility.
+- Edge TTS concurrency cap within a video.
+- Provider backoff, bounded retries, and an emergency environment kill switch.
 
-Provider quota counters must live in Redis, not process memory, because API and worker run in separate processes. Treat response headers and `Retry-After` as authoritative. Never retry forever or create a retry storm.
+Treat provider `429`, `Retry-After`, and rate-limit headers as authoritative. Never retry forever or create a retry storm. Redis-backed per-user quotas are deferred with the public API.
 
 ## 14. Configuration
 
 Add configuration validation at startup:
 
 ```dotenv
-DUBBING_FEATURE_ENABLED=false
+DUBBING_BATCH_ENABLED=true
 
 GROQ_API_KEY=
 DUBBING_STT_PROVIDER=groq
 DUBBING_STT_MODEL=whisper-large-v3-turbo
-DUBBING_TRANSLATION_PROVIDER=groq
-DUBBING_TRANSLATION_MODEL=llama-3.1-8b-instant
+DUBBING_TRANSLATION_PROVIDER=azure
+AZURE_TRANSLATOR_KEY=
+AZURE_TRANSLATOR_REGION=
+AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com
 DUBBING_TTS_PROVIDER=edge
 
 DUBBING_MAX_VIDEO_SECONDS=600
 DUBBING_MAX_AUDIO_UPLOAD_MB=24
-DUBBING_WORKER_CONCURRENCY=1
+DUBBING_SCRIPT_CONCURRENCY=1
 DUBBING_TTS_CONCURRENCY=2
-DUBBING_USER_DAILY_MINUTES=20
 DUBBING_TEMP_ROOT=/tmp/vayug-dubbing
+DUBBING_STALE_TEMP_HOURS=24
+DUBBING_MIN_FREE_DISK_MB=2048
 DUBBING_PIPELINE_VERSION=v1
 DUBBING_OUTPUT_MODE=replace
 ```
@@ -616,15 +698,16 @@ Live provider tests must be opt-in and skipped unless dedicated test keys are pr
 
 ### Integration tests
 
-- Request creates one job.
-- Duplicate request returns the active/cached job.
-- Unauthorized user cannot request or inspect a job.
-- Worker transitions through all stages.
-- Completed job updates both `DubbingJob` and `Video.dubbedUrls`.
+- Exact channel name resolves the correct `User` and queries videos by `Video.uploader`.
+- Duplicate channel names abort and require `--channel-id`.
+- `--dry-run` makes no provider, R2-write, or MongoDB-write calls.
+- Existing same-language `dubbedUrls` values are skipped unless `--force` is set.
+- Completed processing updates `Video.dubbedUrls.<target>` only after validation and R2 upload.
 - Failed job does not publish a partial URL.
-- Cancellation cleans local files.
+- Success, provider failure, FFmpeg failure, DB failure, `SIGINT`, and `SIGTERM` clean the active local workspace.
+- The next video does not start until cleanup for the previous video finishes.
 - Two target languages can coexist for one video.
-- App and worker share Redis-based quota state.
+- A rerun resumes by skipping already completed videos.
 
 ### Media tests
 
@@ -647,22 +730,22 @@ Assertions:
 
 ### End-to-end test
 
-Run one short authorized video through real Groq + Edge TTS in staging, upload to a staging R2 prefix, play it in Flutter, and verify cached replay does not create another provider job.
+Run `dub:channel` with `--limit=1` for one short existing video through real Groq, Azure Translator, and Edge TTS. Upload to a staging R2 prefix, verify `Video.dubbedUrls.<target>`, verify the local temp root is empty, play the URL, and rerun to confirm a cache skip without provider calls.
 
 ## 18. Observability
 
 Log structured metadata only:
 
 ```text
-taskId, videoId, userIdHash, stage, progress, durationMs,
+runId, channelId, videoId, stage, progress, durationMs,
 provider, model, attempt, audioSeconds, segmentCount,
-inputBytes, outputBytes, errorCode
+azureSourceCharacters, inputBytes, outputBytes, errorCode, cleanupStatus
 ```
 
 Metrics:
 
-- Jobs requested/completed/failed/not-suitable/cancelled.
-- Queue wait time and total completion time.
+- Videos selected/completed/skipped/failed/not-suitable/interrupted.
+- Total batch time and per-video completion time.
 - Duration per pipeline stage.
 - Provider `429`, timeout, and error counts.
 - Audio minutes and translation/TTS usage.
@@ -674,19 +757,15 @@ Never place API keys, full transcript text, translated text, signed URLs, or raw
 
 ## 19. Implementation phases
 
-### Phase 0: repair foundations
+### Phase 0: channel runner and cleanup foundation
 
-- [ ] Add this plan to the project documentation index if one exists.
-- [ ] Confirm the existing frontend uses `ServerSideDubbingServiceImpl` for production builds.
-- [ ] Add the missing `DubbingJob` model.
-- [ ] Add the `video-dubbing` queue.
-- [ ] Implement missing request/status routes expected by Flutter.
-- [ ] Make engine/provider selection environment-based.
-- [ ] Restrict low-level and engine administration routes.
-- [ ] Replace shell-interpolated Edge TTS execution with a safe wrapper.
-- [ ] Correct output extensions and media content types.
+- [ ] Add `backend/scripts/dub-channel.js` and the `npm run dub:channel` package script.
+- [ ] Implement exact channel-name resolution with duplicate-name failure and `--channel-id` fallback.
+- [ ] Query all selected videos once and implement `--dry-run`, confirmation, `--limit`, `--yes`, `--force`, and final summary.
+- [ ] Implement per-video random temp workspaces, guarded recursive cleanup, startup stale-workspace sweep, and signal cleanup.
+- [ ] Enforce concurrency `1`, disk-space preflight, cache skips, and deterministic ordering.
 
-Exit criterion: a mocked job can move from `queued` to `completed`, and Flutter polling receives every state.
+Exit criterion: a mocked channel batch selects the expected videos, skips cached entries, never holds two workspaces, and leaves the temp root empty after success, failure, and interruption.
 
 ### Phase 1: Groq STT provider
 
@@ -699,13 +778,13 @@ Exit criterion: a mocked job can move from `queued` to `completed`, and Flutter 
 
 Exit criterion: English and Hindi fixtures return valid absolute timestamped segments without local model inference.
 
-### Phase 2: Groq translation provider
+### Phase 2: Azure Translator provider
 
-- [ ] Add Groq chat client with configured model.
-- [ ] Batch segments and demand strict JSON.
-- [ ] Validate exact ID preservation.
-- [ ] Add glossary/context support and concise retranslation.
-- [ ] Record token usage when provider returns it.
+- [ ] Add `AzureTranslationProvider` using Translator Text API v3.
+- [ ] Batch segment texts within the 1,000-element and 50,000-character request limits.
+- [ ] Map responses back to local segment IDs by array position and preserve timestamps.
+- [ ] Validate response cardinality and handle `401`, `429`, `5xx`, timeout, and malformed responses.
+- [ ] Record Azure source-character usage per video and per batch run.
 
 Exit criterion: all source segments have one valid target segment and unchanged timestamps.
 
@@ -720,20 +799,19 @@ Exit criterion: all source segments have one valid target segment and unchanged 
 
 Exit criterion: a short test video plays with understandable, approximately synchronized Hindi/English speech.
 
-### Phase 4: worker, persistence, and frontend
+### Phase 4: channel backfill validation
 
-- [ ] Implement `dubbingWorker.js` and progress updates.
-- [ ] Add idempotency and cache reuse.
-- [ ] Persist output URL in `Video.dubbedUrls`.
-- [ ] Confirm feed/player serializers return dubbed URLs.
-- [ ] Switch production Flutter DI to server-side dubbing.
-- [ ] Keep on-device flow disabled or development-only.
-- [ ] Add cancel/retry UI states if missing.
+- [ ] Run one video using `--limit=1`, inspect sync/playback, and verify cleanup.
+- [ ] Rerun the same command and confirm it skips the cached dub without provider calls.
+- [ ] Run a small multi-video batch and confirm sequential processing and final summary counts.
+- [ ] Verify a failed video is cleaned and does not block subsequent videos.
+- [ ] Confirm existing valid URLs are never overwritten without `--force`.
 
-Exit criterion: a signed-in user requests a dub, leaves/reopens the screen, observes progress, and plays the cached R2 result.
+Exit criterion: the requested channel's eligible existing videos can be safely backfilled and the local temp root returns to its pre-run state after every video.
 
-### Phase 5: production hardening
+### Phase 5: later public API/worker integration (out of current scope)
 
+- [ ] Add `DubbingJob`, BullMQ, request/status/cancel routes, and Flutter polling only when requested later.
 - [ ] Redis-backed quota tracking.
 - [ ] Per-user daily minute limit.
 - [ ] Global concurrency and queue-pressure controls.
@@ -742,7 +820,7 @@ Exit criterion: a signed-in user requests a dub, leaves/reopens the screen, obse
 - [ ] Structured metrics and alerts.
 - [ ] Temp-file/R2 orphan cleanup job.
 - [ ] Load, abuse, privacy, and cost review.
-- [ ] Staged rollout: admins -> 1% -> 10% -> 100%.
+- [ ] Decide separately whether automatic upload-pipeline integration is ever desirable; do not add it implicitly.
 
 Exit criterion: error rates, queue time, provider consumption, and storage growth remain within agreed thresholds.
 
@@ -752,13 +830,14 @@ Exit criterion: error rates, queue time, provider consumption, and storage growt
 - [ ] A 5-minute English or Hindi video can be dubbed into the other language.
 - [ ] Segment timestamps survive STT, translation, and TTS stages.
 - [ ] Output video duration is preserved and not truncated.
-- [ ] Duplicate requests do not repeat provider calls.
-- [ ] Job state survives API restarts.
+- [ ] Existing `dubbedUrls.<target>` values prevent repeat provider calls unless `--force` is supplied.
+- [ ] Rerunning a channel command resumes through persisted `dubbedUrls` cache entries.
 - [ ] Provider/network failures yield safe, retryable job errors.
 - [ ] Temporary media is removed in every terminal state.
-- [ ] Only authorized users can start or inspect jobs.
+- [ ] The script resolves one unambiguous creator and never processes another channel accidentally.
 - [ ] The output URL is persisted and returned in normal video serialization.
-- [ ] The feature can be disabled remotely without a client release.
+- [ ] Only one video workspace exists at a time, and all local artifacts are deleted after success, failure, or interruption.
+- [ ] No changes are made to the existing video-upload pipeline.
 
 ## 21. Later improvements
 
@@ -767,6 +846,8 @@ Exit criterion: error rates, queue time, provider consumption, and storage growt
 - Add cloud-based dialogue/background separation.
 - Publish separate audio tracks/HLS renditions instead of separate MP4 files.
 - Add WebSocket/SSE progress to replace polling.
+- Add authenticated request/status APIs and a BullMQ worker if user-triggered dubbing is needed.
+- Consider upload-pipeline integration only as a separately approved future feature.
 - Cache transcripts so recommendation, captions, search, and dubbing share one STT result.
 - Store transcript/translation artifacts in private R2 with retention rules.
 - Evaluate Azure Speech when uptime/SLA matters more than zero-cost prototyping.
@@ -776,13 +857,14 @@ Exit criterion: error rates, queue time, provider consumption, and storage growt
 
 Implement one vertical slice before generalizing:
 
-1. Authenticated `POST /dubbing/request` for an English MP4 shorter than two minutes.
-2. One BullMQ job with persisted status.
-3. Groq timestamped STT.
-4. Groq English-to-Hindi segment translation.
-5. `hi-IN-SwaraNeural` segment TTS.
-6. Replacement-audio MP4 mux.
-7. Staging R2 upload and `Video.dubbedUrls.hindi` update.
-8. Existing Flutter polling and playback.
+1. Run `npm run dub:channel -- --channel="<name>" --target=hi --limit=1` for one existing English MP4 shorter than two minutes.
+2. Resolve the creator and video from MongoDB without touching the upload pipeline.
+3. Create one isolated temp workspace.
+4. Run Groq timestamped STT and Azure English-to-Hindi segment translation.
+5. Generate `hi-IN-SwaraNeural` segment TTS and replacement-audio MP4 mux.
+6. Validate and upload to a versioned staging R2 key.
+7. Update `Video.dubbedUrls.hi` only after successful upload/validation.
+8. Delete the complete local workspace in `finally` and confirm the temp root is empty.
+9. Rerun the same command and confirm it skips the cached video.
 
-Once that path is reliable and covered by tests, add chunking, Hindi-to-English, more voices, quotas, fallbacks, and longer videos.
+Once that path is reliable and covered by tests, remove `--limit=1`, process a small channel batch sequentially, then add chunking, Hindi-to-English, more voices, and longer videos.
