@@ -1832,43 +1832,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
                                         final bool isFollowing = ref
                                             .watch(userProvider)
                                             .isFollowingUser(video.uploader.id);
-                                        return ConstrainedBox(
-                                          constraints: const BoxConstraints(
-                                              maxWidth: 110),
-                                          child: GestureDetector(
-                                            onTap: () => _handleFollow(video),
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 10,
-                                                      vertical: 6),
-                                              decoration: BoxDecoration(
-                                                color: isFollowing
-                                                    ? AppColors
-                                                        .backgroundTertiary
-                                                    : AppColors
-                                                        .backgroundSecondary
-                                                        .withValues(alpha: 0.7),
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                        AppRadius.pill),
-                                              ),
-                                              child: Text(
-                                                isFollowing
-                                                    ? 'Subscribed'
-                                                    : 'Subscribe',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: AppColors.white,
-                                                  fontSize:
-                                                      AppTypography.fontSizeSM,
-                                                  fontWeight:
-                                                      AppTypography.weightBold,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
+                                        return SubscribeButtonWidget(
+                                          isSubscribed: isFollowing,
+                                          onPressed: () => _handleFollow(video),
                                         );
                                       },
                                     ),

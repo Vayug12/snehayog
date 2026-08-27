@@ -78,22 +78,6 @@ class VayuChannelInfo extends StatelessWidget {
           FollowButtonWidget(
             uploaderId: video.uploader.id,
             uploaderName: video.uploader.name,
-            backgroundColor: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
-            followingBackgroundColor: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
-            textColor: AppColors.textSecondary,
-            followingTextColor: AppColors.textSecondary,
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.1),
-              width: 0.5,
-            ),
-            followingBorder: Border.all(
-              color: Colors.white.withValues(alpha: 0.1),
-              width: 0.5,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            borderRadius: 20,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
           ),
         ],
       ),

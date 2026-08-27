@@ -1,9 +1,9 @@
 const HISTORY_LIMIT = 20;
 
 const PLATFORM_RULES = {
-  linkedin: `Write a thoughtful LinkedIn post. Start with a strong observation or hook, explain the problem, connect it to the project, and end with a conversational question or restrained CTA. Use short paragraphs. Avoid corporate jargon. Target 180-300 words.`,
-  x: `Write an X post or short thread. Make the first line stand alone as a hook. Use concise, conversational language. If a thread helps, number it clearly with 1/, 2/, etc. Target 1-5 short posts and stay within normal X post length.`,
-  reddit: `Write a natural Reddit-style post. Use an honest title followed by a useful, non-promotional body. Discuss the problem, what the project is trying, and invite criticism or experience from the community. Do not sound like an advertisement. Target 180-350 words.`,
+  linkedin: `Write a thoughtful LinkedIn post. Start with a strong observation or hook, explain the problem, connect it to the project, and end with a conversational question or restrained CTA. Use short paragraphs. Avoid corporate jargon. Target 130-200 words.`,
+  x: `Write an X post or short thread. Make the first line stand alone as a hook. Use concise, conversational language. If a thread helps, number it clearly with 1., 2., etc. Target 1-5 short posts and stay within normal X post length.`,
+  reddit: `Write a natural Reddit-style post. Use an honest title followed by a useful, non-promotional body. Discuss the problem, what the project is trying, and invite criticism or experience from the community. Do not sound like an advertisement. Target 130-250 words.`,
   substack: `Write a Substack-style mini-essay with a clear title, a strong opening, a few descriptive section headings, and a reflective conclusion. Explain the problem and how the project approaches it. Target 500-800 words.`,
 };
 

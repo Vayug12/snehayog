@@ -1,47 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:vayug/core/design/colors.dart';
-import 'package:vayug/core/design/radius.dart';
-import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/core/providers/profile_providers.dart';
 import 'package:vayug/core/providers/user_data_providers.dart';
 import 'package:vayug/core/providers/auth_providers.dart';
+import 'package:vayug/shared/utils/app_logger.dart';
+import 'package:vayug/shared/widgets/subscribe_button_widget.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class FollowButtonWidget extends ConsumerStatefulWidget {
   final String uploaderId;
   final String uploaderName;
   final VoidCallback? onFollowChanged;
-  final String? followText;
-  final String? followingText;
-  final Color? backgroundColor;
-  final Color? followingBackgroundColor;
-  final Color? textColor;
-  final Color? followingTextColor;
-  final Border? border;
-  final Border? followingBorder;
-  final EdgeInsetsGeometry? padding;
-  final double? borderRadius;
-  final double? fontSize;
-  final FontWeight? fontWeight;
 
   const FollowButtonWidget({
     super.key,
     required this.uploaderId,
     required this.uploaderName,
     this.onFollowChanged,
-    this.followText,
-    this.followingText,
-    this.backgroundColor,
-    this.followingBackgroundColor,
-    this.textColor,
-    this.followingTextColor,
-    this.border,
-    this.followingBorder,
-    this.padding,
-    this.borderRadius,
-    this.fontSize,
-    this.fontWeight,
   });
 
   @override
@@ -108,7 +83,8 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
           _isInitializedNotifier.value = true;
           _isInitializing = false;
         } catch (e) {
-          print('❌ FollowButtonWidget: Error initializing follow status: $e');
+          AppLogger.log(
+              '❌ FollowButtonWidget: Error initializing follow status: $e');
           _isInitializedNotifier.value = true;
           _isInitializing = false;
         }
@@ -153,7 +129,8 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
             _isOwnVideoNotifier.value = false;
           }
         } catch (e) {
-          print('❌ FollowButtonWidget: Error checking if own video: $e');
+          AppLogger.log(
+              '❌ FollowButtonWidget: Error checking if own video: $e');
           _isOwnVideoNotifier.value = false;
         }
       }
@@ -180,7 +157,7 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
 
     try {
       _isLoadingNotifier.value = true;
-      print(
+      AppLogger.log(
           '🎯 FollowButtonWidget: Attempting to toggle follow for ${widget.uploaderName} (ID: $trimmedUploaderId)');
       final authService = ref.read(authServiceProvider);
       final userData = await authService.getUserData();
@@ -205,26 +182,35 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
             increment: isFollowing,
           );
         } catch (e) {
-          print('⚠️ FollowButtonWidget: Could not update ProfileStateManager: $e');
+          AppLogger.log(
+              '⚠️ FollowButtonWidget: Could not update ProfileStateManager: $e');
         }
 
         Future.delayed(const Duration(seconds: 1), () async {
           try {
             await userProviderRef.checkFollowStatus(trimmedUploaderId,
                 forceRefresh: true);
-          } catch (e) {}
+          } catch (e) {
+            AppLogger.log(
+                'FollowButtonWidget: Follow status refresh failed: $e');
+          }
         });
 
         Future.delayed(const Duration(seconds: 1), () async {
           try {
             await userProviderRef.refreshUserDataForId(trimmedUploaderId);
-          } catch (e) {}
+          } catch (e) {
+            AppLogger.log('FollowButtonWidget: Creator refresh failed: $e');
+          }
         });
 
         Future.delayed(const Duration(milliseconds: 500), () async {
           try {
             await userProviderRef.refreshUserData();
-          } catch (e) {}
+          } catch (e) {
+            AppLogger.log(
+                'FollowButtonWidget: Current user refresh failed: $e');
+          }
         });
 
         widget.onFollowChanged?.call();
@@ -276,24 +262,10 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
           valueListenable: _isInitializedNotifier,
           builder: (context, isInitialized, child) {
             if (!isInitialized) {
-              return Container(
-                width: 60,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: widget.backgroundColor ?? AppColors.backgroundSecondary.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(widget.borderRadius ?? AppRadius.pill),
-                  border: widget.border,
-                ),
-                child: const Center(
-                  child: SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.0,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  ),
-                ),
+              return const SubscribeButtonWidget(
+                isSubscribed: false,
+                isLoading: true,
+                onPressed: null,
               );
             }
 
@@ -305,49 +277,10 @@ class _FollowButtonWidgetState extends ConsumerState<FollowButtonWidget> {
                       builder: (context, optimisticIsFollowing, __) {
                         final effectiveIsFollowing =
                             optimisticIsFollowing ?? isFollowingFromProvider;
-                        return GestureDetector(
-                          onTap: isLoading ? null : _handleFollowTap,
-                          behavior: HitTestBehavior.opaque,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            padding: widget.padding ?? const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: effectiveIsFollowing
-                                  ? (widget.followingBackgroundColor ?? AppColors.backgroundTertiary)
-                                  : (widget.backgroundColor ?? AppColors.backgroundSecondary.withValues(alpha: 0.7)),
-                              borderRadius:
-                                  BorderRadius.circular(widget.borderRadius ?? AppRadius.pill),
-                              border: effectiveIsFollowing ? widget.followingBorder : widget.border,
-                            ),
-                            child: isLoading
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor:
-                                          AlwaysStoppedAnimation<Color>(
-                                              Colors.white),
-                                    ),
-                                  )
-                                : Text(
-                                    effectiveIsFollowing
-                                        ? (widget.followingText ??
-                                            'Subscribed')
-                                        : (widget.followText ?? 'Subscribe'),
-                                    maxLines: 1,
-                                    softWrap: false,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: effectiveIsFollowing
-                                          ? (widget.followingTextColor ?? AppColors.white)
-                                          : (widget.textColor ?? AppColors.white),
-                                      fontSize: widget.fontSize ?? AppTypography.fontSizeSM,
-                                      fontWeight: widget.fontWeight ?? AppTypography.weightBold,
-                                    ),
-                                  ),
-                          ),
+                        return SubscribeButtonWidget(
+                          isSubscribed: effectiveIsFollowing,
+                          isLoading: isLoading,
+                          onPressed: _handleFollowTap,
                         );
                       });
                 });

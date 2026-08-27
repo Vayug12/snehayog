@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 import 'package:vayug/features/video/core/data/models/video_model.dart';
 import 'package:vayug/features/video/core/presentation/widgets/quiz_overlay.dart';
+import 'package:vayug/features/video/vayu/presentation/widgets/vayu_player/vayu_player_layout.dart';
 import 'package:vayug/features/video/vayu/presentation/widgets/vayu_video_progress_bar.dart';
 import 'package:vayug/core/design/spacing.dart';
 import 'package:shimmer/shimmer.dart';
@@ -118,7 +119,11 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
     final orientation = MediaQuery.orientationOf(context);
     final isFull =
         orientation == Orientation.landscape || widget.isFullScreenManual;
-    final lateralPadding = orientation == Orientation.landscape ? 60.0 : 14.0;
+    final viewport = MediaQuery.sizeOf(context);
+    final playerInsets = VayuPlayerLayout.playerInsets(
+      context,
+      isFullScreen: isFull,
+    );
 
     // We use a Stack as the root to maintain widget tree stability across orientation changes
     return Stack(
@@ -214,16 +219,10 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
         // Overlays that appear in BOTH modes (landscape specific positions)
         if (isFull) ...[
           if (widget.activeQuiz != null)
-            Positioned(
-              bottom: 80,
-              left: lateralPadding,
-              right: lateralPadding,
-              child: QuizOverlay(
-                quiz: widget.activeQuiz!,
-                onDismiss: widget.onQuizDismiss,
-                onBack: widget.onQuizBack,
-                onAnswered: (idx) {},
-              ),
+            _buildFullScreenQuiz(
+              orientation: orientation,
+              viewport: viewport,
+              playerInsets: playerInsets,
             ),
           Positioned(
             bottom: 40,
@@ -236,26 +235,86 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
     );
   }
 
-  // Shared circular treatment for the bottom action buttons so they match
-  // the overlay's compact control rail.
+  Widget _buildFullScreenQuiz({
+    required Orientation orientation,
+    required Size viewport,
+    required EdgeInsets playerInsets,
+  }) {
+    final quiz = widget.activeQuiz!;
+
+    if (orientation == Orientation.landscape) {
+      final quizWidth = VayuPlayerLayout.landscapeQuizWidth(
+        viewportWidth: viewport.width,
+        leftInset: playerInsets.left,
+      );
+
+      return Positioned(
+        top: 0,
+        bottom: 0,
+        left: playerInsets.left,
+        width: quizWidth,
+        child: QuizOverlay(
+          quiz: quiz,
+          onDismiss: widget.onQuizDismiss,
+          onBack: widget.onQuizBack,
+          onAnswered: (idx) {},
+          alignment: Alignment.centerLeft,
+          outerPadding: EdgeInsets.zero,
+          maxWidth: quizWidth,
+        ),
+      );
+    }
+
+    final quizWidth = viewport.width - playerInsets.left - playerInsets.right;
+    return Positioned(
+      top: playerInsets.top,
+      left: playerInsets.left,
+      right: playerInsets.right,
+      child: QuizOverlay(
+        quiz: quiz,
+        onDismiss: widget.onQuizDismiss,
+        onBack: widget.onQuizBack,
+        onAnswered: (idx) {},
+        alignment: Alignment.topCenter,
+        outerPadding: EdgeInsets.zero,
+        maxWidth: quizWidth,
+      ),
+    );
+  }
+
   Widget _bottomCircleButton({
     required IconData icon,
     required VoidCallback onPressed,
     required bool isPortrait,
   }) {
-    final double size = isPortrait ? 36 : 40;
+    final controlSize =
+        VayuPlayerLayout.utilityControlSize(isPortrait: isPortrait);
+    final iconSize = VayuPlayerLayout.utilityIconSize(isPortrait: isPortrait);
+    final surfaceSize = VayuPlayerLayout.compactSurfaceSize(iconSize);
     return SizedBox(
-      width: size,
-      height: size,
-      child: IconButton(
-        constraints: const BoxConstraints(),
-        padding: EdgeInsets.zero,
-        icon: Icon(icon, color: Colors.white, size: isPortrait ? 18 : 20),
-        onPressed: onPressed,
-        style: IconButton.styleFrom(
-          backgroundColor: Colors.black.withValues(alpha: 0.46),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: const CircleBorder(),
+      width: controlSize,
+      height: controlSize,
+      child: Center(
+        child: SizedBox.square(
+          dimension: surfaceSize,
+          child: IconButton(
+            constraints: const BoxConstraints(),
+            padding: const EdgeInsets.all(
+              VayuPlayerLayout.compactIconPadding,
+            ),
+            icon: Icon(
+              icon,
+              color: Colors.white,
+              size: iconSize,
+            ),
+            onPressed: onPressed,
+            style: IconButton.styleFrom(
+              fixedSize: Size.square(surfaceSize),
+              backgroundColor: Colors.black.withValues(alpha: 0.24),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: const CircleBorder(),
+            ),
+          ),
         ),
       ),
     );
@@ -281,9 +340,12 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
     final isFull =
         orientation == Orientation.landscape || widget.isFullScreenManual;
     final isPortrait = orientation == Orientation.portrait;
-    // Asymmetric offsets for landscape to clear system navigation buttons while staying compact on the left
-    final leftPadding = orientation == Orientation.landscape ? 24.0 : 14.0;
-    final rightPadding = orientation == Orientation.landscape ? 64.0 : 14.0;
+    final playerInsets = VayuPlayerLayout.playerInsets(
+      context,
+      isFullScreen: isFull,
+    );
+    final leftPadding = playerInsets.left;
+    final rightPadding = playerInsets.right;
 
     return RepaintBoundary(
       child: Stack(
@@ -390,7 +452,18 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                             opacity: showControls ? 1.0 : 0.0,
                             duration: const Duration(milliseconds: 250),
                             child: Container(
-                              color: Colors.black.withValues(alpha: 0.55),
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Color(0x61000000),
+                                    Color(0x29000000),
+                                    Color(0x7A000000),
+                                  ],
+                                  stops: [0, 0.48, 1],
+                                ),
+                              ),
                             ),
                           ),
                         );
@@ -564,7 +637,13 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                                   ignoring: !showControls,
                                   child: Padding(
                                     padding: EdgeInsets.fromLTRB(
-                                        leftPadding, 0, rightPadding, 8),
+                                      leftPadding,
+                                      0,
+                                      rightPadding,
+                                      isPortrait
+                                          ? AppSpacing.spacing1
+                                          : AppSpacing.spacing2,
+                                    ),
                                     child: Row(
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceBetween,
@@ -576,24 +655,28 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                                               valueListenable: controller,
                                               builder: (context, value, _) {
                                                 return Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 6),
+                                                  padding: EdgeInsets.symmetric(
+                                                    horizontal: isPortrait
+                                                        ? AppSpacing.spacing2
+                                                        : AppSpacing.spacing3,
+                                                    vertical:
+                                                        AppSpacing.spacing1,
+                                                  ),
                                                   decoration: BoxDecoration(
                                                     color: Colors.black45,
                                                     borderRadius:
                                                         BorderRadius.circular(
-                                                            20),
+                                                            16),
                                                   ),
                                                   child: Text(
                                                     '${widget.formatDuration(value.position)} / ${widget.formatDuration(value.duration)}',
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       color: Colors.white,
-                                                      fontSize: 12,
+                                                      fontSize:
+                                                          isPortrait ? 10 : 11,
                                                       fontWeight:
                                                           FontWeight.w500,
-                                                      fontFeatures: [
+                                                      fontFeatures: const [
                                                         FontFeature
                                                             .tabularFigures()
                                                       ],
@@ -615,12 +698,12 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                                                 children: [
                                                   _bottomCircleButton(
                                                     icon: Icons
-                                                        .play_circle_outline_rounded,
+                                                        .open_in_new_rounded,
                                                     onPressed: widget
                                                         .onOpenExternalPlayer,
                                                     isPortrait: isPortrait,
                                                   ),
-                                                  AppSpacing.hSpace12,
+                                                  AppSpacing.hSpace8,
                                                   _bottomCircleButton(
                                                     icon: isPortrait
                                                         ? Icons
@@ -658,10 +741,10 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                                     ),
                                     child: VayuVideoProgressBar(
                                       controller: controller!,
-                                      height: isFull ? 20 : 12,
-                                      barHeight: isFull ? 4 : 2,
-                                      activeBarHeight: isFull ? 10 : 4,
-                                      thumbRadius: isFull ? 8 : 0,
+                                      height: isFull ? 16 : 12,
+                                      barHeight: isFull ? 3 : 2,
+                                      activeBarHeight: isFull ? 6 : 4,
+                                      thumbRadius: isFull ? 6 : 0,
                                       barCenterOffset: isFull ? null : 10,
                                       onResumeAfterSeek:
                                           widget.onResumeAfterSeek,
@@ -676,8 +759,7 @@ class _VayuFeedItemState extends ConsumerState<VayuFeedItem> {
                                 ),
                               );
                             }),
-                        // Fixed 32px clearance in landscape for stable placement
-                        if (isFull) const SizedBox(height: 32),
+                        if (isFull) SizedBox(height: playerInsets.bottom),
                       ],
                     ),
                   ),

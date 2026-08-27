@@ -11,6 +11,7 @@ import 'package:vayug/features/video/core/presentation/managers/video_controller
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/url_utils.dart';
 
 class VideoInfoWidget extends StatefulWidget {
@@ -181,11 +182,9 @@ class _UploaderInfoSection extends StatelessWidget {
               ? video.uploader.googleId!.trim()
               : video.uploader.id,
           uploaderName: video.uploader.name,
-          followText: 'Subscribe',
-          followingText: 'Subscribed',
           onFollowChanged: () {
             // Optionally refresh video data or update UI
-            print('Follow status changed for ${video.uploader.name}');
+            AppLogger.log('Follow status changed for ${video.uploader.name}');
           },
         ),
       ],
@@ -298,4 +297,3 @@ class _VisitNowButton extends StatelessWidget {
     );
   }
 }
-

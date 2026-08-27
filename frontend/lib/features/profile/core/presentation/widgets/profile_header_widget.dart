@@ -11,6 +11,7 @@ import 'package:vayug/features/profile/core/presentation/widgets/new_subscribers
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/utils/url_utils.dart';
+import 'package:vayug/shared/widgets/follow_button_widget.dart';
 
 class ProfileHeaderWidget extends ConsumerWidget {
   final bool isViewingOwnProfile;
@@ -168,7 +169,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _buildActionButtons(stateManager),
+          _buildActionButtons(stateManager, ref),
         ],
       ),
     );
@@ -328,8 +329,31 @@ class ProfileHeaderWidget extends ConsumerWidget {
     return '0';
   }
 
-  Widget _buildActionButtons(ProfileStateManager stateManager) {
-    if (!isViewingOwnProfile) return const SizedBox.shrink();
+  Widget _buildActionButtons(
+    ProfileStateManager stateManager,
+    WidgetRef ref,
+  ) {
+    if (!isViewingOwnProfile) {
+      final creatorId = _getCreatorId(stateManager);
+      if (creatorId.isEmpty) return const SizedBox.shrink();
+
+      final creatorName =
+          stateManager.userData?['name']?.toString().trim() ?? '';
+      return FollowButtonWidget(
+        key: const Key('profile_subscribe_button'),
+        uploaderId: creatorId,
+        uploaderName: creatorName.isEmpty
+            ? AppText.get('profile_creator_fallback')
+            : creatorName,
+        onFollowChanged: () {
+          final isFollowing = ref.read(userProvider).isFollowingUser(creatorId);
+          stateManager.updateFollowerCount(
+            creatorId,
+            increment: isFollowing,
+          );
+        },
+      );
+    }
 
     final isBillingUnlocked =
         stateManager.totalVideoCount >= 2 || hasReferralBillingUnlock;
@@ -424,5 +448,17 @@ class ProfileHeaderWidget extends ConsumerWidget {
         ]
       ],
     );
+  }
+
+  String _getCreatorId(ProfileStateManager stateManager) {
+    for (final value in [
+      stateManager.userData?['googleId'],
+      stateManager.userData?['id'],
+      stateManager.userData?['_id'],
+    ]) {
+      final id = value?.toString().trim() ?? '';
+      if (id.isNotEmpty && id != 'unknown') return id;
+    }
+    return '';
   }
 }

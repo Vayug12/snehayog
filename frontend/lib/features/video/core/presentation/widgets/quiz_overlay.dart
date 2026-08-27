@@ -9,6 +9,9 @@ class QuizOverlay extends StatefulWidget {
   final VoidCallback? onBack;
   final Function(int) onAnswered;
   final bool isCompact;
+  final AlignmentGeometry? alignment;
+  final EdgeInsetsGeometry? outerPadding;
+  final double? maxWidth;
 
   const QuizOverlay({
     super.key,
@@ -17,13 +20,17 @@ class QuizOverlay extends StatefulWidget {
     this.onBack,
     required this.onAnswered,
     this.isCompact = false,
+    this.alignment,
+    this.outerPadding,
+    this.maxWidth,
   });
 
   @override
   State<QuizOverlay> createState() => _QuizOverlayState();
 }
 
-class _QuizOverlayState extends State<QuizOverlay> with SingleTickerProviderStateMixin {
+class _QuizOverlayState extends State<QuizOverlay>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<Offset> _offsetAnimation;
   int? _selectedOption;
@@ -77,20 +84,28 @@ class _QuizOverlayState extends State<QuizOverlay> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final resolvedAlignment = widget.alignment ??
+        (isLandscape ? Alignment.centerLeft : Alignment.center);
+    final resolvedOuterPadding = widget.outerPadding ??
+        EdgeInsets.symmetric(
+          horizontal: isLandscape ? 48 : 0,
+          vertical: isLandscape ? 20 : 0,
+        );
+    final resolvedMaxWidth =
+        widget.maxWidth ?? (isLandscape ? (size.width * 0.35) : size.width);
+    final optionColumnCount = resolvedMaxWidth < 280 ? 1 : 2;
 
     return FadeTransition(
       opacity: _controller,
       child: Align(
-        alignment: isLandscape ? Alignment.centerLeft : Alignment.center,
+        alignment: resolvedAlignment,
         child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: isLandscape ? 48 : 0,
-            vertical: isLandscape ? 20 : 0,
-          ),
+          padding: resolvedOuterPadding,
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: isLandscape ? (size.width * 0.35) : size.width,
+              maxWidth: resolvedMaxWidth,
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(widget.isCompact ? 12 : 16),
@@ -99,13 +114,15 @@ class _QuizOverlayState extends State<QuizOverlay> with SingleTickerProviderStat
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   padding: EdgeInsets.symmetric(
-                    horizontal: widget.isCompact ? 12.0 : AppSpacing.spacing4, 
+                    horizontal: widget.isCompact ? 12.0 : AppSpacing.spacing4,
                     vertical: widget.isCompact ? 8.0 : AppSpacing.spacing3,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.45),
-                    borderRadius: BorderRadius.circular(widget.isCompact ? 12 : 16),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                    borderRadius:
+                        BorderRadius.circular(widget.isCompact ? 12 : 16),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.15)),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.2),
@@ -132,7 +149,9 @@ class _QuizOverlayState extends State<QuizOverlay> with SingleTickerProviderStat
                                     color: Colors.white.withValues(alpha: 0.1),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: Icon(Icons.arrow_back_rounded, size: widget.isCompact ? 11 : 14, color: Colors.white),
+                                  child: Icon(Icons.arrow_back_rounded,
+                                      size: widget.isCompact ? 11 : 14,
+                                      color: Colors.white),
                                 ),
                               ),
                             ),
@@ -157,7 +176,9 @@ class _QuizOverlayState extends State<QuizOverlay> with SingleTickerProviderStat
                                 color: Colors.white.withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                               ),
-                              child: Icon(Icons.close, size: widget.isCompact ? 11 : 14, color: Colors.white),
+                              child: Icon(Icons.close,
+                                  size: widget.isCompact ? 11 : 14,
+                                  color: Colors.white),
                             ),
                           ),
                         ],
@@ -168,16 +189,21 @@ class _QuizOverlayState extends State<QuizOverlay> with SingleTickerProviderStat
                         physics: const NeverScrollableScrollPhysics(),
                         padding: EdgeInsets.zero,
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
+                          crossAxisCount: optionColumnCount,
                           crossAxisSpacing: widget.isCompact ? 6 : 8,
                           mainAxisSpacing: widget.isCompact ? 6 : 8,
-                          childAspectRatio: isLandscape ? 2.2 : (widget.isCompact ? 3.4 : 3.2),
+                          childAspectRatio: optionColumnCount == 1
+                              ? (widget.isCompact ? 4.2 : 4)
+                              : isLandscape
+                                  ? 2.2
+                                  : (widget.isCompact ? 3.4 : 3.2),
                         ),
                         itemCount: widget.quiz.options.length,
                         itemBuilder: (context, index) {
                           bool isCorrect = index == widget.quiz.correctIndex;
                           bool isSelected = index == _selectedOption;
-                          Color borderColor = Colors.white.withValues(alpha: 0.1);
+                          Color borderColor =
+                              Colors.white.withValues(alpha: 0.1);
                           Color textColor = Colors.white.withValues(alpha: 0.8);
 
                           if (_showResult) {
@@ -195,11 +221,12 @@ class _QuizOverlayState extends State<QuizOverlay> with SingleTickerProviderStat
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
                               padding: EdgeInsets.symmetric(
-                                horizontal: widget.isCompact ? 6 : 8, 
-                                vertical: widget.isCompact ? 2 : 4
-                              ),
+                                  horizontal: widget.isCompact ? 6 : 8,
+                                  vertical: widget.isCompact ? 2 : 4),
                               decoration: BoxDecoration(
-                                color: isSelected ? Colors.white.withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.05),
+                                color: isSelected
+                                    ? Colors.white.withValues(alpha: 0.1)
+                                    : Colors.white.withValues(alpha: 0.05),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: borderColor),
                               ),
@@ -211,16 +238,22 @@ class _QuizOverlayState extends State<QuizOverlay> with SingleTickerProviderStat
                                       style: TextStyle(
                                         color: textColor,
                                         fontSize: widget.isCompact ? 9.5 : 11,
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                        fontWeight: isSelected
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
                                       ),
                                       overflow: TextOverflow.ellipsis,
                                       maxLines: 1,
                                     ),
                                   ),
                                   if (_showResult && isCorrect)
-                                    Icon(Icons.check_circle, color: Colors.green, size: widget.isCompact ? 8 : 10),
+                                    Icon(Icons.check_circle,
+                                        color: Colors.green,
+                                        size: widget.isCompact ? 8 : 10),
                                   if (_showResult && isSelected && !isCorrect)
-                                    Icon(Icons.cancel, color: Colors.red, size: widget.isCompact ? 8 : 10),
+                                    Icon(Icons.cancel,
+                                        color: Colors.red,
+                                        size: widget.isCompact ? 8 : 10),
                                 ],
                               ),
                             ),

@@ -11,6 +11,7 @@ import 'package:vayug/features/profile/core/presentation/screens/profile_screen.
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/format_utils.dart';
 import 'package:vayug/shared/widgets/interactive_scale_button.dart';
+import 'package:vayug/shared/widgets/subscribe_button_widget.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 /// Horizontal rail of creators to subscribe to, injected once into the Vayu
@@ -272,60 +273,18 @@ class _CreatorSuggestionsRailState
                     .copyWith(color: AppColors.textTertiary, height: 1.2),
               ),
               SizedBox(height: AppSpacing.spacing2),
-              _buildSubscribeButton(
-                isSubscribed: isSubscribed,
-                isPending: isPending,
-                onTap: () => _toggleSubscription(creator),
+              SizedBox(
+                height: _buttonTapHeight,
+                child: Center(
+                  child: SubscribeButtonWidget(
+                    isSubscribed: isSubscribed,
+                    isLoading: isPending,
+                    isFullWidth: true,
+                    onPressed: () => _toggleSubscription(creator),
+                  ),
+                ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSubscribeButton({
-    required bool isSubscribed,
-    required bool isPending,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: isPending ? null : onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        height: _buttonTapHeight,
-        child: Center(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            height: _buttonHeight,
-            width: double.infinity,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: isSubscribed ? Colors.transparent : AppColors.primary,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              border: isSubscribed
-                  ? Border.all(color: AppColors.borderPrimary, width: 1)
-                  : null,
-            ),
-            child: isPending
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.textSecondary,
-                    ),
-                  )
-                : isSubscribed
-                    ? const Icon(Icons.check_rounded,
-                        size: 18, color: AppColors.textSecondary)
-                    : Text(
-                        'Subscribe',
-                        style: AppTypography.labelMedium.copyWith(
-                          fontWeight: AppTypography.weightSemiBold,
-                        ),
-                      ),
           ),
         ),
       ),

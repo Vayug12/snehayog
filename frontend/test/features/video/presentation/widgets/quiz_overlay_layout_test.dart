@@ -43,13 +43,16 @@ void main() {
       ),
       QuizModel(
         timestamp: 25.0,
-        question: 'Dynamic Question with extremely long text to ensure the UI scales correctly without causing overflow bugs on compact screens.',
+        question:
+            'Dynamic Question with extremely long text to ensure the UI scales correctly without causing overflow bugs on compact screens.',
         options: ['True Option', 'False Option'],
         correctIndex: 0,
       ),
     ];
 
-    testWidgets('QuizOverlay renders dynamic questions and options correctly and handles selections', (WidgetTester tester) async {
+    testWidgets(
+        'QuizOverlay renders dynamic questions and options correctly and handles selections',
+        (WidgetTester tester) async {
       for (final mockQuiz in dynamicTestCases) {
         bool answered = false;
         int selectedIdx = -1;
@@ -60,7 +63,8 @@ void main() {
             builder: (context, child) => MaterialApp(
               home: Scaffold(
                 body: QuizOverlay(
-                  key: ValueKey(mockQuiz.question), // **CRITICAL:** Forces fresh State instantiation per iteration.
+                  key: ValueKey(mockQuiz
+                      .question), // **CRITICAL:** Forces fresh State instantiation per iteration.
                   quiz: mockQuiz,
                   isCompact: false,
                   onDismiss: () {},
@@ -98,7 +102,8 @@ void main() {
       }
     });
 
-    testWidgets('QuizOverlay handles dynamic content in compact mode', (WidgetTester tester) async {
+    testWidgets('QuizOverlay handles dynamic content in compact mode',
+        (WidgetTester tester) async {
       for (final mockQuiz in dynamicTestCases) {
         await tester.pumpWidget(
           ScreenUtilInit(
@@ -106,7 +111,8 @@ void main() {
             builder: (context, child) => MaterialApp(
               home: Scaffold(
                 body: QuizOverlay(
-                  key: ValueKey(mockQuiz.question), // **CRITICAL:** Forces fresh State instantiation per iteration.
+                  key: ValueKey(mockQuiz
+                      .question), // **CRITICAL:** Forces fresh State instantiation per iteration.
                   quiz: mockQuiz,
                   isCompact: true,
                   onDismiss: () {},
@@ -125,10 +131,63 @@ void main() {
         expect(find.text(mockQuiz.options[0]), findsOneWidget);
       }
     });
+
+    testWidgets(
+        'QuizOverlay uses a single option column inside a narrow landscape lane',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 360);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final quiz = createDynamicQuiz(
+        question: 'Which option is correct?',
+        options: ['First', 'Second', 'Third', 'Fourth'],
+        correctIndex: 0,
+      );
+
+      await tester.pumpWidget(
+        ScreenUtilInit(
+          designSize: const Size(360, 690),
+          builder: (context, child) => MaterialApp(
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: 180,
+                  child: QuizOverlay(
+                    quiz: quiz,
+                    onDismiss: () {},
+                    onAnswered: (_) {},
+                    alignment: Alignment.centerLeft,
+                    outerPadding: EdgeInsets.zero,
+                    maxWidth: 180,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(tester.takeException(), isNull);
+      final optionCentres = quiz.options
+          .map((option) => tester.getCenter(find.text(option)))
+          .toList();
+      for (final centre in optionCentres.skip(1)) {
+        expect(centre.dx, closeTo(optionCentres.first.dx, 0.01));
+      }
+    });
   });
 
   group('Unified Layout Spacing and Alignment Tests', () {
-    testWidgets('Unified Column lays out dynamic CTA and Quiz with exactly 12px vertical spacing and identical width', (WidgetTester tester) async {
+    testWidgets(
+        'Unified Column lays out dynamic CTA and Quiz with exactly 12px vertical spacing and identical width',
+        (WidgetTester tester) async {
       // Set a fixed screen size for exact layout coordinates assertions
       tester.view.physicalSize = const Size(1080, 1920);
       tester.view.devicePixelRatio = 1.0;
@@ -205,7 +264,9 @@ void main() {
       expect(spacing, closeTo(12.0, 0.01));
     });
 
-    testWidgets('Regression Guard: Visit Now button right margin shrinks to 80px when video is paused, even if Quiz is absent', (WidgetTester tester) async {
+    testWidgets(
+        'Regression Guard: Visit Now button right margin shrinks to 80px when video is paused, even if Quiz is absent',
+        (WidgetTester tester) async {
       // Simulate buggy configuration:
       // Video is paused, Quiz is absent
       await tester.pumpWidget(
@@ -240,7 +301,9 @@ void main() {
       // Left margin is 16.0, right margin when compact (paused) MUST be 80.0.
       final double screenWidth = tester.getSize(find.byType(Scaffold)).width;
       final double expectedWidth = screenWidth - 16.0 - 80.0;
-      expect(buttonWidth, equals(expectedWidth), reason: "Visit Now button must shrink to compact size when video is paused to avoid overlapping sidebar actions!");
+      expect(buttonWidth, equals(expectedWidth),
+          reason:
+              "Visit Now button must shrink to compact size when video is paused to avoid overlapping sidebar actions!");
     });
   });
 }
@@ -265,7 +328,7 @@ class MockVideoOverlay extends StatelessWidget {
     // 🟢 CORRECT PRODUCTION LOGIC:
     // -------------------------------------------------------------
     final bool isCompact = !isPlaying;
-    
+
     // When isCompact is false, targetRight is 16.0 (full width).
     // When isCompact is true, targetRight is 80.0 (compact size).
     final double targetRight = isCompact ? 80.0 : 16.0;

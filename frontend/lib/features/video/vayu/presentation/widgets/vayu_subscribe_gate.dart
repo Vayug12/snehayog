@@ -10,6 +10,7 @@ import 'package:vayug/features/profile/core/data/services/user_service.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/format_utils.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/subscribe_button_widget.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 /// First-run gate for the Vayu feed.
@@ -268,46 +269,14 @@ class _VayuSubscribeGateState extends ConsumerState<VayuSubscribeGate> {
               ),
             ),
             SizedBox(width: AppSpacing.spacing3),
-            _buildSubscribePill(isSubscribed: isSubscribed, isPending: isPending),
+            SubscribeButtonWidget(
+              isSubscribed: isSubscribed,
+              isLoading: isPending,
+              onPressed: () => _toggleSubscription(creator),
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildSubscribePill({
-    required bool isSubscribed,
-    required bool isPending,
-  }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      height: 34,
-      width: isSubscribed ? 34 : 96,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: isSubscribed ? AppColors.primary : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: isSubscribed
-            ? null
-            : Border.all(color: AppColors.borderPrimary, width: 1),
-      ),
-      child: isPending
-          ? const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: AppColors.textSecondary,
-              ),
-            )
-          : isSubscribed
-              ? const Icon(Icons.check_rounded,
-                  size: 18, color: AppColors.white)
-              : Text(
-                  'Subscribe',
-                  style: AppTypography.labelMedium,
-                ),
     );
   }
 

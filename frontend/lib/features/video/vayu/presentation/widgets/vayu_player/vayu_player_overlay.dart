@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'package:vayug/core/design/colors.dart';
+import 'package:vayug/core/design/spacing.dart';
+import 'package:vayug/features/video/vayu/presentation/widgets/vayu_player/vayu_player_layout.dart';
 import 'package:vayug/shared/widgets/interactive_scale_button.dart';
 
 class VayuPlayerOverlay extends StatelessWidget {
@@ -31,12 +32,22 @@ class VayuPlayerOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     if (controller == null) return const SizedBox.shrink();
 
-    final viewPadding = MediaQuery.viewPaddingOf(context);
-    // Landscape right offset matches the bottom action buttons (64) so the
-    // top ⋮ and bottom controls form one aligned right rail.
-    final double rightOffset = isPortrait ? (isFullScreenManual ? 24.0 : 14.0) : 64.0;
-    final double topOffset = isPortrait ? 8.0 : viewPadding.top + 16.0;
-
+    final isFullScreen = !isPortrait || isFullScreenManual;
+    final utilityControlSize =
+        VayuPlayerLayout.utilityControlSize(isPortrait: isPortrait);
+    final utilityIconSize =
+        VayuPlayerLayout.utilityIconSize(isPortrait: isPortrait);
+    final primaryControlSize =
+        VayuPlayerLayout.primaryControlSize(isPortrait: isPortrait);
+    final primaryIconSize =
+        VayuPlayerLayout.primaryIconSize(isPortrait: isPortrait);
+    final playerInsets = VayuPlayerLayout.playerInsets(
+      context,
+      isFullScreen: isFullScreen,
+    );
+    // The top menu and bottom utilities share the same safe-area-aware rail.
+    final double topOffset =
+        isFullScreen ? playerInsets.top : AppSpacing.spacing2;
     return ValueListenableBuilder<bool>(
       valueListenable: showControlsVN,
       builder: (context, showControls, _) {
@@ -50,12 +61,13 @@ class VayuPlayerOverlay extends StatelessWidget {
                 // Top rail — single more-options control
                 Positioned(
                   top: topOffset,
-                  right: rightOffset,
+                  right: playerInsets.right,
                   child: _circleButton(
                     onTap: onMoreOptions,
-                    size: isPortrait ? 36 : 40,
+                    size: utilityControlSize,
                     icon: Icons.more_vert_rounded,
-                    iconSize: isPortrait ? 18 : 20,
+                    iconSize: utilityIconSize,
+                    surfaceOpacity: 0.24,
                   ),
                 ),
 
@@ -66,7 +78,6 @@ class VayuPlayerOverlay extends StatelessWidget {
                   valueListenable: isControlsLockedVN,
                   builder: (context, isLocked, _) {
                     if (isLocked) return const SizedBox.shrink();
-                    final double primarySize = isPortrait ? 56 : 64;
                     return Center(
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -74,43 +85,54 @@ class VayuPlayerOverlay extends StatelessWidget {
                           if (!isPortrait) ...[
                             _circleButton(
                               onTap: onPrevious,
-                              size: 44,
+                              size: VayuPlayerLayout
+                                  .landscapeTransportControlSize,
                               icon: Icons.skip_previous_rounded,
-                              iconSize: 22,
+                              iconSize:
+                                  VayuPlayerLayout.landscapeTransportIconSize,
+                              surfaceOpacity: 0.28,
                             ),
-                            const SizedBox(width: 32),
+                            SizedBox(width: VayuPlayerLayout.transportGap),
                           ],
                           InteractiveScaleButton(
                             onTap: onTogglePlay,
                             child: Container(
-                              width: primarySize,
-                              height: primarySize,
+                              width: primaryControlSize,
+                              height: primaryControlSize,
                               decoration: BoxDecoration(
-                                color: AppColors.surfaceSecondary.withValues(alpha: 0.58),
+                                color: Colors.black.withValues(alpha: 0.36),
                                 shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: AppColors.borderPrimary.withValues(alpha: 0.42),
-                                ),
                               ),
                               child: ValueListenableBuilder<VideoPlayerValue>(
                                 valueListenable: controller!,
                                 builder: (context, value, _) {
-                                  return Icon(
-                                    value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                    color: Colors.white,
-                                    size: isPortrait ? 30 : 34,
+                                  return Transform.translate(
+                                    offset: Offset(
+                                      value.isPlaying ? 0 : 1,
+                                      0,
+                                    ),
+                                    child: Icon(
+                                      value.isPlaying
+                                          ? Icons.pause_rounded
+                                          : Icons.play_arrow_rounded,
+                                      color: Colors.white,
+                                      size: primaryIconSize,
+                                    ),
                                   );
                                 },
                               ),
                             ),
                           ),
                           if (!isPortrait) ...[
-                            const SizedBox(width: 32),
+                            SizedBox(width: VayuPlayerLayout.transportGap),
                             _circleButton(
                               onTap: onNext,
-                              size: 44,
+                              size: VayuPlayerLayout
+                                  .landscapeTransportControlSize,
                               icon: Icons.skip_next_rounded,
-                              iconSize: 22,
+                              iconSize:
+                                  VayuPlayerLayout.landscapeTransportIconSize,
+                              surfaceOpacity: 0.28,
                             ),
                           ],
                         ],
@@ -131,20 +153,31 @@ class VayuPlayerOverlay extends StatelessWidget {
     required double size,
     required IconData icon,
     required double iconSize,
+    required double surfaceOpacity,
   }) {
+    final surfaceSize = VayuPlayerLayout.compactSurfaceSize(iconSize);
     return InteractiveScaleButton(
       onTap: onTap,
-      child: Container(
+      child: SizedBox(
         width: size,
         height: size,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceSecondary.withValues(alpha: 0.58),
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: AppColors.borderPrimary.withValues(alpha: 0.42),
+        child: Center(
+          child: SizedBox.square(
+            dimension: surfaceSize,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: surfaceOpacity),
+                shape: BoxShape.circle,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(
+                  VayuPlayerLayout.compactIconPadding,
+                ),
+                child: Icon(icon, color: Colors.white, size: iconSize),
+              ),
+            ),
           ),
         ),
-        child: Icon(icon, color: Colors.white, size: iconSize),
       ),
     );
   }

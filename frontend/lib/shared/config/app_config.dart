@@ -6,7 +6,7 @@ import 'package:vayug/shared/services/http_client_service.dart';
 /// Optimized app configuration for better performance and smaller size
 class AppConfig {
   // **NEW: API Version (Date-Based)**
-  static const String kApiVersion = '2026-04-02';
+  static const String kApiVersion = '2026-04-02'; 
 
   // Set to true to force local development server
   static const bool isDevelopment = false;

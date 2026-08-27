@@ -37,8 +37,27 @@ class VayuMetadataSection extends StatefulWidget {
   State<VayuMetadataSection> createState() => _VayuMetadataSectionState();
 }
 
-class _VayuMetadataSectionState extends State<VayuMetadataSection> {
+class _VayuMetadataSectionState extends State<VayuMetadataSection>
+    with SingleTickerProviderStateMixin {
   int? _expandedIndex;
+  late final AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    );
+    if (!widget.isLoading) {
+      _fadeController.value = 1.0;
+    }
+  }
 
   @override
   void didUpdateWidget(covariant VayuMetadataSection oldWidget) {
@@ -46,18 +65,40 @@ class _VayuMetadataSectionState extends State<VayuMetadataSection> {
     if (oldWidget.video.id != widget.video.id) {
       _expandedIndex = null;
     }
+    if (oldWidget.isLoading && !widget.isLoading) {
+      _fadeController.forward(from: 0.0);
+    } else if (!oldWidget.isLoading && widget.isLoading) {
+      _fadeController.value = 0.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.isLoading && _fadeController.isCompleted) {
+      _fadeController.value = 0.0;
+    }
     if (widget.isLoading) {
       return _buildShimmer(context);
     }
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return AnimatedBuilder(
+      animation: _fadeAnimation,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _fadeAnimation.value,
+          child: child,
+        );
+      },
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Text(
             widget.video.videoName,
             style: AppTypography.bodyLarge.copyWith(
@@ -158,6 +199,7 @@ class _VayuMetadataSectionState extends State<VayuMetadataSection> {
             ),
           ),
         ],
+        ),
       ),
     );
   }

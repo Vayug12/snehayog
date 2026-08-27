@@ -68,6 +68,7 @@ import 'package:vayug/shared/widgets/tab_scope.dart';
 import 'package:vayug/shared/navigation/app_route_observer.dart';
 import 'package:vayug/features/video/edit/presentation/screens/edit_video_details.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
+import 'package:vayug/shared/widgets/subscribe_button_widget.dart';
 import 'package:vayug/shared/widgets/auth_sign_in_prompt.dart';
 import 'package:vayug/core/interfaces/i_dubbing_service.dart';
 import 'package:vayug/features/video/dubbing/data/models/dubbing_models.dart';

@@ -949,15 +949,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       listenable: activeManager,
       builder: (context, _) {
         // Determine if viewing own profile
-        final loggedInUserId = globalAuthState.userData?['id']?.toString() ??
-            globalAuthState.userData?['googleId']?.toString();
-        final displayedUserId = widget.userId ??
-            activeManager.userData?['googleId']?.toString() ??
-            activeManager.userData?['id']?.toString();
-        final bool isViewingOwnProfile = widget.userId == null ||
-            (loggedInUserId != null &&
-                displayedUserId != null &&
-                loggedInUserId == displayedUserId);
+        final isViewingOwnProfile =
+            _isOwnProfile(activeManager, globalAuthState);
 
         return PopScope(
           canPop: !activeManager.isSelecting,
@@ -1203,15 +1196,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       BuildContext context, ProfileStateManager manager, GoogleSignInController authController) {
     final List<Widget> slivers = [];
 
-    final loggedInUserId = authController.userData?['id']?.toString() ??
-        authController.userData?['googleId']?.toString();
-    final displayedUserId = widget.userId ??
-        manager.userData?['googleId']?.toString() ??
-        manager.userData?['id']?.toString();
-    final bool isViewingOwnProfile = widget.userId == null ||
-        (loggedInUserId != null &&
-            displayedUserId != null &&
-            loggedInUserId == displayedUserId);
+    final isViewingOwnProfile =
+        _isOwnProfile(manager, authController);
 
     // 1. Debug Token Refresh Test (Only in Debug Mode)
     if (kDebugMode) {
@@ -1357,6 +1343,37 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     );
 
     return slivers;
+  }
+
+  bool _isOwnProfile(
+    ProfileStateManager manager,
+    GoogleSignInController authController,
+  ) {
+    if (widget.userId == null) return true;
+
+    final signedInUserIds = <String>{
+      if (_authService.currentUserId?.trim().isNotEmpty == true)
+        _authService.currentUserId!.trim(),
+      for (final value in [
+        authController.userData?['id'],
+        authController.userData?['googleId'],
+        authController.userData?['_id'],
+      ])
+        if (value?.toString().trim().isNotEmpty == true)
+          value.toString().trim(),
+    };
+    final displayedUserIds = <String>{
+      if (widget.userId?.trim().isNotEmpty == true) widget.userId!.trim(),
+      for (final value in [
+        manager.userData?['id'],
+        manager.userData?['googleId'],
+        manager.userData?['_id'],
+      ])
+        if (value?.toString().trim().isNotEmpty == true)
+          value.toString().trim(),
+    };
+
+    return signedInUserIds.intersection(displayedUserIds).isNotEmpty;
   }
 
 
