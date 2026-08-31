@@ -11,6 +11,7 @@ void main() {
     WidgetTester tester, {
     required Size viewport,
     required bool isPortrait,
+    bool isSeekingBuffering = false,
   }) async {
     tester.view.physicalSize = viewport;
     tester.view.devicePixelRatio = 1;
@@ -33,6 +34,7 @@ void main() {
               controller: controller,
               showControlsVN: ValueNotifier(true),
               isControlsLockedVN: ValueNotifier(false),
+              isSeekingBufferingVN: ValueNotifier(isSeekingBuffering),
               isPortrait: isPortrait,
               isFullScreenManual: false,
               onTogglePlay: () {},
@@ -54,7 +56,7 @@ void main() {
       isPortrait: true,
     );
 
-    expect(tester.widget<Icon>(find.byIcon(Icons.more_vert_rounded)).size, 18);
+    expect(tester.widget<Icon>(find.byIcon(Icons.more_vert_rounded)).size, 20);
     expect(
       tester.widget<Icon>(find.byIcon(Icons.play_arrow_rounded)).size,
       30,
@@ -117,6 +119,18 @@ void main() {
         tester.getTopLeft(nextButton).dx - tester.getTopRight(playButton).dx;
     expect(leadingGap, closeTo(VayuPlayerLayout.transportGap, 0.01));
     expect(trailingGap, closeTo(leadingGap, 0.01));
+  });
+
+  testWidgets('seek buffering hides the play pause control', (tester) async {
+    await pumpOverlay(
+      tester,
+      viewport: const Size(360, 690),
+      isPortrait: true,
+      isSeekingBuffering: true,
+    );
+
+    expect(find.byIcon(Icons.play_arrow_rounded), findsNothing);
+    expect(find.byIcon(Icons.pause_rounded), findsNothing);
   });
 
   test('utility sizing keeps landscape actions visually consistent', () {

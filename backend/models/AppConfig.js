@@ -100,6 +100,11 @@ const appConfigSchema = new mongoose.Schema({
       type: Boolean,
       default: true,
       description: 'Enable analytics tracking'
+    },
+    professionTargeting: {
+      type: Boolean,
+      default: true,
+      description: 'Enable profession profile and creator targeting UI'
     }
   },
   
@@ -287,6 +292,21 @@ const appConfigSchema = new mongoose.Schema({
       // Common texts
       ['app_name', 'Vayu'],
       ['app_tagline', 'Create • Video • Earn'],
+      ['btn_done', 'Done'],
+      ['upload_target_audience', 'Target audience'],
+      ['upload_target_audience_hint', 'Only selected professions can receive this video'],
+      ['upload_target_private_hint', 'Private videos already use subscriber access'],
+      ['profession_single_count', '1 profession'],
+      ['profession_multiple_count', '{count} professions'],
+      ['profile_add_profession', '+ Add profession'],
+      ['profile_profession_title', 'Your profession'],
+      ['profile_remove_profession', 'Remove profession'],
+      ['profile_profession_update_error', 'Could not update profession. Please try again.'],
+      ['profession_picker_title', 'Choose profession'],
+      ['profession_search_hint', 'Search profession'],
+      ['profession_everyone', 'Everyone'],
+      ['profession_target_private', 'Unavailable'],
+      ['profession_load_error', 'Could not load professions. Please try again.'],
       
       // Navigation
       ['nav_yug', 'Yug'],

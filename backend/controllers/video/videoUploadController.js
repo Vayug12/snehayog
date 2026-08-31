@@ -17,6 +17,7 @@ import {
   markVideoUploadFailed,
   saveVideoWithDailyQuota,
 } from '../../services/uploadServices/videoUploadLifecycleService.js';
+import { isValidProfessionId, normalizeProfessionIds } from '../../constants/professions.js';
 
 let hybridVideoService;
 
@@ -74,7 +75,16 @@ export const uploadVideo = async (req, res) => {
       return res.status(401).json({ error: 'Google ID not found in token' });
     }
 
-    const { videoName, description, videoType, link, category, tags, allowedSubscribers } = req.body;
+    const { videoName, description, videoType, link, category, tags, allowedSubscribers, targetProfessionIds } = req.body;
+
+    if (targetProfessionIds != null && (
+      !Array.isArray(targetProfessionIds) ||
+      targetProfessionIds.some((id) => !isValidProfessionId(String(id).trim().toLowerCase()))
+    )) {
+      if (req.file?.path) fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Invalid target profession' });
+    }
+    const normalizedTargetProfessionIds = normalizeProfessionIds(targetProfessionIds);
 
     // 1. Validate file
     if (!req.file || !req.file.path) {
@@ -190,6 +200,7 @@ export const uploadVideo = async (req, res) => {
       uploadedAt: new Date(),
       category: category || 'others',
       tags: Array.isArray(tags) ? tags : [],
+      targetProfessionIds: normalizedTargetProfessionIds,
       seriesId: req.body.seriesId || null,
       episodeNumber: parseInt(req.body.episodeNumber) || 0,
       finalScore: initialScore,
@@ -305,8 +316,17 @@ export const registerUpload = async (req, res) => {
       width,
       height,
       category,
-      tags
+      tags,
+      targetProfessionIds
     } = req.body;
+
+    if (targetProfessionIds != null && (
+      !Array.isArray(targetProfessionIds) ||
+      targetProfessionIds.some((id) => !isValidProfessionId(String(id).trim().toLowerCase()))
+    )) {
+      return res.status(400).json({ error: 'Invalid target profession' });
+    }
+    const normalizedTargetProfessionIds = normalizeProfessionIds(targetProfessionIds);
 
     const googleId = req.user.googleId;
     if (!googleId) {
@@ -370,6 +390,7 @@ export const registerUpload = async (req, res) => {
       uploadedAt: new Date(),
       category: category || 'others',
       tags: Array.isArray(tags) ? tags : [],
+      targetProfessionIds: normalizedTargetProfessionIds,
       finalScore: initialScore
     });
 

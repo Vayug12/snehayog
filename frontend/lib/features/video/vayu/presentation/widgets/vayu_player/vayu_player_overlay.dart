@@ -8,6 +8,7 @@ class VayuPlayerOverlay extends StatelessWidget {
   final VideoPlayerController? controller;
   final ValueNotifier<bool> showControlsVN;
   final ValueNotifier<bool> isControlsLockedVN;
+  final ValueNotifier<bool> isSeekingBufferingVN;
   final bool isPortrait;
   final bool isFullScreenManual;
   final VoidCallback onTogglePlay;
@@ -20,6 +21,7 @@ class VayuPlayerOverlay extends StatelessWidget {
     required this.controller,
     required this.showControlsVN,
     required this.isControlsLockedVN,
+    required this.isSeekingBufferingVN,
     required this.isPortrait,
     required this.isFullScreenManual,
     required this.onTogglePlay,
@@ -94,34 +96,49 @@ class VayuPlayerOverlay extends StatelessWidget {
                             ),
                             SizedBox(width: VayuPlayerLayout.transportGap),
                           ],
-                          InteractiveScaleButton(
-                            onTap: onTogglePlay,
-                            child: Container(
-                              width: primaryControlSize,
-                              height: primaryControlSize,
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.36),
-                                shape: BoxShape.circle,
-                              ),
-                              child: ValueListenableBuilder<VideoPlayerValue>(
-                                valueListenable: controller!,
-                                builder: (context, value, _) {
-                                  return Transform.translate(
-                                    offset: Offset(
-                                      value.isPlaying ? 0 : 1,
-                                      0,
-                                    ),
-                                    child: Icon(
-                                      value.isPlaying
-                                          ? Icons.pause_rounded
-                                          : Icons.play_arrow_rounded,
-                                      color: Colors.white,
-                                      size: primaryIconSize,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
+                          ValueListenableBuilder<bool>(
+                            valueListenable: isSeekingBufferingVN,
+                            builder: (context, isSeekingBuffering, _) {
+                              // The seek loader is rendered in the same center
+                              // position by VayuFeedItem. Reserve this space so
+                              // the play/pause control cannot overlap it and
+                              // landscape transport controls do not shift.
+                              if (isSeekingBuffering) {
+                                return SizedBox.square(
+                                  dimension: primaryControlSize,
+                                );
+                              }
+                              return InteractiveScaleButton(
+                                onTap: onTogglePlay,
+                                child: Container(
+                                  width: primaryControlSize,
+                                  height: primaryControlSize,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.36),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child:
+                                      ValueListenableBuilder<VideoPlayerValue>(
+                                    valueListenable: controller!,
+                                    builder: (context, value, _) {
+                                      return Transform.translate(
+                                        offset: Offset(
+                                          value.isPlaying ? 0 : 1,
+                                          0,
+                                        ),
+                                        child: Icon(
+                                          value.isPlaying
+                                              ? Icons.pause_rounded
+                                              : Icons.play_arrow_rounded,
+                                          color: Colors.white,
+                                          size: primaryIconSize,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                           if (!isPortrait) ...[
                             SizedBox(width: VayuPlayerLayout.transportGap),

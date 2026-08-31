@@ -105,6 +105,12 @@ const videoSchema = new mongoose.Schema({
     trim: true,
     lowercase: true
   }],
+  // Empty means everyone. A populated list is a hard feed eligibility filter.
+  targetProfessionIds: [{
+    type: String,
+    trim: true,
+    lowercase: true
+  }],
   keywords: [{
     type: String,
     trim: true,
@@ -367,6 +373,7 @@ videoSchema.index({ uploader: 1, videoHash: 1 });
 videoSchema.index({ finalScore: -1 });
 videoSchema.index({ videoType: 1, finalScore: -1 }); // **OPTIMIZATION: For feed queries**
 videoSchema.index({ videoType: 1, uploadedAt: -1 }); // **OPTIMIZATION: For freshness priority**
+videoSchema.index({ videoType: 1, processingStatus: 1, targetProfessionIds: 1, finalScore: -1 });
 videoSchema.index({ uploadedAt: -1 }); // **OPTIMIZATION: General recency sort**
 videoSchema.index({ createdAt: -1 }); // **OPTIMIZATION: For cursor-based pagination**
 

@@ -696,7 +696,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                         icon: HugeIcons.strokeRoundedUserMultiple02,
                         activeIcon: HugeIcons.strokeRoundedUserMultiple02,
                         navId: 'nav_subscriptions',
-                        label: 'Subs',
+                        label: 'E2EE',
                         onTap: () => _handleNavTap(3, mainController),
                         mainController: mainController,
                       ),

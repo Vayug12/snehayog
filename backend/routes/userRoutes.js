@@ -23,6 +23,8 @@ import {
   markSubscribersSeen,
   parseSubscriberLimit,
 } from '../services/subscriberService.js';
+import { getProfessionById, isValidProfessionId } from '../constants/professions.js';
+import { invalidateCache } from '../middleware/cacheMiddleware.js';
 
 const router = express.Router();
 
@@ -232,7 +234,7 @@ router.get('/profile', verifyToken, async (req, res) => {
     // **IDENTITY OPTIMIZATION: Use req.user._id if available**
     const query = req.user?._id ? { _id: req.user._id } : { googleId: currentUserId };
     const currentUser = await User.findOne(query)
-      .select('_id googleId name email profilePic websiteUrl videos followingCount followerCount preferredCurrency preferredPaymentMethod country authProvider phoneNumber phoneVerifiedAt isSyntheticEmail')
+      .select('_id googleId name email profilePic professionId websiteUrl videos followingCount followerCount preferredCurrency preferredPaymentMethod country authProvider phoneNumber phoneVerifiedAt isSyntheticEmail')
       .lean();
     
     if (!currentUser) {
@@ -277,6 +279,8 @@ router.get('/profile', verifyToken, async (req, res) => {
       name: currentUser.name,
       email: currentUser.isSyntheticEmail ? '' : currentUser.email,
       profilePic: currentUser.profilePic,
+      professionId: currentUser.professionId || null,
+      profession: getProfessionById(currentUser.professionId),
       authProvider: currentUser.authProvider || 'google',
       phoneNumber: currentUser.phoneNumber
         ? `${currentUser.phoneNumber.substring(0, 3)}******${currentUser.phoneNumber.slice(-4)}`
@@ -694,6 +698,50 @@ router.post('/update-profile', async (req, res) => {
   } catch (err) {
     console.error('Update profile error:', err);
     res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// Optional profession used for creator-controlled feed eligibility.
+router.patch('/profile/profession', verifyToken, async (req, res) => {
+  try {
+    const requestedId = req.body?.professionId;
+    const professionId = requestedId == null || String(requestedId).trim() === ''
+      ? null
+      : String(requestedId).trim().toLowerCase();
+
+    if (professionId && !isValidProfessionId(professionId)) {
+      return res.status(400).json({ error: 'Invalid profession' });
+    }
+
+    const requestUser = await resolveRequestUser(req, '_id googleId professionId');
+    if (!requestUser) return res.status(404).json({ error: 'User not found' });
+
+    await User.updateOne(
+      { _id: requestUser._id },
+      { $set: { professionId } },
+    );
+
+    await Promise.all([
+      invalidateProfileCache(requestUser.googleId),
+      invalidateCache([
+        `user:feed:${requestUser.googleId}:*`,
+        `feed:following:${requestUser._id}:*`,
+        `user:profession:${requestUser.googleId}`,
+      ]),
+    ]);
+
+    console.info('[ProfessionTargeting] profile_updated', {
+      userId: requestUser._id.toString(),
+      professionId,
+    });
+
+    return res.json({
+      professionId,
+      profession: getProfessionById(professionId),
+    });
+  } catch (error) {
+    console.error('Update profession error:', error);
+    return res.status(500).json({ error: 'Failed to update profession' });
   }
 });
 
@@ -1400,7 +1448,7 @@ router.get('/:id', passiveVerifyToken, async (req, res) => {
     
     // First try to find by Google ID (primary identifier)
     let user = await User.findOne({ googleId: id })
-      .select('_id googleId name email profilePic websiteUrl videos followingCount followerCount preferredCurrency preferredPaymentMethod country paymentDetails')
+      .select('_id googleId name email profilePic professionId websiteUrl videos followingCount followerCount preferredCurrency preferredPaymentMethod country paymentDetails')
       .lean();
 
     // If not found, try by MongoDB ObjectId
@@ -1410,7 +1458,7 @@ router.get('/:id', passiveVerifyToken, async (req, res) => {
         // **IDENTITY OPTIMIZATION: Support pre-resolved ObjectIds**
         if (mongoose.Types.ObjectId.isValid(id)) {
           user = await User.findById(id)
-            .select('_id googleId name email profilePic websiteUrl videos followingCount followerCount preferredCurrency preferredPaymentMethod country paymentDetails')
+            .select('_id googleId name email profilePic professionId websiteUrl videos followingCount followerCount preferredCurrency preferredPaymentMethod country paymentDetails')
             .lean();
         }
       } catch (e) {
@@ -1442,6 +1490,8 @@ router.get('/:id', passiveVerifyToken, async (req, res) => {
       googleId: user.googleId,
       name: user.name,
       profilePic: user.profilePic,
+      professionId: user.professionId || null,
+      profession: getProfessionById(user.professionId),
       websiteUrl: user.websiteUrl, // Adding websiteUrl to payload
       videos: user.videos,
       rank,

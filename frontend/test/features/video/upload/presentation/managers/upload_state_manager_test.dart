@@ -10,9 +10,11 @@ import 'package:vayug/features/video/upload/presentation/managers/upload_state_m
 class _MockVideoService extends Mock implements IVideoService {}
 
 class _ControlledUploadService implements IVideoUploadService {
-  final StreamController<double> _progress = StreamController<double>.broadcast();
+  final StreamController<double> _progress =
+      StreamController<double>.broadcast();
   final Completer<String?> uploadCompleter = Completer<String?>();
   bool wasCancelled = false;
+  Map<String, dynamic>? lastMetadata;
 
   @override
   Stream<double> get uploadProgress => _progress.stream;
@@ -30,14 +32,18 @@ class _ControlledUploadService implements IVideoUploadService {
     required String title,
     required String description,
     Map<String, dynamic>? metadata,
-  }) => uploadCompleter.future;
+  }) {
+    lastMetadata = metadata;
+    return uploadCompleter.future;
+  }
 
   @override
   void cancelUpload() => wasCancelled = true;
 }
 
 void main() {
-  test('cancelled upload cannot set an error after a new video is selected', () async {
+  test('cancelled upload cannot set an error after a new video is selected',
+      () async {
     final uploadService = _ControlledUploadService();
     final manager = UploadStateManager(
       uploadService: uploadService,
@@ -78,5 +84,31 @@ void main() {
     expect(manager.category, isNull);
     expect(manager.tags, isEmpty);
     expect(manager.errorMessage, isNull);
+  });
+
+  test('profession targets travel as metadata without changing upload flow',
+      () async {
+    final uploadService = _ControlledUploadService();
+    final manager = UploadStateManager(
+      uploadService: uploadService,
+      videoService: _MockVideoService(),
+    );
+    manager.setVideo(File('video.mp4'));
+
+    final upload = manager.startUpload(
+      title: 'Coding',
+      description: '',
+      targetProfessionIds: const ['software_engineer', 'web_developer'],
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      uploadService.lastMetadata?['targetProfessionIds'],
+      const ['software_engineer', 'web_developer'],
+    );
+
+    manager.cancelUpload();
+    uploadService.uploadCompleter.complete(null);
+    await upload;
   });
 }

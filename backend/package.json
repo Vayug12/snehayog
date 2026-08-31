@@ -9,6 +9,7 @@
     "worker:dubbing": "node workers/dubbingWorker.js",
     "worker:social": "node workers/socialWorker.js",
     "dub:channel": "node scripts/dub-channel.js",
+    "reconcile:revenuecat": "node scripts/reconcile-revenuecat.js",
     "test:dubbing": "node --test tests/dubbing/run.js",
     "dev": "nodemon server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs --forceExit",

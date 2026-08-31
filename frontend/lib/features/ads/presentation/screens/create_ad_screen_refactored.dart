@@ -21,6 +21,7 @@ import 'package:vayug/features/profile/core/presentation/widgets/profile_static_
 import 'package:vayug/shared/services/cloudflare_r2_service.dart';
 import 'package:vayug/features/ads/data/services/ad_refresh_notifier.dart';
 import 'dart:io';
+import 'dart:math';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
@@ -37,7 +38,7 @@ import 'package:vayug/features/ads/presentation/widgets/wallet/top_up_sheet.dart
 /// The whole budget is debited from the credit wallet at creation, so the
 /// client enforces the same floor the server does — otherwise the user only
 /// discovers the minimum after the media upload has already completed.
-const int _kMinTotalBudget = 1000;
+const int _kMinTotalBudget = 30;
 
 class CreateAdScreenRefactored extends ConsumerStatefulWidget {
   const CreateAdScreenRefactored({super.key});
@@ -47,7 +48,8 @@ class CreateAdScreenRefactored extends ConsumerStatefulWidget {
       _CreateAdScreenRefactoredState();
 }
 
-class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefactored>
+class _CreateAdScreenRefactoredState
+    extends ConsumerState<CreateAdScreenRefactored>
     with WidgetsBindingObserver {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -110,6 +112,10 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
   // Services retrieved via ref.read(adServiceProvider) in methods
   final CloudflareR2Service _cloudflareService = CloudflareR2Service();
   final ScrollController _scrollController = ScrollController();
+  String? _uploadedMediaKey;
+  List<String>? _uploadedMediaUrls;
+  String? _adCreationIdempotencyKey;
+  String? _adCreationRequestFingerprint;
 
   @override
   void initState() {
@@ -117,7 +123,7 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     WidgetsBinding.instance.addObserver(this);
 
     // **NEW: Smart defaults for beginners**
-    _budgetController.text = '300.00'; // Recommended ₹300/day
+    _budgetController.text = '100.00'; // One standard credit pack
     _targetAudienceController.text = 'smart'; // Smart targeting
     _keywordsController.text = 'general'; // Default keywords
 
@@ -199,6 +205,7 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     } else if (state == AppLifecycleState.resumed) {
       AppLogger.log('▶️ CreateAdScreen: App resumed - restoring state');
       _restoreFormState();
+      ref.invalidate(adWalletProvider);
       // Don't resume videos automatically - let user navigate back to video feed
     }
   }
@@ -449,7 +456,8 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       decoration: BoxDecoration(
         color: AppColors.backgroundPrimary,
         border: Border(
-          top: BorderSide(color: AppColors.borderPrimary.withValues(alpha: 0.4)),
+          top:
+              BorderSide(color: AppColors.borderPrimary.withValues(alpha: 0.4)),
         ),
       ),
       child: SafeArea(
@@ -516,7 +524,8 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                 icon: Icons.ads_click_rounded,
                 title: 'Ad Format',
                 subtitle: _selectedAdType.toUpperCase(),
-                trailing: const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: AppColors.textTertiary),
+                trailing: const Icon(Icons.keyboard_arrow_down_rounded,
+                    size: 20, color: AppColors.textTertiary),
                 onTap: () => _showAdTypeSelector(),
               ),
 
@@ -532,10 +541,14 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
               _buildSettingRow(
                 icon: Icons.edit_note_rounded,
                 title: 'Ad Details',
-                subtitle: _titleController.text.isEmpty ? 'Set title & link' : _titleController.text,
-                trailing: _isTitleValid && _isLinkValid 
-                    ? const Icon(Icons.check_circle, color: AppColors.success, size: 18)
-                    : const Icon(Icons.error_outline, color: AppColors.error, size: 18),
+                subtitle: _titleController.text.isEmpty
+                    ? 'Set title & link'
+                    : _titleController.text,
+                trailing: _isTitleValid && _isLinkValid
+                    ? const Icon(Icons.check_circle,
+                        color: AppColors.success, size: 18)
+                    : const Icon(Icons.error_outline,
+                        color: AppColors.error, size: 18),
                 onTap: () => _showAdDetailsEditor(),
               ),
 
@@ -543,7 +556,8 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
               _buildSettingRow(
                 icon: Icons.payments_rounded,
                 title: 'Budget & Duration',
-                subtitle: '₹${_budgetController.text} total over ${_endDate?.difference(_startDate ?? DateTime.now()).inDays ?? 0} days',
+                subtitle:
+                    '₹${_budgetController.text} total over ${_endDate?.difference(_startDate ?? DateTime.now()).inDays ?? 0} days',
                 onTap: () => _showBudgetDurationEditor(),
               ),
 
@@ -551,8 +565,11 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
               _buildSettingRow(
                 icon: Icons.ads_click_rounded,
                 title: 'Targeting & Optimization',
-                subtitle: _selectedLocations.isEmpty ? 'Smart Targeting' : '${_selectedLocations.length} locations',
-                onTap: () => setState(() => _showAdvancedSettings = !_showAdvancedSettings),
+                subtitle: _selectedLocations.isEmpty
+                    ? 'Smart Targeting'
+                    : '${_selectedLocations.length} locations',
+                onTap: () => setState(
+                    () => _showAdvancedSettings = !_showAdvancedSettings),
               ),
 
               if (_showAdvancedSettings)
@@ -562,7 +579,8 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                   decoration: BoxDecoration(
                     color: AppColors.backgroundSecondary.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.borderPrimary.withValues(alpha: 0.5)),
+                    border: Border.all(
+                        color: AppColors.borderPrimary.withValues(alpha: 0.5)),
                   ),
                   child: TargetingSectionWidget(
                     minAge: _minAge,
@@ -584,26 +602,45 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                     attributionWindow: _attributionWindow,
                     onMinAgeChanged: (age) => setState(() => _minAge = age),
                     onMaxAgeChanged: (age) => setState(() => _maxAge = age),
-                    onGenderChanged: (gender) => setState(() => _selectedGender = gender),
-                    onLocationsChanged: (locs) => setState(() { _selectedLocations.clear(); _selectedLocations.addAll(locs); }),
-                    onInterestsChanged: (ints) => setState(() { _selectedInterests.clear(); _selectedInterests.addAll(ints); }),
-                    onPlatformsChanged: (plats) => setState(() { _selectedPlatforms.clear(); _selectedPlatforms.addAll(plats); }),
-                    onDeviceTypeChanged: (dt) => setState(() => _deviceType = dt),
-                    onOptimizationGoalChanged: (goal) => setState(() => _optimizationGoal = goal),
-                    onFrequencyCapChanged: (cap) => setState(() => _frequencyCap = cap),
+                    onGenderChanged: (gender) =>
+                        setState(() => _selectedGender = gender),
+                    onLocationsChanged: (locs) => setState(() {
+                      _selectedLocations.clear();
+                      _selectedLocations.addAll(locs);
+                    }),
+                    onInterestsChanged: (ints) => setState(() {
+                      _selectedInterests.clear();
+                      _selectedInterests.addAll(ints);
+                    }),
+                    onPlatformsChanged: (plats) => setState(() {
+                      _selectedPlatforms.clear();
+                      _selectedPlatforms.addAll(plats);
+                    }),
+                    onDeviceTypeChanged: (dt) =>
+                        setState(() => _deviceType = dt),
+                    onOptimizationGoalChanged: (goal) =>
+                        setState(() => _optimizationGoal = goal),
+                    onFrequencyCapChanged: (cap) =>
+                        setState(() => _frequencyCap = cap),
                     onTimeZoneChanged: (tz) => setState(() => _timeZone = tz),
-                    onDayPartingChanged: (dp) => setState(() { _dayParting.clear(); _dayParting.addAll(dp); }),
+                    onDayPartingChanged: (dp) => setState(() {
+                      _dayParting.clear();
+                      _dayParting.addAll(dp);
+                    }),
                     onBidTypeChanged: (bt) => setState(() => _bidType = bt),
                     onBidAmountChanged: (ba) => setState(() => _bidAmount = ba),
                     onPacingChanged: (p) => setState(() => _pacing = p),
-                    onTargetCPAChanged: (cpa) => setState(() => _targetCPA = cpa),
-                    onTargetROASChanged: (roas) => setState(() => _targetROAS = roas),
-                    onAttributionWindowChanged: (aw) => setState(() => _attributionWindow = aw),
+                    onTargetCPAChanged: (cpa) =>
+                        setState(() => _targetCPA = cpa),
+                    onTargetROASChanged: (roas) =>
+                        setState(() => _targetROAS = roas),
+                    onAttributionWindowChanged: (aw) =>
+                        setState(() => _attributionWindow = aw),
                   ),
                 ),
-              
+
               const SizedBox(height: 16),
-              
+
               // Preview & Legal
               CampaignPreviewWidget(
                 startDate: _startDate,
@@ -648,16 +685,23 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text(title,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16)),
                   if (subtitle != null)
-                    Text(subtitle, style: const TextStyle(color: AppColors.textTertiary, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text(subtitle,
+                        style: const TextStyle(
+                            color: AppColors.textTertiary, fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
             if (trailing != null) ...[
               trailing,
-            ] else 
-              const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.textTertiary),
+            ] else
+              const Icon(Icons.arrow_forward_ios_rounded,
+                  size: 14, color: AppColors.textTertiary),
           ],
         ),
       ),
@@ -665,7 +709,9 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
   }
 
   Widget _buildMediaStatus() {
-    bool hasMedia = _selectedImage != null || _selectedVideo != null || _selectedImages.isNotEmpty;
+    bool hasMedia = _selectedImage != null ||
+        _selectedVideo != null ||
+        _selectedImages.isNotEmpty;
     return Text(
       hasMedia ? 'Selected' : 'None',
       style: TextStyle(
@@ -680,7 +726,8 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.backgroundPrimary,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(24),
         child: AdTypeSelectorWidget(
@@ -700,7 +747,8 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.backgroundPrimary,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Container(
           padding: const EdgeInsets.all(24),
@@ -712,15 +760,34 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                 selectedImage: _selectedImage,
                 selectedVideo: _selectedVideo,
                 selectedImages: _selectedImages,
-                onImageSelected: (image) { setState(() => _selectedImage = image); setModalState((){}); _validateField('media'); },
-                onVideoSelected: (video) { setState(() => _selectedVideo = video); setModalState((){}); _validateField('media'); },
-                onImagesSelected: (images) { setState(() { _selectedImages.clear(); _selectedImages.addAll(images); }); setModalState((){}); _validateField('media'); },
+                onImageSelected: (image) {
+                  setState(() => _selectedImage = image);
+                  setModalState(() {});
+                  _validateField('media');
+                },
+                onVideoSelected: (video) {
+                  setState(() => _selectedVideo = video);
+                  setModalState(() {});
+                  _validateField('media');
+                },
+                onImagesSelected: (images) {
+                  setState(() {
+                    _selectedImages.clear();
+                    _selectedImages.addAll(images);
+                  });
+                  setModalState(() {});
+                  _validateField('media');
+                },
                 onError: (error) => setState(() => _errorMessage = error),
                 isMediaValid: _isMediaValid,
                 mediaError: _mediaError,
               ),
               const SizedBox(height: 24),
-              AppButton(onPressed: () => Navigator.pop(context), label: 'Done', variant: AppButtonVariant.primary, isFullWidth: true),
+              AppButton(
+                  onPressed: () => Navigator.pop(context),
+                  label: 'Done',
+                  variant: AppButtonVariant.primary,
+                  isFullWidth: true),
             ],
           ),
         ),
@@ -733,15 +800,22 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.backgroundPrimary,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 24, left: 24, right: 24, top: 24),
-        child: Form( // Local form for details
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+            left: 24,
+            right: 24,
+            top: 24),
+        child: Form(
+          // Local form for details
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Ad Details', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+              const Text('Ad Details',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
               const SizedBox(height: 16),
               AdDetailsFormWidget(
                 titleController: _titleController,
@@ -749,7 +823,10 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                 linkController: _linkController,
                 adType: _selectedAdType,
                 onClearErrors: _clearErrorMessages,
-                onFieldChanged: (f) { _validateField(f); setState((){}); },
+                onFieldChanged: (f) {
+                  _validateField(f);
+                  setState(() {});
+                },
                 isTitleValid: _isTitleValid,
                 isDescriptionValid: _isDescriptionValid,
                 isLinkValid: _isLinkValid,
@@ -758,7 +835,11 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                 linkError: _linkError,
               ),
               const SizedBox(height: 24),
-              AppButton(onPressed: () => Navigator.pop(context), label: 'Confirm Details', variant: AppButtonVariant.primary, isFullWidth: true),
+              AppButton(
+                  onPressed: () => Navigator.pop(context),
+                  label: 'Confirm Details',
+                  variant: AppButtonVariant.primary,
+                  isFullWidth: true),
             ],
           ),
         ),
@@ -771,26 +852,42 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.backgroundPrimary,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 24, left: 24, right: 24, top: 24),
+          padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              left: 24,
+              right: 24,
+              top: 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Budget & Duration', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+              const Text('Budget & Duration',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _budgetController,
                 // Total, not daily: this exact amount is debited from the
                 // credit wallet when the campaign is created.
-                decoration: InputDecoration(labelText: 'Total Budget', helperText: 'Charged to your ad credits now · min ₹1000', prefixText: '₹', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                decoration: InputDecoration(
+                    labelText: 'Total Budget',
+                    helperText: 'Charged to your ad credits now · min ₹1000',
+                    prefixText: '₹',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12))),
                 keyboardType: TextInputType.number,
-                onChanged: (v) { _validateField('budget'); setState((){}); setModalState((){}); },
+                onChanged: (v) {
+                  _validateField('budget');
+                  setState(() {});
+                  setModalState(() {});
+                },
               ),
               const SizedBox(height: 20),
-              const Text('Quick Duration', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const Text('Quick Duration',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -798,14 +895,31 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
                   for (final days in [7, 14, 30])
                     ChoiceChip(
                       label: Text('$days days'),
-                      selected: _endDate?.difference(_startDate ?? DateTime.now()).inDays == days,
-                      onSelected: (_) => setModalState(() { _startDate = DateTime.now(); _endDate = _startDate!.add(Duration(days: days)); setState((){}); }),
+                      selected: _endDate
+                              ?.difference(_startDate ?? DateTime.now())
+                              .inDays ==
+                          days,
+                      onSelected: (_) => setModalState(() {
+                        _startDate = DateTime.now();
+                        _endDate = _startDate!.add(Duration(days: days));
+                        setState(() {});
+                      }),
                     ),
-                  ChoiceChip(label: const Text('Custom'), selected: false, onSelected: (_) async { await _selectDateRange(); setModalState((){}); }),
+                  ChoiceChip(
+                      label: const Text('Custom'),
+                      selected: false,
+                      onSelected: (_) async {
+                        await _selectDateRange();
+                        setModalState(() {});
+                      }),
                 ],
               ),
               const SizedBox(height: 24),
-              AppButton(onPressed: () => Navigator.pop(context), label: 'Save Budget', variant: AppButtonVariant.primary, isFullWidth: true),
+              AppButton(
+                  onPressed: () => Navigator.pop(context),
+                  label: 'Save Budget',
+                  variant: AppButtonVariant.primary,
+                  isFullWidth: true),
             ],
           ),
         ),
@@ -1315,6 +1429,8 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       _selectedImage = null;
       _selectedVideo = null;
       _selectedImages.clear();
+      _uploadedMediaKey = null;
+      _uploadedMediaUrls = null;
     });
   }
 
@@ -1326,6 +1442,130 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       AppLogger.log('✅ CreateAdScreen: Video feed notification sent');
     } catch (e) {
       AppLogger.log('❌ Error notifying video feed refresh: $e');
+    }
+  }
+
+  String _currentMediaKey() {
+    return <String>[
+      _selectedAdType,
+      _selectedImage?.path ?? '',
+      _selectedVideo?.path ?? '',
+      ..._selectedImages.map((file) => file.path),
+    ].join('|');
+  }
+
+  Future<List<String>> _getOrUploadMediaFiles() async {
+    final key = _currentMediaKey();
+    if (_uploadedMediaKey == key && _uploadedMediaUrls?.isNotEmpty == true) {
+      return List<String>.from(_uploadedMediaUrls!);
+    }
+
+    final urls = await _uploadMediaFiles();
+    if (urls.isNotEmpty) {
+      _uploadedMediaKey = key;
+      _uploadedMediaUrls = List<String>.from(urls);
+    }
+    return urls;
+  }
+
+  String _currentRequestFingerprint() {
+    return <Object?>[
+      _titleController.text.trim(),
+      _descriptionController.text.trim(),
+      _linkController.text.trim(),
+      _budgetController.text.trim(),
+      _currentMediaKey(),
+      _startDate?.toIso8601String(),
+      _endDate?.toIso8601String(),
+      _minAge,
+      _maxAge,
+      _selectedGender,
+      _selectedLocations.join(','),
+      _selectedInterests.join(','),
+      _selectedPlatforms.join(','),
+      _targetAudienceController.text.trim(),
+      _keywordsController.text.trim(),
+      _deviceType,
+      _optimizationGoal,
+      _frequencyCap,
+      _timeZone,
+      _bidType,
+      _bidAmount,
+      _pacing,
+      _targetCPA,
+      _targetROAS,
+      _attributionWindow,
+      (_dayParting.entries.toList()
+            ..sort((left, right) => left.key.compareTo(right.key)))
+          .map((entry) => '${entry.key}:${entry.value}')
+          .join(','),
+    ].join('|');
+  }
+
+  String _idempotencyKeyForCurrentRequest() {
+    final fingerprint = _currentRequestFingerprint();
+    if (_adCreationIdempotencyKey == null ||
+        _adCreationRequestFingerprint != fingerprint) {
+      final random = Random.secure();
+      final nonce = List<int>.generate(16, (_) => random.nextInt(256))
+          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+          .join();
+      _adCreationIdempotencyKey =
+          '${DateTime.now().microsecondsSinceEpoch}-$nonce';
+      _adCreationRequestFingerprint = fingerprint;
+    }
+    return _adCreationIdempotencyKey!;
+  }
+
+  Future<bool> _checkBalanceBeforeUpload(int required) async {
+    late final AdWallet wallet;
+    try {
+      wallet = await ref.read(walletServiceProvider).getBalance();
+    } catch (e) {
+      // This is a UX preflight only. The atomic server debit remains the
+      // authority and will reject an unaffordable campaign without overdrawing.
+      AppLogger.log('CreateAdScreen: balance preflight unavailable: $e');
+      return true;
+    }
+
+    if (wallet.balance >= required) return true;
+
+    await _handleInsufficientCredits(
+      InsufficientCreditsException(
+        required: required,
+        available: wallet.balance,
+        shortfall: required - wallet.balance,
+      ),
+    );
+    return false;
+  }
+
+  Future<void> _handleInsufficientCredits(
+    InsufficientCreditsException error,
+  ) async {
+    ref.invalidate(adWalletProvider);
+    if (!mounted) return;
+
+    setState(() {
+      _errorMessage = AppConfig.adCreditPurchasesEnabled
+          ? 'Not enough ad credits. This campaign needs ₹${error.required} and '
+              'your balance is ₹${error.available} — ₹${error.shortfall} short.'
+          : 'Not enough ad credits. This campaign needs ₹${error.required} and '
+              'your balance is ₹${error.available} — ₹${error.shortfall} short.\n'
+              'Lower the budget to ₹${error.available} or less, or contact '
+              'support to have credits added.';
+    });
+
+    if (AppConfig.adCreditPurchasesEnabled && mounted) {
+      final credited = await TopUpSheet.show(
+        context,
+        shortfall: error.shortfall,
+      );
+      if (credited && mounted) {
+        setState(() {
+          _errorMessage = 'Credits added. Tap Create Ad to try again.';
+        });
+      }
     }
   }
 
@@ -1349,12 +1589,16 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     });
 
     try {
+      final requiredCredits =
+          double.parse(_budgetController.text.trim()).toInt();
+      if (!await _checkBalanceBeforeUpload(requiredCredits)) return;
+
       // Step 1: Upload media files
       setState(() {
         _errorMessage = AppText.get('ad_error_uploading_media');
       });
 
-      final mediaUrls = await _uploadMediaFiles();
+      final mediaUrls = await _getOrUploadMediaFiles();
       if (mediaUrls.isEmpty) {
         throw Exception(
           AppText.get('ad_error_media_failed'),
@@ -1367,54 +1611,59 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       });
 
       final result = await ref.read(adServiceProvider).createAdWithCredits(
-        // For banner ads, title and description are optional (use defaults)
-        title: _selectedAdType == 'banner'
-            ? (_titleController.text.trim().isEmpty
-                ? 'Banner Ad'
-                : _titleController.text.trim())
-            : _titleController.text.trim(),
-        description: _selectedAdType == 'banner'
-            ? (_descriptionController.text.trim().isEmpty
-                ? 'Click to learn more'
-                : _descriptionController.text.trim())
-            : _descriptionController.text.trim(),
-        imageUrl: _getImageUrl(mediaUrls),
-        videoUrl: _selectedVideo != null ? mediaUrls.first : null,
-        link: _linkController.text.trim(),
-        adType: _selectedAdType,
-        budget: double.parse(_budgetController.text.trim()),
-        targetAudience: _targetAudienceController.text.trim(),
-        targetKeywords: _keywordsController.text
-            .trim()
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList(),
-        startDate: _startDate,
-        endDate: _endDate,
-        minAge: _minAge,
-        maxAge: _maxAge,
-        gender: _selectedGender != 'all' ? _selectedGender : null,
-        locations: _selectedLocations.isNotEmpty ? _selectedLocations : null,
-        interests: _selectedInterests.isNotEmpty ? _selectedInterests : null,
-        platforms: _selectedPlatforms.isNotEmpty ? _selectedPlatforms : null,
-        deviceType: _deviceType,
-        optimizationGoal: _optimizationGoal,
-        frequencyCap: _frequencyCap,
-        timeZone: _timeZone,
-        dayParting: _dayParting.isNotEmpty ? _dayParting : null,
-        // **NEW: Advanced KPI parameters**
-        bidType: _bidType,
-        bidAmount: _bidAmount,
-        pacing: _pacing,
-        targetCPA: _targetCPA,
-        targetROAS: _targetROAS,
-        attributionWindow: _attributionWindow,
-        // **NEW: Pass all carousel image URLs**
-        imageUrls: _selectedAdType == 'carousel' && _selectedImages.isNotEmpty
-            ? mediaUrls
-            : null,
-      );
+            idempotencyKey: _idempotencyKeyForCurrentRequest(),
+            // For banner ads, title and description are optional (use defaults)
+            title: _selectedAdType == 'banner'
+                ? (_titleController.text.trim().isEmpty
+                    ? 'Banner Ad'
+                    : _titleController.text.trim())
+                : _titleController.text.trim(),
+            description: _selectedAdType == 'banner'
+                ? (_descriptionController.text.trim().isEmpty
+                    ? 'Click to learn more'
+                    : _descriptionController.text.trim())
+                : _descriptionController.text.trim(),
+            imageUrl: _getImageUrl(mediaUrls),
+            videoUrl: _selectedVideo != null ? mediaUrls.first : null,
+            link: _linkController.text.trim(),
+            adType: _selectedAdType,
+            budget: double.parse(_budgetController.text.trim()),
+            targetAudience: _targetAudienceController.text.trim(),
+            targetKeywords: _keywordsController.text
+                .trim()
+                .split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList(),
+            startDate: _startDate,
+            endDate: _endDate,
+            minAge: _minAge,
+            maxAge: _maxAge,
+            gender: _selectedGender != 'all' ? _selectedGender : null,
+            locations:
+                _selectedLocations.isNotEmpty ? _selectedLocations : null,
+            interests:
+                _selectedInterests.isNotEmpty ? _selectedInterests : null,
+            platforms:
+                _selectedPlatforms.isNotEmpty ? _selectedPlatforms : null,
+            deviceType: _deviceType,
+            optimizationGoal: _optimizationGoal,
+            frequencyCap: _frequencyCap,
+            timeZone: _timeZone,
+            dayParting: _dayParting.isNotEmpty ? _dayParting : null,
+            // **NEW: Advanced KPI parameters**
+            bidType: _bidType,
+            bidAmount: _bidAmount,
+            pacing: _pacing,
+            targetCPA: _targetCPA,
+            targetROAS: _targetROAS,
+            attributionWindow: _attributionWindow,
+            // **NEW: Pass all carousel image URLs**
+            imageUrls:
+                _selectedAdType == 'carousel' && _selectedImages.isNotEmpty
+                    ? mediaUrls
+                    : null,
+          );
 
       if (result['success']) {
         setState(() {
@@ -1439,29 +1688,13 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
         );
       }
     } on InsufficientCreditsException catch (e) {
-      // The media is already uploaded and the form still holds everything, so
-      // the user can retry the moment they top up — nothing is reset here.
-      ref.invalidate(adWalletProvider);
-      setState(() {
-        _errorMessage = AppConfig.adCreditPurchasesEnabled
-            ? 'Not enough ad credits. This campaign needs ₹${e.required} and '
-                'your balance is ₹${e.available} — ₹${e.shortfall} short.'
-            : 'Not enough ad credits. This campaign needs ₹${e.required} and '
-                'your balance is ₹${e.available} — ₹${e.shortfall} short.\n'
-                'Lower the budget to ₹${e.available} or less, or contact '
-                'support to have credits added.';
-      });
-
-      if (AppConfig.adCreditPurchasesEnabled && mounted) {
-        // Offer the fix directly rather than making the user hunt for the
-        // wallet — they were mid-flow and everything they typed is still here.
-        final credited = await TopUpSheet.show(context, shortfall: e.shortfall);
-        if (credited && mounted) {
-          setState(() {
-            _errorMessage = 'Credits added. Tap Create Ad to try again.';
-          });
-        }
+      await _handleInsufficientCredits(e);
+    } on AdCreationConflictException catch (e) {
+      if (e.shouldResetIdempotencyKey) {
+        _adCreationIdempotencyKey = null;
+        _adCreationRequestFingerprint = null;
       }
+      if (mounted) setState(() => _errorMessage = e.message);
     } catch (e) {
       String errorMessage = e.toString().replaceAll('Exception: ', '');
 
@@ -1488,16 +1721,21 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
           errorMessage.contains('403')) {
         errorMessage = AppText.get('ad_error_forbidden');
       } else if (errorMessage.contains('Invalid Token')) {
-        errorMessage = "🔐 Authentication Error: Your session token is invalid for the ad server. Please try logging out and logging back in. If the issue persists, your backend JWT_SECRET may be mismatched with the Cloudflare Worker secret.";
+        errorMessage =
+            "🔐 Authentication Error: Your session token is invalid for the ad server. Please try logging out and logging back in. If the issue persists, your backend JWT_SECRET may be mismatched with the Cloudflare Worker secret.";
       }
 
-      setState(() {
-        _errorMessage = errorMessage;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = errorMessage;
+        });
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -1597,8 +1835,9 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
       isValid = false;
     } else {
       // Check if end date is after start date
-      if (_endDate!.isBefore(_startDate!) || 
-          _startDate!.isBefore(DateTime.now().subtract(const Duration(days: 1)))) {
+      if (_endDate!.isBefore(_startDate!) ||
+          _startDate!
+              .isBefore(DateTime.now().subtract(const Duration(days: 1)))) {
         isValid = false;
       }
     }
@@ -1726,6 +1965,10 @@ class _CreateAdScreenRefactoredState extends ConsumerState<CreateAdScreenRefacto
     _selectedImage = null;
     _selectedVideo = null;
     _selectedImages.clear();
+    _uploadedMediaKey = null;
+    _uploadedMediaUrls = null;
+    _adCreationIdempotencyKey = null;
+    _adCreationRequestFingerprint = null;
     _minAge = null;
     _maxAge = null;
     _selectedGender = 'all';

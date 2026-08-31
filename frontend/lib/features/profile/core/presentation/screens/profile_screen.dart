@@ -3,7 +3,6 @@ import 'package:flutter/gestures.dart';
 import 'package:vayug/core/design/radius.dart';
 import 'package:flutter/material.dart';
 import 'package:vayug/features/profile/core/presentation/screens/edit_profile_screen.dart';
-import 'package:vayug/features/profile/core/presentation/screens/search_discovery_screen.dart';
 import 'package:provider/provider.dart' as p;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +15,7 @@ import 'package:flutter/foundation.dart';
 import 'package:vayug/core/providers/profile_providers.dart';
 import 'package:vayug/features/video/core/data/services/video_cache_proxy_service.dart';
 import 'package:vayug/shared/services/profile_screen_logger.dart';
+import 'package:vayug/shared/services/app_remote_config_service.dart';
 import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'dart:async';
@@ -27,7 +27,7 @@ import 'package:vayug/features/auth/data/services/authservices.dart';
 import 'package:vayug/features/profile/analytics/presentation/screens/creator_revenue_screen.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
-import 'package:vayug/shared/widgets/help_pill_button.dart';
+import 'package:vayug/shared/widgets/profession_picker_sheet.dart';
 import 'package:vayug/features/video/core/data/services/video_service.dart';
 import 'package:vayug/features/profile/core/data/services/user_service.dart';
 import 'package:vayug/features/profile/core/data/services/notification_service.dart';
@@ -73,11 +73,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       Uri.parse('https://chat.whatsapp.com/H7eU5xnwm3r2dfpvi7hCJC');
 
   late ProfileStateManager _profileStateManager;
-  ProfileStateManager? _localStateManager; 
-  bool _isLocalManager = false; 
+  ProfileStateManager? _localStateManager;
+  bool _isLocalManager = false;
   final ImagePicker _imagePicker = ImagePicker();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  bool _isSigningIn = false; 
+  bool _isSigningIn = false;
   final AdService _adService = AdService();
   final AuthService _authService = AuthService();
 
@@ -109,16 +109,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_handleTabChange);
-    
+
     ProfileScreenLogger.logProfileScreenInit();
-    
+
     // **UNIQUE CONTAINER STRATEGY: Use local manager for creators to avoid sync bugs**
     final authService = AuthService();
     final myId = authService.currentUserId;
-    
+
     // Check if we are viewing someone else's profile
     if (widget.userId != null && widget.userId != myId?.toString()) {
-      AppLogger.log('🚀 ProfileScreen: Initializing LOCAL ProfileStateManager for creator: ${widget.userId}');
+      AppLogger.log(
+          '🚀 ProfileScreen: Initializing LOCAL ProfileStateManager for creator: ${widget.userId}');
       _localStateManager = ProfileStateManager(
         authService: authService,
         videoService: VideoService(),
@@ -135,7 +136,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       _profileStateManager = ref.read(profileStateManagerProvider);
       _isLocalManager = false;
     }
-    
+
     // **FIX: Always attempt initial load once during init**
     // This ensures data loads on first attempt without double-triggering
     _loadData();
@@ -145,7 +146,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     // Red dot for subscribers the creator has not looked at yet
     _refreshSubscribersBadge();
 
-    // NO SETSTATE NEEDED: The UI components that need the active tab index 
+    // NO SETSTATE NEEDED: The UI components that need the active tab index
     // use a ValueListenableBuilder for granular updates.
   }
 
@@ -153,12 +154,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     if (!_tabController.indexIsChanging) {
       // **FIX: Pause any playing videos before switching tabs to prevent audio leak**
       _pauseAllVideoControllers();
-      
-      
+
       _activeProfileTabIndex.value = _tabController.index;
       // Trigger pagination logic if needed when switching tabs
-      if (_tabController.index == 0 && _profileStateManager.userVideos.isEmpty) {
-         _loadVideos().catchError((e) => AppLogger.log('⚠️ Error loading videos on tab: $e'));
+      if (_tabController.index == 0 &&
+          _profileStateManager.userVideos.isEmpty) {
+        _loadVideos().catchError(
+            (e) => AppLogger.log('⚠️ Error loading videos on tab: $e'));
       }
     }
   }
@@ -167,16 +169,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     _refreshSubscribersBadge();
 
     // **OPTIMIZED: Only load if data is completely missing or stale (> 5 minutes)**
-    if (_profileStateManager.userData == null || _profileStateManager.isDataPartial) {
-      AppLogger.log('📡 ProfileScreen: Initializing data fetch (isDataPartial: ${_profileStateManager.isDataPartial})');
-      _loadData(); 
+    if (_profileStateManager.userData == null ||
+        _profileStateManager.isDataPartial) {
+      AppLogger.log(
+          '📡 ProfileScreen: Initializing data fetch (isDataPartial: ${_profileStateManager.isDataPartial})');
+      _loadData();
     } else if (_profileStateManager.needsVideoRefresh) {
-      AppLogger.log('🚀 ProfileScreen: Refreshing videos as requested by state manager');
+      AppLogger.log(
+          '🚀 ProfileScreen: Refreshing videos as requested by state manager');
       _loadVideos(forceRefresh: true, silent: true).catchError((e) {
         AppLogger.log('⚠️ ProfileScreen: Error in video refresh: $e');
       });
     } else {
-      AppLogger.log('✅ ProfileScreen: Data is fresh, skipping redundant refresh');
+      AppLogger.log(
+          '✅ ProfileScreen: Data is fresh, skipping redundant refresh');
     }
   }
 
@@ -184,22 +190,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
   Future<void> _loadData({bool forceRefresh = false}) async {
     try {
-      AppLogger.log('🔄 ProfileScreen: Starting data loading (forceRefresh: $forceRefresh)');
+      AppLogger.log(
+          '🔄 ProfileScreen: Starting data loading (forceRefresh: $forceRefresh)');
 
       _isLoading.value = true;
       _error.value = null;
 
-      await _profileStateManager.loadUserData(widget.userId, forceRefresh: forceRefresh);
-      
+      await _profileStateManager.loadUserData(widget.userId,
+          forceRefresh: forceRefresh);
+
       if (!mounted) return;
       _isLoading.value = false;
-      
+
       if (_profileStateManager.userData != null) {
         // Verify billing only after profile state exists. Until then the CTA
         // stays hidden instead of briefly showing incorrect setup UI.
         unawaited(_checkUpiIdStatus());
-        if (_profileStateManager.userVideos.isEmpty && !_profileStateManager.isVideosLoading) {
-           _loadVideos(forceRefresh: forceRefresh, silent: true).catchError((_) {});
+        if (_profileStateManager.userVideos.isEmpty &&
+            !_profileStateManager.isVideosLoading) {
+          _loadVideos(forceRefresh: forceRefresh, silent: true)
+              .catchError((_) {});
         }
         _refreshEarningsData(forceRefresh: forceRefresh).catchError((e) {});
       }
@@ -263,7 +273,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       // **FIXED: Prioritize googleId, then id (which contains googleId from backend), then fallback**
       // When viewing another creator, ensure we use the correct googleId for the video endpoint
       final currentUserId = _profileStateManager.userData!['googleId'] ??
-          _profileStateManager.userData!['id'] ?? // Backend returns id: user.googleId
+          _profileStateManager
+              .userData!['id'] ?? // Backend returns id: user.googleId
           _profileStateManager.userData!['_id'];
 
       // **FIX: If viewing another creator and widget.userId is provided, use it as fallback**
@@ -280,14 +291,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
         AppLogger.log(
             '✅ ProfileScreen: Loaded ${_profileStateManager.userVideos.length} videos${forceRefresh ? " (fresh from server, not cache)" : ""}');
-            
+
         // **NEW: AGGRESSIVE BACKGROUND LOAD - Load all remaining videos**
         // This ensures the user sees a complete grid quickly without manually scrolling/waiting.
-        if (_profileStateManager.hasMoreVideos && !_profileStateManager.isFetchingMore) {
-           AppLogger.log('🚀 ProfileScreen: Triggering AGGRESSIVE background load for ALL remaining videos...');
-           _profileStateManager.loadAllVideosInBackground(userId: userIdForVideos).catchError((e) {
-             AppLogger.log('⚠️ ProfileScreen: Background load all failed: $e');
-           });
+        if (_profileStateManager.hasMoreVideos &&
+            !_profileStateManager.isFetchingMore) {
+          AppLogger.log(
+              '🚀 ProfileScreen: Triggering AGGRESSIVE background load for ALL remaining videos...');
+          _profileStateManager
+              .loadAllVideosInBackground(userId: userIdForVideos)
+              .catchError((e) {
+            AppLogger.log('⚠️ ProfileScreen: Background load all failed: $e');
+          });
         }
       }
     } catch (e) {
@@ -307,9 +322,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         final smartCache = SmartCacheManager();
         await smartCache.initialize();
         if (smartCache.isInitialized) {
-          final currentUserId = widget.userId ?? _profileStateManager.userData?['googleId'];
+          final currentUserId =
+              widget.userId ?? _profileStateManager.userData?['googleId'];
           if (currentUserId != null) {
-            await smartCache.clearCacheByPattern('video_profile_$currentUserId');
+            await smartCache
+                .clearCacheByPattern('video_profile_$currentUserId');
             await smartCache.clearCacheByPattern('user_profile_$currentUserId');
           }
         }
@@ -344,22 +361,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     super.didChangeDependencies();
   }
 
-
   @override
   void dispose() {
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
     _activeProfileTabIndex.dispose();
     ProfileScreenLogger.logProfileScreenDispose();
-    
+
     // **NEW: Stop all background downloads immediately on exit**
     try {
-      AppLogger.log('🛑 ProfileScreen: Exiting profile, stopping all background downloads...');
+      AppLogger.log(
+          '🛑 ProfileScreen: Exiting profile, stopping all background downloads...');
       final videoCacheProxy = VideoCacheProxyService();
-      videoCacheProxy.cancelAllStreamingExcept([]); 
+      videoCacheProxy.cancelAllStreamingExcept([]);
       videoCacheProxy.cancelAllPrefetches();
     } catch (e) {
-       AppLogger.log('⚠️ ProfileScreen: Error stopping downloads: $e');
+      AppLogger.log('⚠️ ProfileScreen: Error stopping downloads: $e');
     }
 
     // **NEW: Ensure local manager is disposed to free memory**
@@ -381,10 +398,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   Future<void> _handleLogout() async {
     try {
       ProfileScreenLogger.logLogout();
-      
+
       // **FIXED: Use centralized LogoutService for unified logout across entire app**
       await LogoutService.performCompleteLogout(ref);
-      
+
       // Ensure local state is cleared immediately so login prompt appears
       _profileStateManager.clearData();
 
@@ -394,7 +411,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       await prefs.remove('fallback_user');
 
       if (mounted) {
-        VayuSnackBar.showSuccess(context, AppText.get('profile_logout_success'));
+        VayuSnackBar.showSuccess(
+            context, AppText.get('profile_logout_success'));
       }
       ProfileScreenLogger.logLogoutSuccess();
     } catch (e) {
@@ -559,7 +577,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EditProfileScreen(stateManager: _profileStateManager),
+        builder: (context) =>
+            EditProfileScreen(stateManager: _profileStateManager),
       ),
     );
 
@@ -581,13 +600,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       await _cacheCurrentProfile();
 
       if (mounted) {
-        VayuSnackBar.showSuccess(context, AppText.get('profile_updated_success'), duration: const Duration(seconds: 2));
+        VayuSnackBar.showSuccess(
+            context, AppText.get('profile_updated_success'),
+            duration: const Duration(seconds: 2));
       }
       ProfileScreenLogger.logProfileEditSaveSuccess();
     } catch (e) {
       ProfileScreenLogger.logProfileEditSaveError(e.toString());
       if (mounted) {
-        VayuSnackBar.showError(context, '${AppText.get('error_update_profile')}: $e');
+        VayuSnackBar.showError(
+            context, '${AppText.get('error_update_profile')}: $e');
       }
     }
   }
@@ -612,8 +634,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
         if (mounted) {
           VayuSnackBar.showSuccess(
-            context, 
-            AppText.get('profile_videos_deleted').replaceAll('{count}', '$initialCount'),
+            context,
+            AppText.get('profile_videos_deleted')
+                .replaceAll('{count}', '$initialCount'),
             duration: const Duration(seconds: 3),
           );
         }
@@ -627,7 +650,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       ProfileScreenLogger.logVideoDeletionError(e.toString());
       if (mounted) {
         VayuSnackBar.showError(
-          context, 
+          context,
           _profileStateManager.error ?? AppText.get('error_delete_videos'),
           duration: const Duration(seconds: 4),
           action: SnackBarAction(
@@ -663,12 +686,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   height: 28,
                   child: CircularProgressIndicator(
                     strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(AppColors.primary),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  count == 1 ? 'Deleting video...' : 'Deleting $count videos...',
+                  count == 1
+                      ? 'Deleting video...'
+                      : 'Deleting $count videos...',
                   style: AppTypography.titleSmall.copyWith(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w600,
@@ -734,7 +760,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                           width: 2,
                         ),
                       ),
-                      child: const HugeIcon(icon: HugeIcons.strokeRoundedDelete02,
+                      child: const HugeIcon(
+                        icon: HugeIcons.strokeRoundedDelete02,
                         color: AppColors.error,
                         size: 32,
                       ),
@@ -744,10 +771,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                     // Title
                     Text(
                       AppText.get('profile_delete_videos_title'),
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.bold,
-                          ),
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.bold,
+                              ),
                     ),
                     const SizedBox(height: 12),
 
@@ -780,7 +808,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                           child: AppButton(
                             isFullWidth: true,
                             onPressed: () => Navigator.of(context).pop(true),
-                            label: AppText.get('btn_delete', fallback: 'Delete'),
+                            label:
+                                AppText.get('btn_delete', fallback: 'Delete'),
                             variant: AppButtonVariant.danger,
                           ),
                         ),
@@ -812,7 +841,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
-                  leading: const HugeIcon(icon: HugeIcons.strokeRoundedCamera01),
+                  leading:
+                      const HugeIcon(icon: HugeIcons.strokeRoundedCamera01),
                   title: Text(AppText.get('profile_take_photo')),
                   onTap: () async {
                     final XFile? photo = await _imagePicker.pickImage(
@@ -837,7 +867,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
       if (image != null) {
         if (mounted) {
-          VayuSnackBar.showInfo(context, AppText.get('profile_photo_uploading'), duration: const Duration(seconds: 1));
+          VayuSnackBar.showInfo(context, AppText.get('profile_photo_uploading'),
+              duration: const Duration(seconds: 1));
         }
 
         await _profileStateManager.updateProfilePhoto(image.path);
@@ -845,14 +876,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         await _cacheCurrentProfile();
 
         if (mounted) {
-          VayuSnackBar.showSuccess(context, AppText.get('profile_photo_updated'));
+          VayuSnackBar.showSuccess(
+              context, AppText.get('profile_photo_updated'));
         }
         ProfileScreenLogger.logProfilePhotoChangeSuccess();
       }
     } catch (e) {
       ProfileScreenLogger.logProfilePhotoChangeError(e.toString());
       if (mounted) {
-        VayuSnackBar.showError(context, '${AppText.get('error_change_photo')}: $e');
+        VayuSnackBar.showError(
+            context, '${AppText.get('error_change_photo')}: $e');
       }
     }
   }
@@ -875,7 +908,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       AppLogger.log('⚠️ ProfileScreen: Error pausing videos: $e');
     }
   }
-
 
   /// **DEBUG: Build a styled debug test button with label and subtitle**
   Widget _buildDebugButton(
@@ -907,8 +939,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
-                  Text(subtitle, style: TextStyle(fontSize: 10, color: color.withValues(alpha: 0.7))),
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: color)),
+                  Text(subtitle,
+                      style: TextStyle(
+                          fontSize: 10, color: color.withValues(alpha: 0.7))),
                 ],
               ),
             ),
@@ -930,9 +968,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     }
   }
 
-
-
-
   @override
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
@@ -943,7 +978,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
     // If we are using a local manager (for viewing another creator),
     // we use that. Otherwise we use the global watched state.
-    final activeManager = _isLocalManager ? _profileStateManager : globalProfileState;
+    final activeManager =
+        _isLocalManager ? _profileStateManager : globalProfileState;
 
     return ListenableBuilder(
       listenable: activeManager,
@@ -961,35 +997,38 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           },
           child: p.MultiProvider(
             providers: [
-              p.ChangeNotifierProvider<ProfileStateManager>.value(value: activeManager),
+              p.ChangeNotifierProvider<ProfileStateManager>.value(
+                  value: activeManager),
             ],
             child: Stack(
-            children: [
-              Scaffold(
-                key: _scaffoldKey,
-                backgroundColor: AppColors.backgroundPrimary,
-                drawer: isViewingOwnProfile
-                    ? ProfileMenuWidget(
-                        stateManager: activeManager,
-                        userId: widget.userId,
-                        onEditProfile: _handleEditProfile,
-                        onSaveProfile: _handleSaveProfile,
-                        onCancelEdit: _handleCancelEdit,
-                        onReportUser: () => _openReportDialog(
-                          targetType: 'user',
-                          targetId: widget.userId!,
-                        ),
-                        onShowWhatsApp: _openWhatsAppGroupChat,
-                        onShowFAQ: _showFAQDialog,
-                        onEnterSelectionMode: () =>
-                            activeManager.enterSelectionMode(),
-                        onLogout: _handleLogout,
-                        onGoogleSignIn: _handleGoogleSignIn,
-                        onCheckPaymentSetupStatus: _checkPaymentSetupStatus,
-                      )
-                    : null,
-                body: _buildBody(activeManager, globalAuthState, isViewingOwnProfile),
-              ),
+              children: [
+                Scaffold(
+                  key: _scaffoldKey,
+                  backgroundColor: AppColors.backgroundPrimary,
+                  drawer: isViewingOwnProfile
+                      ? ProfileMenuWidget(
+                          stateManager: activeManager,
+                          userId: widget.userId,
+                          onEditProfile: _handleEditProfile,
+                          onSaveProfile: _handleSaveProfile,
+                          onCancelEdit: _handleCancelEdit,
+                          onReportUser: () => _openReportDialog(
+                            targetType: 'user',
+                            targetId: widget.userId!,
+                          ),
+                          onShowWhatsApp: _openWhatsAppGroupChat,
+                          onShowFAQ: _showFAQDialog,
+                          onShowFeedback: _showFeedbackDialog,
+                          onEnterSelectionMode: () =>
+                              activeManager.enterSelectionMode(),
+                          onLogout: _handleLogout,
+                          onGoogleSignIn: _handleGoogleSignIn,
+                          onCheckPaymentSetupStatus: _checkPaymentSetupStatus,
+                        )
+                      : null,
+                  body: _buildBody(
+                      activeManager, globalAuthState, isViewingOwnProfile),
+                ),
               ],
             ),
           ),
@@ -998,15 +1037,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     );
   }
 
-  Widget _buildBody(ProfileStateManager manager, GoogleSignInController authController, bool isViewingOwnProfile) {
+  Widget _buildBody(ProfileStateManager manager,
+      GoogleSignInController authController, bool isViewingOwnProfile) {
     // **FIXED: Wait for auth initialization to complete before deciding what to show**
     if (!authController.isInitialized) {
-      return _wrapWithSliverAppBar(const ProfileSkeleton(), isViewingOwnProfile, manager);
+      return _wrapWithSliverAppBar(
+          const ProfileSkeleton(), isViewingOwnProfile, manager);
     }
 
     // Auth initialized — check if user is signed in
     if (widget.userId == null && !authController.isSignedIn) {
-      final isSessionExpired = authController.error?.contains('expired') == true;
+      final isSessionExpired =
+          authController.error?.contains('expired') == true;
       return _wrapWithSliverAppBar(
         ProfileSignInView(
           onGoogleSignIn: _handleGoogleSignIn,
@@ -1024,7 +1066,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       valueListenable: _isLoading,
       builder: (context, isLoading, _) {
         if (isLoading || manager.isLoading) {
-          return _wrapWithSliverAppBar(const ProfileSkeleton(), isViewingOwnProfile, manager);
+          return _wrapWithSliverAppBar(
+              const ProfileSkeleton(), isViewingOwnProfile, manager);
         }
 
         return ValueListenableBuilder<String?>(
@@ -1032,9 +1075,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           builder: (context, error, _) {
             // Show error state
             if (error != null) {
-              final bool isAuthError = error == 'No authentication data found' ||
-                  error.contains('authentication') ||
-                  error.contains('Unauthorized');
+              final bool isAuthError =
+                  error == 'No authentication data found' ||
+                      error.contains('authentication') ||
+                      error.contains('Unauthorized');
 
               // If viewing own profile and auth error, show proper sign-in
               if (widget.userId == null && isAuthError) {
@@ -1050,7 +1094,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   manager,
                 );
               }
-              
+
               // Otherwise show error with retry
               return _wrapWithSliverAppBar(
                 Center(
@@ -1059,31 +1103,37 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        HugeIcon(icon: HugeIcons.strokeRoundedAlertCircle,
+                        HugeIcon(
+                          icon: HugeIcons.strokeRoundedAlertCircle,
                           size: 64,
                           color: Colors.red[300],
                         ),
                         const SizedBox(height: 16),
                         Text(
                           AppText.get('error_load_profile'),
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: AppColors.error,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
+                                color: AppColors.error,
+                                fontWeight: FontWeight.bold,
+                              ),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 8),
                         Text(
                           error,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 24),
                         AppButton(
                           onPressed: () => _loadData(forceRefresh: true),
-                          icon: const HugeIcon(icon: HugeIcons.strokeRoundedRefresh),
+                          icon: const HugeIcon(
+                              icon: HugeIcons.strokeRoundedRefresh),
                           label: AppText.get('btn_retry', fallback: 'Retry'),
                           variant: AppButtonVariant.primary,
                         ),
@@ -1107,7 +1157,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const HugeIcon(icon: HugeIcons.strokeRoundedAlertCircle,
+                          const HugeIcon(
+                            icon: HugeIcons.strokeRoundedAlertCircle,
                             size: 64,
                             color: AppColors.textSecondary,
                           ),
@@ -1124,7 +1175,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                           const SizedBox(height: 24),
                           AppButton(
                             onPressed: () => _loadData(forceRefresh: true),
-                            icon: const HugeIcon(icon: HugeIcons.strokeRoundedRefresh),
+                            icon: const HugeIcon(
+                                icon: HugeIcons.strokeRoundedRefresh),
                             label: AppText.get('btn_retry', fallback: 'Retry'),
                             variant: AppButtonVariant.primary,
                           ),
@@ -1153,12 +1205,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
               headerSliverBuilder: (context, innerBoxIsScrolled) {
                 return [
                   _buildSliverAppBar(isViewingOwnProfile, manager),
-                  ..._buildProfileHeaderSlivers(context, manager, authController),
+                  ..._buildProfileHeaderSlivers(
+                      context, manager, authController),
                 ];
               },
               body: RefreshIndicator(
                 onRefresh: _refreshData,
-                notificationPredicate: (notification) => notification.depth >= 0,
+                notificationPredicate: (notification) =>
+                    notification.depth >= 0,
                 child: TabBarView(
                   physics: const BouncingScrollPhysics(),
                   dragStartBehavior: DragStartBehavior.down,
@@ -1191,13 +1245,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     );
   }
 
-
-  List<Widget> _buildProfileHeaderSlivers(
-      BuildContext context, ProfileStateManager manager, GoogleSignInController authController) {
+  List<Widget> _buildProfileHeaderSlivers(BuildContext context,
+      ProfileStateManager manager, GoogleSignInController authController) {
     final List<Widget> slivers = [];
 
-    final isViewingOwnProfile =
-        _isOwnProfile(manager, authController);
+    final isViewingOwnProfile = _isOwnProfile(manager, authController);
 
     // 1. Debug Token Refresh Test (Only in Debug Mode)
     if (kDebugMode) {
@@ -1220,7 +1272,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                     SizedBox(width: 6),
                     Text(
                       'AUTH DEBUG TOOLS (debug only)',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.amber),
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                          color: Colors.amber),
                     ),
                   ],
                 ),
@@ -1248,7 +1303,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   context,
                   icon: Icons.no_encryption_outlined,
                   label: 'Case 2: Full Session Loss',
-                  subtitle: 'Both tokens gone → should show "Session Expired" screen',
+                  subtitle:
+                      'Both tokens gone → should show "Session Expired" screen',
                   color: Colors.red[700]!,
                   onPressed: () async {
                     await _authService.debugFullSessionLoss();
@@ -1265,7 +1321,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   context,
                   icon: Icons.sync_problem_outlined,
                   label: 'Case 3: Rotation Mismatch',
-                  subtitle: 'Corrupt refresh token → backend rejects, Google fallback tested',
+                  subtitle:
+                      'Corrupt refresh token → backend rejects, Google fallback tested',
                   color: Colors.deepOrange[700]!,
                   onPressed: () async {
                     await _authService.debugRotationMismatch();
@@ -1281,7 +1338,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         ),
       );
     }
-    
+
     // 2. Profile Header
     slivers.add(
       SliverToBoxAdapter(
@@ -1376,10 +1433,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     return signedInUserIds.intersection(displayedUserIds).isNotEmpty;
   }
 
-
   /// Wraps a non-scrollable widget in a CustomScrollView with a SliverAppBar
   /// so the app bar hides on scroll even in loading/error/sign-in states.
-  Widget _wrapWithSliverAppBar(Widget child, bool isViewingOwnProfile, ProfileStateManager manager) {
+  Widget _wrapWithSliverAppBar(
+      Widget child, bool isViewingOwnProfile, ProfileStateManager manager) {
     return CustomScrollView(
       slivers: [
         _buildSliverAppBar(isViewingOwnProfile, manager),
@@ -1391,57 +1448,148 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     );
   }
 
-  SliverAppBar _buildSliverAppBar(bool isViewingOwnProfile, ProfileStateManager stateManager) {
+  Future<void> _openProfessionPicker(ProfileStateManager stateManager) async {
+    final currentId = stateManager.userData?['professionId']?.toString();
+    final selection = await ProfessionPickerSheet.show(
+      context: context,
+      initialSelection: currentId == null ? const [] : [currentId],
+      multiSelect: false,
+      title: AppText.get(
+        'profile_profession_title',
+        fallback: 'Your profession',
+      ),
+      emptySelectionLabel: AppText.get(
+        'profile_remove_profession',
+        fallback: 'Remove profession',
+      ),
+    );
+    if (selection == null || !mounted) return;
+
+    try {
+      await stateManager.updateProfession(
+        selection.isEmpty ? null : selection.first,
+      );
+      AppLogger.log(
+        'ProfessionTargeting: profile profession '
+        '${selection.isEmpty ? 'removed' : 'updated'}',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      VayuSnackBar.showError(
+        context,
+        AppText.get(
+          'profile_profession_update_error',
+          fallback: 'Could not update profession. Please try again.',
+        ),
+      );
+    }
+  }
+
+  Widget? _buildAppBarProfessionBadge(
+    ProfileStateManager stateManager,
+    bool isViewingOwnProfile,
+  ) {
+    final profession = stateManager.userData?['profession'];
+    final professionLabel =
+        profession is Map ? profession['label']?.toString().trim() : null;
+    final professionFeatureEnabled = AppRemoteConfigService
+            .instance.config?.featureFlags.professionTargeting ??
+        true;
+    final showProfession = professionFeatureEnabled &&
+        (isViewingOwnProfile || (professionLabel?.isNotEmpty ?? false));
+
+    if (!showProfession) return null;
+
+    final badgeLabel = professionLabel?.isNotEmpty == true
+        ? professionLabel!
+        : AppText.get('profile_add_profession', fallback: '+ Add profession');
+    final label = Text(
+      badgeLabel,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppTypography.labelMedium.copyWith(
+        color: AppColors.textPrimary,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+
+    if (!isViewingOwnProfile) {
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 190),
+        child: label,
+      );
+    }
+
+    return Semantics(
+      button: true,
+      label: badgeLabel,
+      child: TextButton(
+        onPressed: () => _openProfessionPicker(stateManager),
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.textPrimary,
+          minimumSize: const Size(44, 44),
+          maximumSize: const Size(190, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
+        child: label,
+      ),
+    );
+  }
+
+  SliverAppBar _buildSliverAppBar(
+      bool isViewingOwnProfile, ProfileStateManager stateManager) {
     return SliverAppBar(
       backgroundColor: AppColors.backgroundPrimary,
       elevation: 0,
       floating: true,
       snap: true,
       surfaceTintColor: Colors.transparent,
+      centerTitle: true,
       titleSpacing: 0,
       leadingWidth: 40,
-      title: stateManager.isSelecting &&
-              stateManager.selectedVideoIds.isNotEmpty
-          ? Text(
-              '${stateManager.selectedVideoIds.length}',
-              style: AppTypography.titleMedium.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            )
-          : (stateManager.isEditing
-              ? TextField(
-                  controller: stateManager.nameController,
-                  style: const TextStyle(
-                    color: Color(0xFF1A1A1A),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+      title:
+          stateManager.isSelecting && stateManager.selectedVideoIds.isNotEmpty
+              ? Text(
+                  '${stateManager.selectedVideoIds.length}',
+                  style: AppTypography.titleMedium.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
-                  decoration: const InputDecoration(
-                    border: UnderlineInputBorder(),
-                    hintText: 'Enter your name',
-                  ),
-                  autofocus: true,
                 )
-              : Text(
-                  stateManager.userData?['name'] ??
-                      AppText.get('profile_title'),
-                  style: AppTypography.titleLarge.copyWith(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                  ),
-                )),
+              : (stateManager.isEditing
+                  ? TextField(
+                      controller: stateManager.nameController,
+                      style: const TextStyle(
+                        color: Color(0xFF1A1A1A),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      decoration: const InputDecoration(
+                        border: UnderlineInputBorder(),
+                        hintText: 'Enter your name',
+                      ),
+                      autofocus: true,
+                    )
+                  : _buildAppBarProfessionBadge(
+                      stateManager,
+                      isViewingOwnProfile,
+                    )),
       leading: isViewingOwnProfile
           ? IconButton(
-              icon: const HugeIcon(icon: HugeIcons.strokeRoundedMenu01,
-                  color: Colors.white, size: 20),
+              icon: const HugeIcon(
+                  icon: HugeIcons.strokeRoundedMenu01,
+                  color: Colors.white,
+                  size: 20),
               tooltip: 'Menu',
               onPressed: () {
                 _scaffoldKey.currentState?.openDrawer();
               },
             )
           : IconButton(
-              icon: const HugeIcon(icon: HugeIcons.strokeRoundedArrowLeft01,
-                  color: Colors.white, size: 20),
+              icon: const HugeIcon(
+                  icon: HugeIcons.strokeRoundedArrowLeft01,
+                  color: Colors.white,
+                  size: 20),
               tooltip: 'Back',
               onPressed: () {
                 Navigator.of(context).pop();
@@ -1451,8 +1599,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     );
   }
 
-
-  List<Widget> _buildAppBarActions(ProfileStateManager stateManager, bool isViewingOwnProfile) {
+  List<Widget> _buildAppBarActions(
+      ProfileStateManager stateManager, bool isViewingOwnProfile) {
     if (stateManager.isSelecting) {
       return [
         if (stateManager.selectedVideoIds.isNotEmpty)
@@ -1460,10 +1608,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
             icon: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha:0.1),
+                color: Colors.red.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const HugeIcon(icon: HugeIcons.strokeRoundedDelete02,
+              child: const HugeIcon(
+                icon: HugeIcons.strokeRoundedDelete02,
                 color: Colors.red,
                 size: 24,
               ),
@@ -1475,10 +1624,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           icon: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.grey.withValues(alpha:0.1),
+              color: Colors.grey.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: const HugeIcon(icon: HugeIcons.strokeRoundedCancel01,
+            child: const HugeIcon(
+              icon: HugeIcons.strokeRoundedCancel01,
               color: Colors.grey,
               size: 24,
             ),
@@ -1491,128 +1641,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
     if (isViewingOwnProfile) {
       return [
-        HelpPillButton(
-          onTap: _showFAQDialog,
-          margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-        ),
-        IconButton(
-          icon: const HugeIcon(
-            icon: HugeIcons.strokeRoundedMoreVertical,
-            color: AppColors.iconPrimary,
-            size: 20,
+        TextButton(
+          onPressed: _showFAQDialog,
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.textSecondary,
+            minimumSize: const Size(56, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            tapTargetSize: MaterialTapTargetSize.padded,
           ),
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-          splashRadius: 20,
-          tooltip: 'More',
-          onPressed: _showProfileActionsSheet,
+          child: Text(
+            'Monetize',
+            style: AppTypography.labelMedium.copyWith(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 4),
       ];
     }
 
-    return [
-      IconButton(
-        icon: const HugeIcon(
-          icon: HugeIcons.strokeRoundedSearch01,
-          color: AppColors.iconPrimary,
-          size: 20,
-        ),
-        tooltip: 'Search',
-        onPressed: _openSearch,
-      ),
-    ];
-  }
-
-  void _openSearch() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const SearchDiscoveryScreen(),
-      ),
-    );
-  }
-
-  Future<void> _showProfileActionsSheet() async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.surfacePrimary,
-      barrierColor: Colors.black.withValues(alpha: 0.48),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 32,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.textTertiary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              _buildProfileActionItem(
-                context: sheetContext,
-                value: 'search',
-                icon: HugeIcons.strokeRoundedSearch01,
-                label: 'Search',
-              ),
-              _buildProfileActionItem(
-                context: sheetContext,
-                value: 'feedback',
-                icon: HugeIcons.strokeRoundedIdea01,
-                label: 'Feedback',
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (!mounted || action == null) return;
-
-    switch (action) {
-      case 'search':
-        _openSearch();
-        return;
-      case 'feedback':
-        _showFeedbackDialog();
-        return;
-    }
-  }
-
-  Widget _buildProfileActionItem({
-    required BuildContext context,
-    required String value,
-    required List<List<dynamic>> icon,
-    required String label,
-  }) {
-    return ListTile(
-      minTileHeight: 56,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      leading: HugeIcon(
-        icon: icon,
-        color: AppColors.textSecondary,
-        size: 20,
-      ),
-      title: Text(
-        label,
-        style: AppTypography.bodyLarge.copyWith(
-          color: AppColors.textPrimary,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      onTap: () => Navigator.pop(context, value),
-    );
+    return const [];
   }
 
   Future<void> _openWhatsAppGroupChat() async {
@@ -1635,8 +1684,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   void _showChatSupportError() {
     VayuSnackBar.showError(context, AppText.get('error_whatsapp'));
   }
-
-
 
   /// **NEW: Feedback Dialog**
   void _showFeedbackDialog() {
@@ -1685,12 +1732,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       ),
     );
   }
-
-
-
-
-
-
 
   Future<bool> _checkPaymentSetupStatus() async {
     try {
@@ -1867,7 +1908,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     }
   }
 
-
   /// **OPTIMIZED: Cache profile data to SmartCacheManager**
   /// **ENHANCED: Uses unified SmartCacheManager (same as ProfileStateManager)**
   /// Cache persists when user navigates back to same profile
@@ -1881,7 +1921,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         await smartCache.initialize();
         if (smartCache.isInitialized) {
           final cacheKey = 'user_profile_$targetUserId';
-          await smartCache.put(cacheKey, profileData, cacheType: 'user_profile');
+          await smartCache.put(cacheKey, profileData,
+              cacheType: 'user_profile');
           AppLogger.log('✅ ProfileScreen: Cached profile data to SmartCache');
         }
       }
@@ -1895,7 +1936,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       await _cacheProfileData(_profileStateManager.userData!);
     }
   }
-
 
   /// **SIMPLIFIED: Cache earnings - simple timestamp only**
   Future<void> _cacheEarningsData(Map<String, dynamic> earningsData) async {
@@ -2046,7 +2086,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       AppLogger.log('💰 ProfileScreen: Loading fresh earnings...');
       Future.microtask(() async {
         try {
-          final earningsData = await _adService.getCreatorRevenueSummary(forceRefresh: forceRefresh);
+          final earningsData = await _adService.getCreatorRevenueSummary(
+              forceRefresh: forceRefresh);
           await _cacheEarningsData(earningsData);
           AppLogger.log('✅ ProfileScreen: Earnings loaded (fresh data)');
         } catch (e) {
@@ -2086,5 +2127,3 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 Map<String, dynamic> _parseJsonData(String jsonString) {
   return json.decode(jsonString) as Map<String, dynamic>;
 }
-
-

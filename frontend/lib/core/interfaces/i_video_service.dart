@@ -31,6 +31,7 @@ abstract class IVideoService {
     int? episodeNumber,
     List<QuizModel>? quizzes,
     List<String>? allowedSubscribers,
+    List<String>? targetProfessionIds,
     File? thumbnailFile,
   });
 

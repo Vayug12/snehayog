@@ -197,6 +197,7 @@ class FeatureFlags {
   final bool referralSystem;
   final bool pushNotifications;
   final bool analytics;
+  final bool professionTargeting;
 
   FeatureFlags({
     required this.yugTabCarouselAds,
@@ -207,6 +208,7 @@ class FeatureFlags {
     required this.referralSystem,
     required this.pushNotifications,
     required this.analytics,
+    required this.professionTargeting,
   });
 
   factory FeatureFlags.fromJson(Map<String, dynamic> json) {
@@ -219,6 +221,7 @@ class FeatureFlags {
       referralSystem: json['referralSystem'] as bool? ?? true,
       pushNotifications: json['pushNotifications'] as bool? ?? true,
       analytics: json['analytics'] as bool? ?? true,
+      professionTargeting: json['professionTargeting'] as bool? ?? true,
     );
   }
 }

@@ -87,6 +87,8 @@ class VideoUploadService implements IVideoUploadService {
         allowedSubscribers: metadata?['allowedSubscribers'] != null
             ? List<String>.from(metadata?['allowedSubscribers'])
             : null,
+        targetProfessionIds:
+            List<String>.from(metadata?['targetProfessionIds'] ?? const []),
         // Series placement and quizzes travel through metadata so the upload
         // contract stays a single generic map instead of growing a parameter
         // per feature.

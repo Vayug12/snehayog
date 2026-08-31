@@ -53,6 +53,13 @@ const UserSchema = new mongoose.Schema({
   profilePic: {
     type: String
   },
+  professionId: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    default: null,
+    index: true
+  },
   websiteUrl: {
     type: String,
     trim: true

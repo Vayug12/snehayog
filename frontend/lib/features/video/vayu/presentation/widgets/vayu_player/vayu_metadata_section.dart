@@ -5,12 +5,10 @@ import 'package:vayug/core/design/colors.dart';
 import 'package:vayug/core/design/spacing.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/utils/format_utils.dart';
-import 'package:shimmer/shimmer.dart';
 
 class VayuMetadataSection extends StatefulWidget {
   final VideoModel video;
   final bool isPortrait;
-  final bool isLoading;
   final VoidCallback onShare;
   final VoidCallback onSave;
   final VoidCallback onVisitLink;
@@ -23,7 +21,6 @@ class VayuMetadataSection extends StatefulWidget {
     super.key,
     required this.video,
     this.isPortrait = true,
-    this.isLoading = false,
     required this.onShare,
     required this.onSave,
     required this.onVisitLink,
@@ -37,64 +34,12 @@ class VayuMetadataSection extends StatefulWidget {
   State<VayuMetadataSection> createState() => _VayuMetadataSectionState();
 }
 
-class _VayuMetadataSectionState extends State<VayuMetadataSection>
-    with SingleTickerProviderStateMixin {
+class _VayuMetadataSectionState extends State<VayuMetadataSection> {
   int? _expandedIndex;
-  late final AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeInOut,
-    );
-    if (!widget.isLoading) {
-      _fadeController.value = 1.0;
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant VayuMetadataSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.video.id != widget.video.id) {
-      _expandedIndex = null;
-    }
-    if (oldWidget.isLoading && !widget.isLoading) {
-      _fadeController.forward(from: 0.0);
-    } else if (!oldWidget.isLoading && widget.isLoading) {
-      _fadeController.value = 0.0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _fadeController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.isLoading && _fadeController.isCompleted) {
-      _fadeController.value = 0.0;
-    }
-    if (widget.isLoading) {
-      return _buildShimmer(context);
-    }
-    return AnimatedBuilder(
-      animation: _fadeAnimation,
-      builder: (context, child) {
-        return Opacity(
-          opacity: _fadeAnimation.value,
-          child: child,
-        );
-      },
-      child: Padding(
+    return Padding(
         padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -199,40 +144,6 @@ class _VayuMetadataSectionState extends State<VayuMetadataSection>
             ),
           ),
         ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildShimmer(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseColor = isDark ? Colors.white12 : Colors.grey[300]!;
-    final highlightColor = isDark ? Colors.white24 : Colors.grey[100]!;
-
-    return Shimmer.fromColors(
-      baseColor: baseColor,
-      highlightColor: highlightColor,
-      child: Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(width: 200, height: 20, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-            SizedBox(height: AppSpacing.spacing2),
-            Row(children: [
-              Container(width: 60, height: 12, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-              SizedBox(width: AppSpacing.spacing2),
-              Container(width: 80, height: 12, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-            ]),
-            const SizedBox(height: 16),
-            Row(
-              children: List.generate(4, (index) => Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Container(width: 80, height: 32, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20))),
-              )),
-            ),
-          ],
-        ),
       ),
     );
   }

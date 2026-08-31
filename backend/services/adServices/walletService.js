@@ -82,6 +82,16 @@ const toObjectId = (userId) => {
   return new mongoose.Types.ObjectId(String(userId));
 };
 
+const assertMatchingTransaction = (existing, { userId, type, amount }) => {
+  if (
+    existing.type !== type
+    || String(existing.userId) !== String(userId)
+    || existing.amount !== amount
+  ) {
+    throw new Error('Idempotency key was already used for a different wallet transaction');
+  }
+};
+
 /**
  * Fetch the caller's wallet, creating it on first touch.
  *
@@ -217,6 +227,7 @@ export const applyTransaction = async (transaction) => {
     throw new Error(`Wallet vanished while applying transaction ${transaction._id}`);
   }
 
+  let balanceReverted = false;
   try {
     const claimed = await AdCreditTransaction.findOneAndUpdate(
       { _id: transaction._id, applied: false },
@@ -235,19 +246,22 @@ export const applyTransaction = async (transaction) => {
     // Someone else (the sweep, or a concurrent retry) applied this row first.
     // Our increment was a duplicate — undo it and report their result.
     await AdWallet.updateOne({ userId }, walletRevertPipeline(type, amount));
+    balanceReverted = true;
     return await AdCreditTransaction.findById(transaction._id);
   } catch (err) {
     // The balance moved but we could not record that it did. Roll it back so
     // the ledger stays the source of truth.
-    await AdWallet.updateOne({ userId }, walletRevertPipeline(type, amount))
-      .catch((revertErr) => {
-        console.error('❌ CRITICAL: failed to revert wallet after apply failure', {
-          transactionId: String(transaction._id),
-          userId: String(userId),
-          amount,
-          revertError: revertErr?.message
+    if (!balanceReverted) {
+      await AdWallet.updateOne({ userId }, walletRevertPipeline(type, amount))
+        .catch((revertErr) => {
+          console.error('❌ CRITICAL: failed to revert wallet after apply failure', {
+            transactionId: String(transaction._id),
+            userId: String(userId),
+            amount,
+            revertError: revertErr?.message
+          });
         });
-      });
+    }
     throw err;
   }
 };
@@ -300,6 +314,7 @@ export const credit = async ({
       // the original row and credit nothing.
       const existing = await AdCreditTransaction.findOne({ externalId });
       if (existing) {
+        assertMatchingTransaction(existing, { userId: _id, type, amount });
         // The original may have died before phase 2; finish it if so.
         const settled = existing.applied ? existing : await applyTransaction(existing);
         const wallet = await getOrCreateWallet(_id);
@@ -330,10 +345,27 @@ export const debit = async ({
   campaignId = null,
   reason = null,
   source = 'campaign',
+  externalId = null,
   metadata = null
 }) => {
   assertValidAmount(amount);
   const _id = toObjectId(userId);
+
+  if (externalId) {
+    const existing = await AdCreditTransaction.findOne({ externalId });
+    if (existing) {
+      assertMatchingTransaction(existing, {
+        userId: _id,
+        type: 'spend',
+        amount
+      });
+      return {
+        transaction: existing,
+        wallet: await getOrCreateWallet(_id),
+        duplicate: true
+      };
+    }
+  }
 
   await getOrCreateWallet(_id);
 
@@ -351,12 +383,14 @@ export const debit = async ({
     throw new InsufficientCreditsError(amount, current?.balance ?? 0);
   }
 
+  let debitReverted = false;
   try {
     const transaction = await AdCreditTransaction.create({
       userId: _id,
       type: 'spend',
       amount,
       source,
+      externalId,
       campaignId,
       reason,
       metadata,
@@ -365,20 +399,47 @@ export const debit = async ({
       balanceAfter: wallet.balance
     });
 
-    return { transaction, wallet };
+    return { transaction, wallet, duplicate: false };
   } catch (err) {
+    if (isDuplicateKeyError(err) && externalId) {
+      // Two identical requests may both pass the initial lookup and debit the
+      // wallet. Only one can insert the unique ledger key; undo this request's
+      // debit and return the winner.
+      await AdWallet.updateOne(
+        { userId: _id },
+        { $inc: { balance: amount, lifetimeSpent: -amount } }
+      );
+      debitReverted = true;
+
+      const existing = await AdCreditTransaction.findOne({ externalId });
+      if (existing) {
+        assertMatchingTransaction(existing, {
+          userId: _id,
+          type: 'spend',
+          amount
+        });
+        return {
+          transaction: existing,
+          wallet: await getOrCreateWallet(_id),
+          duplicate: true
+        };
+      }
+    }
+
     // The debit landed but is unrecorded. Give the credits back rather than
     // keep money we cannot account for.
-    await AdWallet.updateOne(
-      { userId: _id },
-      { $inc: { balance: amount, lifetimeSpent: -amount } }
-    ).catch((revertErr) => {
-      console.error('❌ CRITICAL: failed to revert debit after ledger write failure', {
-        userId: String(_id),
-        amount,
-        revertError: revertErr?.message
+    if (!debitReverted) {
+      await AdWallet.updateOne(
+        { userId: _id },
+        { $inc: { balance: amount, lifetimeSpent: -amount } }
+      ).catch((revertErr) => {
+        console.error('❌ CRITICAL: failed to revert debit after ledger write failure', {
+          userId: String(_id),
+          amount,
+          revertError: revertErr?.message
+        });
       });
-    });
+    }
     throw err;
   }
 };
@@ -466,6 +527,11 @@ export const reverse = async ({
     if (isDuplicateKeyError(err) && externalId) {
       const existing = await AdCreditTransaction.findOne({ externalId });
       if (existing) {
+        assertMatchingTransaction(existing, {
+          userId: _id,
+          type: 'reversal',
+          amount
+        });
         const settled = existing.applied ? existing : await applyTransaction(existing);
         const wallet = await getOrCreateWallet(_id);
         return { transaction: settled, wallet, duplicate: true, frozen: wallet.status === 'frozen' };

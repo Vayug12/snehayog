@@ -86,6 +86,51 @@ class WalletService {
     }
   }
 
+  Future<void> recordPurchaseIntent(String productId) async {
+    try {
+      final baseUrl = await AppConfig.getBaseUrlWithFallback();
+      final headers = await _authHeaders();
+      final response = await httpClientService.post(
+        Uri.parse('$baseUrl/api/ads/wallet/purchase-intents'),
+        headers: headers,
+        body: jsonEncode({'productId': productId}),
+        timeout: _timeout,
+      );
+
+      if (response.statusCode != 201) {
+        throw WalletException(
+          _errorFrom(response.body, 'Could not prepare purchase recovery'),
+          statusCode: response.statusCode,
+        );
+      }
+    } on WalletException {
+      rethrow;
+    } catch (e) {
+      throw WalletException('Could not prepare purchase recovery: $e');
+    }
+  }
+
+  Future<AdWallet?> syncPurchases() async {
+    try {
+      final baseUrl = await AppConfig.getBaseUrlWithFallback();
+      final headers = await _authHeaders();
+      final response = await httpClientService.post(
+        Uri.parse('$baseUrl/api/ads/wallet/sync-purchases'),
+        headers: headers,
+        body: '{}',
+        timeout: _timeout,
+      );
+
+      if (response.statusCode != 200) return null;
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final wallet = json['wallet'];
+      return wallet is Map<String, dynamic> ? AdWallet.fromJson(wallet) : null;
+    } catch (e) {
+      AppLogger.log('WalletService: purchase sync unavailable: $e');
+      return null;
+    }
+  }
+
   /// One page of ledger history, newest first.
   ///
   /// `limit` is capped at 100 to match the server's pagination validator —

@@ -46,8 +46,6 @@ class AppButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     // Determine dimensions based on size
     double height;
     double fontSize;
@@ -61,7 +59,7 @@ class AppButton extends StatelessWidget {
         iconSize = 16.0;
         padding = EdgeInsets.symmetric(
           horizontal: AppSpacing.spacing3,
-          vertical: AppSpacing.spacing1, // Minimal vertical padding for small
+          vertical: AppSpacing.spacing1, 
         );
         break;
       case AppButtonSize.medium:

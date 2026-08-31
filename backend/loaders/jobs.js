@@ -1,9 +1,37 @@
 import cron from 'node-cron';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import automatedPayoutService from '../services/payoutServices/automatedPayoutService.js';
 import monthlyNotificationCron from '../services/notificationServices/monthlyNotificationCron.js';
 import recommendationScoreCron from '../services/yugFeedServices/recommendationScoreCron.js';
 import adCleanupService from '../services/adServices/adCleanupService.js';
 import { expireEndedCampaigns } from '../services/adServices/campaignSettlement.js';
+
+const revenueCatReconcileScript = fileURLToPath(
+  new URL('../scripts/reconcile-revenuecat.js', import.meta.url)
+);
+let revenueCatReconcileRunning = false;
+
+const reconcileRevenueCat = (trigger) => {
+  if (revenueCatReconcileRunning) return;
+  revenueCatReconcileRunning = true;
+
+  const child = spawn(
+    process.execPath,
+    [revenueCatReconcileScript, '--days=7'],
+    { stdio: 'inherit', env: process.env }
+  );
+  child.once('error', (error) => {
+    revenueCatReconcileRunning = false;
+    console.error(`RevenueCat reconciliation could not start (${trigger}):`, error);
+  });
+  child.once('close', (code) => {
+    revenueCatReconcileRunning = false;
+    if (code !== 0) {
+      console.error(`RevenueCat reconciliation failed (${trigger}) with code ${code}`);
+    }
+  });
+};
 
 export default async () => {
   try {
@@ -48,6 +76,13 @@ export default async () => {
     setTimeout(() => { settleEndedCampaigns('startup'); }, 10_000).unref?.();
 
     cron.schedule('0 3 * * 0', () => settleEndedCampaigns('weekly'));
+
+    // Recover a first purchase even if its webhook arrived while the Fly
+    // machine was asleep. Startup covers auto-stopped machines; hourly covers
+    // long-running ones. The child is idempotent and overlapping runs are
+    // suppressed in this process.
+    setTimeout(() => reconcileRevenueCat('startup'), 20_000).unref?.();
+    cron.schedule('17 * * * *', () => reconcileRevenueCat('hourly'));
 
     // Start monthly notification cron job (runs on 1st of every month at 9:00 AM)
     monthlyNotificationCron.start();

@@ -365,7 +365,8 @@ extension AppRemoteConfigJson on AppRemoteConfig {
           'creatorPayouts': featureFlags.creatorPayouts,
           'referralSystem': featureFlags.referralSystem,
           'pushNotifications': featureFlags.pushNotifications,
-          'analytics': featureFlags.analytics,
+            'analytics': featureFlags.analytics,
+            'professionTargeting': featureFlags.professionTargeting,
         },
         'businessRules': {
           'adBudget': {

@@ -13,5 +13,6 @@ abstract class IUserService {
     String? websiteUrl,
   });
   Future<String?> updateProfilePhoto(String googleId, String photoPath);
+  Future<Map<String, dynamic>> updateProfession(String? professionId);
   Future<UserModel?> getUserData(String userId);
 }

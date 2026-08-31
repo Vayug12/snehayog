@@ -318,6 +318,26 @@ class UserService implements IUserService {
     return null;
   }
 
+  @override
+  Future<Map<String, dynamic>> updateProfession(String? professionId) async {
+    final token = (await _authService.getUserData())?['token'];
+    if (token == null) throw Exception('Not authenticated');
+
+    final response = await httpClientService.patch(
+      Uri.parse('${NetworkHelper.usersEndpoint}/profile/profession'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({'professionId': professionId}),
+      timeout: NetworkHelper.defaultTimeout,
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update profession');
+    }
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
   /// Get user data including follower counts
   @override
   Future<UserModel?> getUserData(String userId) async {
@@ -382,6 +402,9 @@ class UserService implements IUserService {
           bio: data['bio'],
           location: data['location'],
           websiteUrl: data['websiteUrl']?.toString(),
+          professionId: data['professionId']?.toString(),
+          professionLabel:
+              (data['profession'] as Map<String, dynamic>?)?['label']?.toString(),
         );
       } else {
         AppLogger.log(

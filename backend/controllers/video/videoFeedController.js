@@ -9,6 +9,10 @@ import redisService from '../../services/caching/redisService.js';
 import { invalidateCache, VideoCacheKeys } from '../../middleware/cacheMiddleware.js';
 import { serializeVideo, serializeVideos } from '../../utils/serializers/videoSerializer.js';
 import RevenueService from '../../services/adServices/revenueService.js';
+import {
+  isVideoEligibleForProfession,
+  withProfessionEligibility,
+} from '../../services/audienceEligibilityService.js';
 
 /**
  * Helper to populate episodes for a list of videos
@@ -278,7 +282,15 @@ export const getFeed = async (req, res) => {
     const userIdFromToken = req.user?.googleId || req.user?.id;
     if (userIdFromToken) {
       userId = userIdFromToken;
+      res.set('Cache-Control', 'private, no-store');
     }
+
+    const viewerProfile = userId
+      ? await User.findOne({ googleId: userId })
+          .select('_id preferredLanguages location professionId')
+          .lean()
+      : null;
+    const viewerProfessionId = viewerProfile?.professionId || null;
 
     const { videoType: queryVideoType, type: queryType, limit = 10, page = 1, clearSession, cursor } = req.query;
     const videoType = queryVideoType || queryType;
@@ -301,17 +313,22 @@ export const getFeed = async (req, res) => {
       await FeedQueueService.clearQueue(userIdentifier, type);
     }
     
-    finalVideos = await FeedQueueService.popFromQueue(userIdentifier, type, limitNum);
+    finalVideos = await FeedQueueService.popFromQueue(
+      userIdentifier,
+      type,
+      limitNum,
+      viewerProfessionId,
+    );
     
     if (finalVideos.length === 0) {
       console.log(`[FeedQueue] Queue empty for ${userIdentifier} (${type}), falling back to MongoDB with scoring`);
-      const query = {
+      const query = withProfessionEligibility({
         videoType: type,
-        processingStatus: 'completed'
-      };
+        processingStatus: 'completed',
+        isSubscriberOnly: { $ne: true },
+      }, viewerProfessionId);
 
       // STRICT: Main feed NEVER shows subscriber-only videos
-      query.isSubscriberOnly = { $ne: true };
 
       const poolLimit = cursor ? 30 : 60;
       const queryCursor = cursor ? { createdAt: { $lt: new Date(cursor) } } : {};
@@ -334,11 +351,10 @@ export const getFeed = async (req, res) => {
 
       if (candidates.length > 0) {
         // 2. Load context (user profile + interest vector) for scoring
-        let userProfile = null;
+        let userProfile = viewerProfile;
         let userVector = null;
         
         if (userId && userId !== 'anon') {
-          userProfile = await User.findOne({ googleId: userId }).select('_id preferredLanguages location').lean();
           userVector = await RecommendationService.getUserInterestVector(userId);
         }
 
@@ -359,7 +375,10 @@ export const getFeed = async (req, res) => {
     }
 
     // SECONDARY SAFETY: Strictly filter out any exclusive content from the main feed results
-    finalVideos = finalVideos.filter(v => !v.isSubscriberOnly);
+    finalVideos = finalVideos.filter(
+      (video) => !video.isSubscriberOnly &&
+        isVideoEligibleForProfession(video, viewerProfessionId),
+    );
     
     finalVideos = RecommendationService.enforceMaxConsecutive(finalVideos, 2);
     await populateEpisodesForVideos(finalVideos);
@@ -430,6 +449,7 @@ const resolveUserObjectId = async (req) => {
  */
 export const getFollowingFeed = async (req, res) => {
   try {
+    res.set('Cache-Control', 'private, no-store');
     const userId = await resolveUserObjectId(req);
     if (!userId) return res.status(404).json({ error: 'User not found' });
 
@@ -438,9 +458,10 @@ export const getFollowingFeed = async (req, res) => {
     const cursor = req.query.cursor;
     const forceRefresh = req.query.refresh === 'true';
 
-    const followDocs = await Follower.find({ follower: userId })
-      .select('following')
-      .lean();
+    const [followDocs, viewerProfile] = await Promise.all([
+      Follower.find({ follower: userId }).select('following').lean(),
+      User.findById(userId).select('professionId').lean(),
+    ]);
     const followingIds = followDocs
       .map((doc) => doc.following)
       .filter(Boolean);
@@ -464,7 +485,7 @@ export const getFollowingFeed = async (req, res) => {
       if (cached) return res.json(cached);
     }
 
-    const query = {
+    const query = withProfessionEligibility({
       uploader: { $in: followingIds },
       videoType,
       processingStatus: 'completed',
@@ -473,7 +494,7 @@ export const getFollowingFeed = async (req, res) => {
         { isSubscriberOnly: { $ne: true } },
         { allowedSubscribers: userId },
       ],
-    };
+    }, viewerProfile?.professionId);
 
     if (cursor) {
       const cursorDate = new Date(cursor);

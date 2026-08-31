@@ -3,6 +3,10 @@ import FeedHistory from '../../models/FeedHistory.js';
 import redisService from '../caching/redisService.js';
 import RecommendationService from './recommendationService.js';
 import mongoose from 'mongoose';
+import {
+  isVideoEligibleForProfession,
+  withProfessionEligibility,
+} from '../audienceEligibilityService.js';
 
 /**
  * Feed Queue Service
@@ -32,12 +36,15 @@ class FeedQueueService {
     }
   }
 
-  async popFromQueue(userId, videoType = 'yog', limit = 5) {
+  async popFromQueue(userId, videoType = 'yog', limit = 5, knownProfessionId = undefined) {
     // OPTIMIZATION: Skip Redis entirely for anonymous users to save commands.
     if (!userId || userId === 'anon' || userId === 'anonymous' || userId === 'undefined') {
       return [];
     }
 
+    const professionId = knownProfessionId === undefined
+      ? await this.getUserProfessionId(userId)
+      : knownProfessionId;
     const queueKey = this.getQueueKey(userId, videoType);
     const videos = [];
     const tStart = Date.now();
@@ -82,13 +89,33 @@ class FeedQueueService {
        const remainingQueued = projectedLength > 0 ? await redisService.lRange(queueKey, 0, -1) : [];
        const initialExcludes = new Set([...videos, ...remainingQueued]);
 
-       const fallbackIds = await this.getFallbackIds(userId, videoType, needed, Array.from(initialExcludes));
+       const fallbackIds = await this.getFallbackIds(userId, videoType, needed, Array.from(initialExcludes), professionId);
        if (fallbackIds.length > 0) {
           videos.push(...fallbackIds);
        }
     }
 
-    const result = await this.populateVideos(videos);
+    let result = (await this.populateVideos(videos))
+      .filter((video) => isVideoEligibleForProfession(video, professionId));
+
+    // A profession change can leave incompatible IDs in an existing Redis queue.
+    // Refill the response from an eligibility-aware Mongo query without scoring boosts.
+    if (result.length < limit) {
+      const replacementIds = await this.getFallbackIds(
+        userId,
+        videoType,
+        limit - result.length,
+        videos,
+        professionId,
+      );
+      if (replacementIds.length > 0) {
+        const replacements = await this.populateVideos(replacementIds);
+        result = [
+          ...result,
+          ...replacements.filter((video) => isVideoEligibleForProfession(video, professionId)),
+        ].slice(0, limit);
+      }
+    }
 
     if (result.length > 0 && userId !== 'anon' && userId !== 'undefined') {
        FeedHistory.markAsSeen(userId, result).catch(() => {});
@@ -101,6 +128,25 @@ class FeedQueueService {
 
     console.log(`⏱️ Feed Latency: Total ${Date.now() - tStart}ms [${result.length} videos]`);
     return result;
+  }
+
+  async getUserProfessionId(userId) {
+    if (!userId || ['anon', 'anonymous', 'undefined', 'null'].includes(userId)) return null;
+    const cacheKey = `user:profession:${userId}`;
+    if (redisService.getConnectionStatus()) {
+      const cached = await redisService.get(cacheKey);
+      if (cached !== null && cached !== undefined) {
+        return cached === '__none__' ? null : String(cached);
+      }
+    }
+
+    const User = mongoose.model('User');
+    const user = await User.findOne({ googleId: userId }).select('professionId').lean();
+    const professionId = user?.professionId || null;
+    if (redisService.getConnectionStatus()) {
+      await redisService.set(cacheKey, professionId || '__none__', 300);
+    }
+    return professionId;
   }
 
   async ensureBloomFilterSeeded(userId) {
@@ -143,7 +189,7 @@ class FeedQueueService {
       let userProfile = null;
       if (userId && userId !== 'anon') {
         const User = mongoose.model('User');
-        userProfile = await User.findOne({ googleId: userId }).select('_id preferredLanguages location').lean();
+        userProfile = await User.findOne({ googleId: userId }).select('_id preferredLanguages location professionId').lean();
         if (userProfile) uploaderObjectId = userProfile._id;
       }
 
@@ -158,16 +204,16 @@ class FeedQueueService {
       queuedIds.forEach(id => seenVideoIds.add(id));
       recentServed.forEach(id => seenVideoIds.add(id));
 
-      const matchQuery = {
+      const matchQuery = withProfessionEligibility({
           processingStatus: 'completed', 
           videoType,
           uploader: uploaderObjectId ? { $ne: uploaderObjectId } : { $exists: true },
           isSubscriberOnly: { $ne: true }
-      };
+      }, userProfile?.professionId);
 
       const [popularCandidates, freshCandidates] = await Promise.all([
-          Video.find(matchQuery).sort({ finalScore: -1 }).limit(600).select('_id uploader createdAt score finalScore videoType videoHash vectorEmbedding language detectedRegion').lean(),
-          Video.find(matchQuery).sort({ createdAt: -1 }).limit(400).select('_id uploader createdAt score finalScore videoType videoHash vectorEmbedding language detectedRegion').lean()
+          Video.find(matchQuery).sort({ finalScore: -1 }).limit(600).select('_id uploader createdAt score finalScore videoType videoHash vectorEmbedding language detectedRegion targetProfessionIds').lean(),
+          Video.find(matchQuery).sort({ createdAt: -1 }).limit(400).select('_id uploader createdAt score finalScore videoType videoHash vectorEmbedding language detectedRegion targetProfessionIds').lean()
       ]);
 
       let semanticCandidates = [];
@@ -175,7 +221,7 @@ class FeedQueueService {
       
       if (userVector) {
           const semanticPool = await Video.find({ ...matchQuery, vectorEmbedding: { $exists: true, $ne: [] } })
-            .sort({ createdAt: -1 }).limit(1000).select('_id uploader createdAt score finalScore videoType videoHash vectorEmbedding language detectedRegion').lean();
+            .sort({ createdAt: -1 }).limit(1000).select('_id uploader createdAt score finalScore videoType videoHash vectorEmbedding language detectedRegion targetProfessionIds').lean();
           semanticCandidates = RecommendationService.findTopSemanticMatches(userVector, semanticPool, 500);
       }
 
@@ -236,7 +282,7 @@ class FeedQueueService {
     }
   }
 
-  async getFallbackIds(userId, videoType = 'yog', count = 10, excludedIds = []) {
+  async getFallbackIds(userId, videoType = 'yog', count = 10, excludedIds = [], knownProfessionId = undefined) {
     await this.ensureBloomFilterSeeded(userId);
     const excludeSet = new Set(excludedIds.map(id => id.toString()));
     const finalIds = [];
@@ -250,14 +296,17 @@ class FeedQueueService {
     }
 
     try {
-      const matchStage = { 
+      const professionId = knownProfessionId === undefined
+        ? await this.getUserProfessionId(userId)
+        : knownProfessionId;
+      const matchStage = withProfessionEligibility({
         processingStatus: 'completed',
         videoType,
         isSubscriberOnly: { $ne: true },
         _id: { $nin: Array.from(excludeSet).map(id => { try { return new mongoose.Types.ObjectId(id); } catch(e) { return null; } }).filter(Boolean) }
-      };
+      }, professionId);
 
-      const candidates = await Video.find(matchStage).sort({ finalScore: -1, createdAt: -1 }).limit(200).select('_id videoHash uploader finalScore createdAt').lean();
+      const candidates = await Video.find(matchStage).sort({ finalScore: -1, createdAt: -1 }).limit(200).select('_id videoHash uploader finalScore createdAt targetProfessionIds').lean();
 
       if (candidates.length > 0) {
           let filtered = candidates;
@@ -289,7 +338,9 @@ class FeedQueueService {
     const missingIds = [];
     const missingIndices = [];
 
-    const cacheKeys = ids.map(id => `video:data:${id}`);
+    // v2 includes targetProfessionIds; old cached documents cannot be trusted
+    // for hard eligibility checks.
+    const cacheKeys = ids.map(id => `video:data:v2:${id}`);
     const cachedDocs = await redisService.mget(cacheKeys);
     
     cachedDocs.forEach((doc, index) => {
@@ -299,7 +350,7 @@ class FeedQueueService {
 
     if (missingIds.length > 0) {
       const dbDocs = await Video.find({ _id: { $in: missingIds } })
-        .select('videoUrl thumbnailUrl description uploader views likes shares comments duration processingStatus createdAt videoHash videoName tags seriesId episodeNumber videoType aspectRatio quizzes link')
+        .select('videoUrl thumbnailUrl description uploader views likes shares comments duration processingStatus createdAt videoHash videoName tags seriesId episodeNumber videoType aspectRatio quizzes link targetProfessionIds')
         .populate('uploader', 'name profilePic googleId username').lean();
 
       const dbMap = new Map(dbDocs.map(v => [v._id.toString(), v]));
@@ -309,7 +360,7 @@ class FeedQueueService {
         if (video) {
           video._id = video._id.toString();
           videos[origIdx] = video;
-          toCache.push([`video:data:${video._id}`, video]);
+          toCache.push([`video:data:v2:${video._id}`, video]);
         }
       });
       if (toCache.length > 0) redisService.mset(toCache, 3600).catch(() => {});

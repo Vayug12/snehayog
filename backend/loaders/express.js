@@ -27,6 +27,7 @@ import agentRoutes from '../routes/agentRoutes.js';
 import videoGenRoutes from '../routes/videoGenRoutes.js';
 import revenuecatWebhookRoutes from '../routes/webhooks/revenuecatRoutes.js';
 import attributionRoutes from '../routes/attributionRoutes.js';
+import professionRoutes from '../routes/professionRoutes.js';
 
 // Import middleware
 import { errorHandler, notFoundHandler } from '../middleware/errorHandler.js';
@@ -83,7 +84,7 @@ export default async ({ app }) => {
         'http://172.20.10.2:5001',
         'http://10.78.84.104:5001',
         'http://192.168.0.198:5001',
-        'http://192.168.0.190:5001',
+        'http://192.168.0.197:5001',
         'http://10.78.84.18:5001',
         /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
         'http://10.0.2.2:5001',
@@ -213,6 +214,7 @@ export default async ({ app }) => {
   apiRouter.use('/agent', agentRoutes);
   apiRouter.use('/video-gen', videoGenRoutes);
   apiRouter.use('/attribution', attributionRoutes);
+  apiRouter.use('/professions', professionRoutes);
 
   // Apply Passive Auth BEFORE Rate Limiter
   app.use('/api', apiVersioning, passiveVerifyToken, versionTracking, activityTracking, apiLimiter, apiRouter);

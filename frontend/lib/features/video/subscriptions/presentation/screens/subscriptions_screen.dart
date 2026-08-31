@@ -313,7 +313,7 @@ class _SubscriptionsScreenState extends ConsumerState<SubscriptionsScreen> {
                   ),
                   const SizedBox(width: 10),
                   Text(
-                    'Exclusive Videos',
+                    'E2EE Videos',
                     style: AppTypography.titleLarge.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -323,7 +323,7 @@ class _SubscriptionsScreenState extends ConsumerState<SubscriptionsScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                'Ye exclusive videos hain jo creators ne specially aapke liye publish kiye hain. Isko aapke alawa aur koi nahi dekh sakta.',
+                'Ye E2EE videos hain jo creators ne specially aapke liye publish kiye hain. Isko aapke alawa aur koi nahi dekh sakta.',
                 style: AppTypography.bodyMedium.copyWith(
                   color: Colors.white70,
                   height: 1.5,

@@ -24,6 +24,7 @@ class _UploadRequest {
   final List<String> tags;
   final List<String>? platforms;
   final List<String>? allowedSubscribers;
+  final List<String> targetProfessionIds;
   final List<QuizModel>? quizzes;
 
   const _UploadRequest({
@@ -34,6 +35,7 @@ class _UploadRequest {
     this.tags = const [],
     this.platforms,
     this.allowedSubscribers,
+    this.targetProfessionIds = const [],
     this.quizzes,
   });
 }
@@ -254,6 +256,7 @@ class UploadStateManager extends ChangeNotifier {
     List<String>? tags,
     List<String>? platforms,
     List<String>? allowedSubscribers,
+    List<String>? targetProfessionIds,
     List<QuizModel>? quizzes,
   }) async {
     if (_selectedVideo == null) {
@@ -271,6 +274,7 @@ class UploadStateManager extends ChangeNotifier {
       tags: tags ?? _tags,
       platforms: platforms,
       allowedSubscribers: allowedSubscribers,
+      targetProfessionIds: targetProfessionIds ?? const [],
       quizzes: quizzes,
     );
     _lastRequest = request;
@@ -513,6 +517,7 @@ class UploadStateManager extends ChangeNotifier {
       'crossPostPlatforms': request.platforms,
       'category': _selectedCategory,
       'allowedSubscribers': request.allowedSubscribers,
+      'targetProfessionIds': request.targetProfessionIds,
       'quizzes': quizzes,
       'seriesId': seriesId,
       'episodeNumber': episodeNumber,

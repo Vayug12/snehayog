@@ -2452,8 +2452,6 @@ class _VayuLongFormPlayerScreenState
           metadataSection: VayuMetadataSection(
               video: v,
               isPortrait: isPortrait,
-              isLoading: _controllers[index] == null ||
-                  !_controllers[index]!.value.isInitialized,
               onShare: () => _showShareOptions(v),
               onSave: () => _handleToggleSave(index),
               onVisitLink: () async {
@@ -2478,6 +2476,7 @@ class _VayuLongFormPlayerScreenState
               controller: _controllers[index],
               showControlsVN: showControlsVN,
               isControlsLockedVN: isControlsLockedVN,
+              isSeekingBufferingVN: isSeekingBufferingVN,
               isPortrait: isPortrait,
               isFullScreenManual: _isFullScreenManual,
               onTogglePlay: togglePlay,
@@ -2515,25 +2514,36 @@ class _VayuLongFormPlayerScreenState
   }
 
   Widget _buildAdSection(int index) {
-    if (_bannerAds.isEmpty) return const SizedBox.shrink();
-    final ad = _bannerAds[index % _bannerAds.length];
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: BannerAdSection(
-        adData: {
-          ...ad,
-          'creatorId': _videos[index].uploader.id,
-          'videoId': _videos[index].id,
-        },
-        adService: _activeAdsService,
-        onVideoPause: () => _controllers[index]?.pause(),
-        onVideoResume: () {
-          final controller = _controllers[index];
-          if (controller != null) {
-            _playIfAllowed(index, controller);
-          }
-        },
-        onImpression: () async {},
+    final ad = _bannerAds.isNotEmpty
+        ? _bannerAds[index % _bannerAds.length]
+        : null;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Visibility(
+          visible: ad != null,
+          maintainState: true,
+          child: BannerAdSection(
+            adData: ad != null
+                ? {
+                    ...ad,
+                    'creatorId': _videos[index].uploader.id,
+                    'videoId': _videos[index].id,
+                  }
+                : null,
+            adService: _activeAdsService,
+            onVideoPause: () => _controllers[index]?.pause(),
+            onVideoResume: () {
+              final controller = _controllers[index];
+              if (controller != null) {
+                _playIfAllowed(index, controller);
+              }
+            },
+            onImpression: () async {},
+          ),
+        ),
       ),
     );
   }

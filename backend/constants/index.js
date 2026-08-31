@@ -27,8 +27,9 @@ export const UPLOAD_CONFIG = {
 };
 
 export const AD_CONFIG = {
-  MIN_DAILY_BUDGET: 100, // ₹100
-  MIN_TOTAL_BUDGET: 1000, // ₹1000
+  // Match the smallest prepaid pack so every product can fund a campaign.
+  MIN_DAILY_BUDGET: 1,
+  MIN_TOTAL_BUDGET: 30,
   DEFAULT_CPM: 30, // ₹30 per 1000 impressions (for carousel and video feed ads)
   BANNER_CPM: 20, // ₹20 per 1000 impressions (for banner ads)
   DEFAULT_BID_TYPE: 'CPM',

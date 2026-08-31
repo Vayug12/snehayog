@@ -196,6 +196,9 @@ class ProfileStateManager extends ChangeNotifier {
 
   Future<void> updateProfilePhoto(String photoPath) => infoManager.updateProfilePhoto(photoPath);
 
+  Future<void> updateProfession(String? professionId) =>
+      infoManager.updateProfession(professionId);
+
   void setEditing(bool editing) => infoManager.isEditing = editing;
 
   void cancelEditing() {

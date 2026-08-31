@@ -168,6 +168,32 @@ class ProfileInfoManager extends ChangeNotifier {
     }
   }
 
+  Future<void> updateProfession(String? professionId) async {
+    final previousId = _userData?['professionId'];
+    final previousProfession = _userData?['profession'];
+    try {
+      final result = await _userService.updateProfession(professionId);
+      if (_userData != null) {
+        _userData!['professionId'] = result['professionId'];
+        _userData!['profession'] = result['profession'];
+      }
+
+      final googleId = _userData?['googleId'] ?? _userData?['id'];
+      if (googleId != null) {
+        await _smartCacheManager.clearCacheByPattern('user_profile_$googleId');
+      }
+      _authService.clearMemoryCache();
+      notifyListenersSafe();
+    } catch (_) {
+      if (_userData != null) {
+        _userData!['professionId'] = previousId;
+        _userData!['profession'] = previousProfession;
+      }
+      notifyListenersSafe();
+      rethrow;
+    }
+  }
+
   Future<void> updateProfile({required String name, String? profilePic, String? websiteUrl}) async {
     try {
       _isProfileLoading = true;

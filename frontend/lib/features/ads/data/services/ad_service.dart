@@ -99,6 +99,7 @@ class AdService {
   /// Gated behind [AppConfig.adCreationEnabled] — the backend endpoint lands
   /// with the ad credit wallet.
   Future<Map<String, dynamic>> createAdWithCredits({
+    required String idempotencyKey,
     required String title,
     required String description,
     String? imageUrl,
@@ -157,6 +158,7 @@ class AdService {
       }
 
       final requestData = {
+        'idempotencyKey': idempotencyKey,
         'title': title,
         'description': description,
         'imageUrl': imageUrl,
@@ -298,16 +300,26 @@ class AdService {
         throw InsufficientCreditsException.fromJson(error);
       }
 
+      if (response.statusCode == 409 &&
+          (error['code'] == 'AD_CREATION_IN_PROGRESS' ||
+              error['code'] == 'AD_CREATION_RETRY_REQUIRED')) {
+        throw AdCreationConflictException(
+          error['code'] as String,
+          error['error'] as String? ?? 'Campaign creation is still processing.',
+        );
+      }
+
       throw Exception(error['error'] ?? 'Failed to create ad');
     } on InsufficientCreditsException {
       // Must escape the catch-all below, which would flatten it into a string.
+      rethrow;
+    } on AdCreationConflictException {
       rethrow;
     } catch (e) {
       AppLogger.log('❌ AdService: Error creating ad: $e');
       throw Exception('Error creating ad: $e');
     }
   }
-
 
   // Get user's ads
   Future<List<AdModel>> getUserAds() async {
@@ -635,7 +647,8 @@ class AdService {
   static DateTime? _lastRevenueFetch;
   static const Duration _revenueCacheTtl = Duration(minutes: 5);
 
-  Future<Map<String, dynamic>> getCreatorRevenueSummary({String? userId, bool forceRefresh = false}) async {
+  Future<Map<String, dynamic>> getCreatorRevenueSummary(
+      {String? userId, bool forceRefresh = false}) async {
     try {
       final userData = await _authService.getUserData();
       if (userData == null) {
@@ -669,7 +682,9 @@ class AdService {
       }
 
       // **OPTIMIZED: Return cached data if valid (5-min TTL) and not force-refreshing**
-      if (!forceRefresh && _cachedRevenue != null && _lastRevenueFetch != null) {
+      if (!forceRefresh &&
+          _cachedRevenue != null &&
+          _lastRevenueFetch != null) {
         final age = DateTime.now().difference(_lastRevenueFetch!);
         if (age < _revenueCacheTtl) {
           AppLogger.log(
@@ -678,7 +693,8 @@ class AdService {
         }
       }
 
-      AppLogger.log('🔍 AdService: Fetching fresh revenue from API for user: $targetUserId');
+      AppLogger.log(
+          '🔍 AdService: Fetching fresh revenue from API for user: $targetUserId');
 
       // **FIX: Use async base URL resolver for proper server detection**
       final baseUrl = await AppConfig.getBaseUrlWithFallback();
@@ -706,7 +722,8 @@ class AdService {
           final myId = userData['googleId'] ?? userData['id'];
           if (myId != null) {
             await prefs.setString('earnings_cache_$myId', json.encode(data));
-            await prefs.setInt('earnings_cache_ts_$myId', DateTime.now().millisecondsSinceEpoch);
+            await prefs.setInt('earnings_cache_ts_$myId',
+                DateTime.now().millisecondsSinceEpoch);
           }
         } catch (_) {}
 
@@ -810,5 +827,6 @@ class AdService {
     }
   }
 }
+
 // **NEW: Riverpod Provider for AdService**
 final adServiceProvider = Provider<AdService>((ref) => AdService());

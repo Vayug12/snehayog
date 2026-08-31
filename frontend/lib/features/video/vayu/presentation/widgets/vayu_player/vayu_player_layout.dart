@@ -12,7 +12,7 @@ class VayuPlayerLayout {
 
   static const double portraitUtilityControlSize = 36;
   static const double landscapeUtilityControlSize = 40;
-  static const double portraitUtilityIconSize = 18;
+  static const double portraitUtilityIconSize = 20;
   static const double landscapeUtilityIconSize = 20;
 
   static const double landscapeTransportControlSize = 44;

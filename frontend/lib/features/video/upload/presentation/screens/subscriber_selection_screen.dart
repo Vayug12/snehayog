@@ -119,9 +119,9 @@ class _SubscriberSelectionScreenState extends State<SubscriberSelectionScreen> {
           SliverToBoxAdapter(child: _buildSearchBar()),
           SliverToBoxAdapter(child: _buildSelectAllBar()),
           ..._buildSliverSubscriberList(),
-          SliverToBoxAdapter(child: _buildBottomAction()),
         ],
       ),
+      bottomNavigationBar: _buildBottomAction(),
     );
   }
 
@@ -305,25 +305,23 @@ class _SubscriberSelectionScreenState extends State<SubscriberSelectionScreen> {
 
   Widget _buildBottomAction() {
     return Container(
-      padding: EdgeInsets.fromLTRB(AppSpacing.spacing6, AppSpacing.spacing4, AppSpacing.spacing6, AppSpacing.spacing8),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppColors.backgroundPrimary,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -5),
-          ),
-        ],
       ),
-      child: AppButton(
-        onPressed: () {
-          widget.selectedSubscribers.value = _internalSelection.value;
-          Navigator.pop(context);
-        },
-        label: 'Confirm Selection',
-        variant: AppButtonVariant.primary,
-        isFullWidth: true,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: AppButton(
+            onPressed: () {
+              widget.selectedSubscribers.value = _internalSelection.value;
+              Navigator.pop(context);
+            },
+            label: 'Confirm Selection',
+            variant: AppButtonVariant.primary,
+            isFullWidth: true,
+          ),
+        ),
       ),
     );
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
@@ -41,11 +43,13 @@ class _TopUpSheetState extends ConsumerState<TopUpSheet> {
   String? _purchasing;
   String? _status;
   bool _credited = false;
+  int _pendingWatchGeneration = 0;
 
   bool get _isBusy => _purchasing != null;
 
   Future<void> _buy(Package package) async {
     if (_isBusy) return;
+    final watchGeneration = ++_pendingWatchGeneration;
 
     setState(() {
       _purchasing = package.identifier;
@@ -70,11 +74,50 @@ class _TopUpSheetState extends ConsumerState<TopUpSheet> {
       _status = result.message;
     });
 
+    if (result.outcome == TopUpOutcome.pending) {
+      unawaited(_watchPendingCredit(
+        result.balanceBefore,
+        watchGeneration,
+      ));
+    }
+
     // Only close on a confirmed credit. "Pending" stays open so the message
     // explaining that credits are still on the way is actually read.
     if (result.outcome == TopUpOutcome.credited && mounted) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       if (mounted) Navigator.of(context).pop(true);
+    }
+  }
+
+  Future<void> _watchPendingCredit(
+    int? balanceBefore,
+    int watchGeneration,
+  ) async {
+    final balance =
+        await ref.read(adCreditPurchaseServiceProvider).waitForCredit(
+              balanceBefore,
+              backoff: List<Duration>.filled(
+                12,
+                const Duration(seconds: 5),
+              ),
+            );
+
+    if (!mounted ||
+        watchGeneration != _pendingWatchGeneration ||
+        balance == null) {
+      return;
+    }
+
+    ref.invalidate(adWalletProvider);
+    ref.invalidate(adWalletTransactionsProvider);
+    setState(() {
+      _credited = true;
+      _status = 'Credits added to your wallet.';
+    });
+
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (mounted && watchGeneration == _pendingWatchGeneration) {
+      Navigator.of(context).pop(true);
     }
   }
 
@@ -200,7 +243,9 @@ class _TopUpSheetState extends ConsumerState<TopUpSheet> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        product.title.isEmpty ? package.identifier : product.title,
+                        product.title.isEmpty
+                            ? package.identifier
+                            : product.title,
                         style: AppTypography.titleSmall.copyWith(
                           color: _isBusy && !isThisOne
                               ? AppColors.textTertiary
@@ -236,7 +281,8 @@ class _TopUpSheetState extends ConsumerState<TopUpSheet> {
                     // currency or tax regime.
                     product.priceString,
                     style: AppTypography.titleMedium.copyWith(
-                      color: _isBusy ? AppColors.textTertiary : AppColors.primary,
+                      color:
+                          _isBusy ? AppColors.textTertiary : AppColors.primary,
                       fontWeight: AppTypography.weightBold,
                     ),
                   ),

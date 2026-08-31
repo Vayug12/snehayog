@@ -37,6 +37,15 @@ export class AdValidationError extends Error {
   }
 }
 
+export class AdCreationConflictError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'AdCreationConflictError';
+    this.statusCode = 409;
+    this.code = code;
+  }
+}
+
 /** Rupees per 1000 delivered views, by ad type. */
 export const cpmForAdType = (adType) => (adType === 'banner'
   ? (AD_CONFIG?.BANNER_CPM ?? 20)
@@ -370,20 +379,57 @@ export const buildAdSpec = (body, { googleId, userObjectId }) => {
  */
 export const createAdWithCredits = async (body, { googleId, userObjectId }) => {
   const spec = buildAdSpec(body, { googleId, userObjectId });
+  const idempotencyKey = trimmed(body.idempotencyKey);
+  if (!/^[A-Za-z0-9._:-]{16,128}$/.test(idempotencyKey)) {
+    throw new AdValidationError(
+      'idempotencyKey must be 16-128 URL-safe characters',
+      'idempotencyKey'
+    );
+  }
+
+  const debitExternalId = `campaign_create:${userObjectId}:${idempotencyKey}`;
 
   // Throws InsufficientCreditsError (402) — the route turns that into a
   // shortfall response the client can act on.
-  const { transaction } = await walletService.debit({
+  const { transaction, duplicate } = await walletService.debit({
     userId: userObjectId,
     amount: spec.budget,
-    reason: 'campaign_creation'
+    reason: 'campaign_creation',
+    externalId: debitExternalId,
+    metadata: { creationState: 'started', idempotencyKey }
   });
+
+  if (duplicate) {
+    const existingCampaign = await AdCampaign.findOne({
+      advertiserUserId: userObjectId,
+      idempotencyKey
+    });
+
+    if (existingCampaign) {
+      const existingCreative = await AdCreative.findOne({ campaignId: existingCampaign._id });
+      if (existingCreative) {
+        return { campaign: existingCampaign, creative: existingCreative, spec, duplicate: true };
+      }
+    }
+
+    if (transaction.metadata?.creationState === 'failed') {
+      throw new AdCreationConflictError(
+        'The previous creation attempt was refunded. Retry with a new request.',
+        'AD_CREATION_RETRY_REQUIRED'
+      );
+    }
+
+    throw new AdCreationConflictError(
+      'This campaign creation is still processing. Retry shortly.',
+      'AD_CREATION_IN_PROGRESS'
+    );
+  }
 
   let campaign;
   let creative;
 
   try {
-    campaign = await AdCampaign.create(spec.campaignData);
+    campaign = await AdCampaign.create({ ...spec.campaignData, idempotencyKey });
     creative = await AdCreative.create({ ...spec.creativeData, campaignId: campaign._id });
   } catch (err) {
     // Roll back in reverse order, then return the credits.
@@ -394,13 +440,20 @@ export const createAdWithCredits = async (body, { googleId, userObjectId }) => {
       await AdCampaign.deleteOne({ _id: campaign._id }).catch(() => {});
     }
 
-    await walletService.refund({
-      userId: userObjectId,
-      amount: spec.budget,
-      reason: 'campaign_creation_failed',
-      externalId: `campaign_create_rollback:${transaction._id}`,
-      metadata: { failedWith: err.message }
-    }).catch((refundErr) => {
+    let creationState = 'failed';
+    try {
+      await walletService.refund({
+        userId: userObjectId,
+        amount: spec.budget,
+        reason: 'campaign_creation_failed',
+        externalId: `campaign_create_rollback:${transaction._id}`,
+        metadata: {
+          failedWith: err.message,
+          originalSpendTransactionId: String(transaction._id)
+        }
+      });
+    } catch (refundErr) {
+      creationState = 'refund_pending';
       console.error('❌ CRITICAL: campaign creation failed and the refund also failed', {
         userId: String(userObjectId),
         amount: spec.budget,
@@ -408,7 +461,17 @@ export const createAdWithCredits = async (body, { googleId, userObjectId }) => {
         createError: err.message,
         refundError: refundErr.message
       });
-    });
+    }
+
+    await AdCreditTransaction.updateOne(
+      { _id: transaction._id },
+      {
+        $set: {
+          'metadata.creationState': creationState,
+          'metadata.creationError': err.message
+        }
+      }
+    ).catch(() => {});
 
     throw err;
   }
@@ -417,7 +480,12 @@ export const createAdWithCredits = async (body, { googleId, userObjectId }) => {
   // the money moved either way, and the ledger row is already correct without it.
   await AdCreditTransaction.updateOne(
     { _id: transaction._id },
-    { $set: { campaignId: campaign._id } }
+    {
+      $set: {
+        campaignId: campaign._id,
+        'metadata.creationState': 'completed'
+      }
+    }
   ).catch((err) => {
     console.warn(`⚠️ adCreationService: could not backfill campaignId on ${transaction._id}: ${err.message}`);
   });
@@ -425,4 +493,10 @@ export const createAdWithCredits = async (body, { googleId, userObjectId }) => {
   return { campaign, creative, spec };
 };
 
-export default { buildAdSpec, createAdWithCredits, cpmForAdType, AdValidationError };
+export default {
+  buildAdSpec,
+  createAdWithCredits,
+  cpmForAdType,
+  AdValidationError,
+  AdCreationConflictError
+};

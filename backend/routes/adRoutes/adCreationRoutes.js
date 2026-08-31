@@ -8,7 +8,8 @@ import walletService from '../../services/adServices/walletService.js';
 import campaignSettlement from '../../services/adServices/campaignSettlement.js';
 import {
   createAdWithCredits,
-  AdValidationError
+  AdValidationError,
+  AdCreationConflictError
 } from '../../services/adServices/adCreationService.js';
 
 const router = express.Router();
@@ -126,6 +127,10 @@ router.post('/create-with-credits', asyncHandler(async (req, res) => {
   } catch (err) {
     if (err instanceof AdValidationError) {
       return res.status(400).json({ error: err.message, code: err.code, field: err.field });
+    }
+
+    if (err instanceof AdCreationConflictError) {
+      return res.status(409).json({ error: err.message, code: err.code });
     }
 
     if (err instanceof walletService.InsufficientCreditsError) {

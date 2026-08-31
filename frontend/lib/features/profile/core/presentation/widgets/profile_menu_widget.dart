@@ -23,6 +23,7 @@ class ProfileMenuWidget extends StatelessWidget {
   final VoidCallback? onReportUser;
   final VoidCallback? onShowWhatsApp;
   final VoidCallback? onShowFAQ;
+  final VoidCallback? onShowFeedback;
   final VoidCallback? onEnterSelectionMode;
   final VoidCallback? onLogout;
   final VoidCallback? onGoogleSignIn;
@@ -38,6 +39,7 @@ class ProfileMenuWidget extends StatelessWidget {
     this.onReportUser,
     this.onShowWhatsApp,
     this.onShowFAQ,
+    this.onShowFeedback,
     this.onEnterSelectionMode,
     this.onLogout,
     this.onGoogleSignIn,
@@ -169,7 +171,7 @@ class ProfileMenuWidget extends StatelessWidget {
                       });
                     }
 
-                    // Support Chat (Replaced Feedback)
+                    // Support Chat
                     menuItems.add({
                       'title': 'Support Chat',
                       'icon': HugeIcons.strokeRoundedMessageQuestion,
@@ -188,6 +190,16 @@ class ProfileMenuWidget extends StatelessWidget {
                       'onTap': () {
                         Navigator.pop(context);
                         onShowFAQ?.call();
+                      },
+                    });
+
+                    menuItems.add({
+                      'title': 'Feedback',
+                      'icon': HugeIcons.strokeRoundedIdea01,
+                      'color': AppColors.textSecondary,
+                      'onTap': () {
+                        Navigator.pop(context);
+                        onShowFeedback?.call();
                       },
                     });
 
@@ -250,15 +262,7 @@ class ProfileMenuWidget extends StatelessWidget {
                   },
                 ),
               ),
-              Padding(
-                padding: EdgeInsets.all(AppSpacing.spacing3),
-                child: Text(
-                  'Vayu v1.1.0',
-                  style: AppTypography.labelSmall
-                      .copyWith(color: AppColors.textTertiary),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+
             ],
           ),
         ),
@@ -300,7 +304,9 @@ class ProfileMenuWidget extends StatelessWidget {
                 child: Text(
                   title,
                   style: AppTypography.bodyMedium.copyWith(
-                    color: title == 'Logout' ? AppColors.error : AppColors.textPrimary,
+                    color: title == 'Logout'
+                        ? AppColors.error
+                        : AppColors.textPrimary,
                     fontWeight: AppTypography.weightMedium,
                     letterSpacing: -0.1,
                   ),

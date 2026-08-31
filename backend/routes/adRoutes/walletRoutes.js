@@ -5,7 +5,10 @@ import { validatePagination } from '../../middleware/validation.js';
 import { verifyToken } from '../../utils/verifytoken.js';
 import { requireConfiguredAdminDashboardKey } from '../../middleware/adminDashboardAuth.js';
 import User from '../../models/User.js';
+import AdCreditPurchaseIntent from '../../models/AdCreditPurchaseIntent.js';
 import walletService from '../../services/adServices/walletService.js';
+import { isKnownProduct } from '../../config/adCreditProducts.js';
+import { syncRevenueCatPurchasesForUser } from '../../services/adServices/revenueCatPurchaseSyncService.js';
 
 const router = express.Router();
 
@@ -77,6 +80,48 @@ router.use(verifyToken);
  * free; it is absent only when the token is valid but the user row is gone.
  */
 const walletOwnerId = (req) => req.user?._id;
+
+// Record before opening Play Billing. Without this, a dropped webhook for a
+// user's first-ever purchase leaves no local buyer record for reconciliation.
+router.post('/purchase-intents', asyncHandler(async (req, res) => {
+  const ownerId = walletOwnerId(req);
+  if (!ownerId) {
+    return res.status(401).json({ error: 'User not found for this token' });
+  }
+
+  const productId = String(req.body?.productId || '').split(':')[0].trim();
+  if (!isKnownProduct(productId)) {
+    return res.status(400).json({ error: 'Unknown ad-credit product' });
+  }
+
+  const intent = await AdCreditPurchaseIntent.create({
+    userId: ownerId,
+    productId
+  });
+
+  return res.status(201).json({ success: true, intentId: intent._id });
+}));
+
+// Ask RevenueCat directly for the caller's recent consumable purchases. This
+// is a safe fallback after checkout because credits still come only from
+// RevenueCat's server-side record, never from a client claim.
+router.post('/sync-purchases', asyncHandler(async (req, res) => {
+  const ownerId = walletOwnerId(req);
+  const googleId = req.user?.googleId || req.user?.id;
+  if (!ownerId || !googleId) {
+    return res.status(401).json({ error: 'User not found for this token' });
+  }
+  if (!process.env.REVENUECAT_API_KEY) {
+    return res.status(503).json({ error: 'Purchase sync is not configured' });
+  }
+
+  const sync = await syncRevenueCatPurchasesForUser({
+    _id: ownerId,
+    googleId
+  });
+  const wallet = await walletService.getBalance(ownerId);
+  return res.json({ success: true, sync, wallet });
+}));
 
 // GET /api/ads/wallet - caller's balance (creates the wallet on first read)
 router.get('/', asyncHandler(async (req, res) => {

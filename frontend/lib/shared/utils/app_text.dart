@@ -30,6 +30,7 @@ class AppText {
     'btn_upload': 'Upload',
     'btn_create_ad': 'Create Advertisement',
     'btn_save': 'Save',
+    'btn_done': 'Done',
     'btn_cancel': 'Cancel',
     'btn_submit': 'Submit',
     'btn_subscribe': 'Subscribe',
@@ -149,6 +150,13 @@ class AppText {
         'You have already uploaded this video: "{name}". Please select a different video.',
     'upload_error_video_too_short':
         'Video is too short. Minimum length is 8 seconds.',
+    'upload_target_audience': 'Target audience',
+    'upload_target_audience_hint':
+        'Only target audience get this video',
+    'upload_target_private_hint':
+        'Private videos already use subscriber access',
+    'profession_single_count': '1 profession',
+    'profession_multiple_count': '{count} professions',
     'upload_error_invalid_file':
         'Please select a valid video file (MP4, AVI, MOV, WMV, FLV, or WebM).',
 
@@ -256,6 +264,17 @@ class AppText {
     'profile_stat_rank': 'Ranking',
     'profile_sign_in_success': 'Signed in successfully!',
     'profile_logout_success': 'Logged out successfully',
+    'profile_add_profession': '+ Add profession',
+    'profile_profession_title': 'Your profession',
+    'profile_remove_profession': 'Remove profession',
+    'profile_profession_update_error':
+        'Could not update profession. Please try again.',
+    'profession_picker_title': 'Choose profession',
+    'profession_search_hint': 'Search profession',
+    'profession_everyone': 'Everyone',
+    'profession_target_private': 'Unavailable',
+    'profession_load_error':
+        'Could not load professions. Please try again.',
 
     // Subscribers sheet
     'subscribers_title': 'Subscribers',

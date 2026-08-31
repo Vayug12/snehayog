@@ -51,6 +51,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   final ValueNotifier<List<QuizModel>> _quizzes = ValueNotifier<List<QuizModel>>([]);
   final ValueNotifier<File?> _selectedThumbnail = ValueNotifier<File?>(null);
   final ValueNotifier<List<String>> _selectedPlatforms = ValueNotifier<List<String>>([]);
+  final ValueNotifier<List<String>> _targetProfessionIds =
+      ValueNotifier<List<String>>([]);
 
   /// View mirror of the manager's episode list, so Advanced Settings can show a
   /// live count without becoming a Consumer. The manager stays authoritative.
@@ -78,6 +80,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     _quizzes.dispose();
     _selectedThumbnail.dispose();
     _selectedPlatforms.dispose();
+    _targetProfessionIds.dispose();
     _seriesEpisodes.dispose();
     super.dispose();
   }
@@ -94,6 +97,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     _selectedSubscribers.value = [];
     _quizzes.value = [];
     _selectedPlatforms.value = [];
+    _targetProfessionIds.value = [];
     _seriesEpisodes.value = [];
     _videoAspectRatio.value = 9 / 16;
     _videoDuration.value = 0.0;
@@ -182,6 +186,9 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       tags: manager.tags,
       platforms: _selectedPlatforms.value,
       allowedSubscribers: _selectedSubscribers.value,
+      targetProfessionIds: _selectedSubscribers.value.isEmpty
+          ? _targetProfessionIds.value
+          : const [],
       quizzes: _quizzes.value,
     );
 
@@ -883,6 +890,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
               quizzes: _quizzes,
               selectedPlatforms: _selectedPlatforms,
               selectedSubscribers: _selectedSubscribers,
+              targetProfessionIds: _targetProfessionIds,
               selectedThumbnail: _selectedThumbnail,
               videoDuration: _videoDuration.value,
               videoAspectRatio: _videoAspectRatio.value,

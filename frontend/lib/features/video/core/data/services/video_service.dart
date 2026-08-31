@@ -769,6 +769,7 @@ class VideoService implements IVideoService {
     int? episodeNumber,
     List<QuizModel>? quizzes,
     List<String>? allowedSubscribers,
+    List<String>? targetProfessionIds,
     File? thumbnailFile,
   }) async {
     try {
@@ -818,6 +819,7 @@ class VideoService implements IVideoService {
         episodeNumber: episodeNumber,
         quizzes: quizzes,
         allowedSubscribers: allowedSubscribers,
+        targetProfessionIds: targetProfessionIds,
         thumbnailFile: thumbnailFile,
       );
     } catch (e) {
@@ -847,6 +849,7 @@ class VideoService implements IVideoService {
     int? episodeNumber,
     List<QuizModel>? quizzes,
     List<String>? allowedSubscribers,
+    List<String>? targetProfessionIds,
     File? thumbnailFile,
   }) async {
     File? encryptedTempFile;
@@ -972,6 +975,7 @@ class VideoService implements IVideoService {
           'thumbnailKey': thumbnailKey,
           'quizzes': quizzes?.map((q) => q.toJson()).toList(),
           'allowedSubscribers': allowedSubscribers,
+          'targetProfessionIds': targetProfessionIds ?? const <String>[],
         },
       );
 

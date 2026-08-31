@@ -14,15 +14,14 @@ import 'package:vayug/shared/utils/app_logger.dart';
 /// verified against the store. All this class does after a successful purchase
 /// is *wait* for that to land, by polling the balance.
 ///
-/// That is why [purchase] can return [TopUpOutcome.pending]: the money is
-/// definitely paid and the credits are definitely coming, but a webhook is not
-/// instant and pretending otherwise would mean showing a balance that is not
-/// real.
+/// That is why [purchase] can return [TopUpOutcome.pending]: Play may still be
+/// processing the payment, or RevenueCat may be delivering its server event.
+/// In either case the UI waits for the authoritative wallet balance.
 enum TopUpOutcome {
   /// Paid, and the balance has already gone up.
   credited,
 
-  /// Paid, but the credits have not landed yet. They will.
+  /// Play is processing, or payment succeeded but credits have not landed yet.
   pending,
 
   /// The user backed out. Not an error.
@@ -39,8 +38,14 @@ class TopUpResult {
   final TopUpOutcome outcome;
   final String message;
   final int? newBalance;
+  final int? balanceBefore;
 
-  const TopUpResult(this.outcome, this.message, {this.newBalance});
+  const TopUpResult(
+    this.outcome,
+    this.message, {
+    this.newBalance,
+    this.balanceBefore,
+  });
 
   bool get isPaid =>
       outcome == TopUpOutcome.credited || outcome == TopUpOutcome.pending;
@@ -59,6 +64,10 @@ class AdCreditPurchaseService {
   /// `AD_CREDITS_OFFERING_ID` on the server and the Offering id in the
   /// RevenueCat dashboard.
   static const String offeringId = 'ad_credits';
+  static const Set<String> supportedProductIds = {
+    'ad_credits_30',
+    'ad_credits_100',
+  };
 
   bool _configured = false;
   String? _loggedInAs;
@@ -89,7 +98,8 @@ class AdCreditPurchaseService {
     final userData = await _authService.getUserData();
     final googleId = (userData?['googleId'] ?? userData?['id'])?.toString();
     if (googleId == null || googleId.isEmpty) {
-      AppLogger.log('⚠️ AdCreditPurchase: not signed in, cannot attribute a purchase');
+      AppLogger.log(
+          '⚠️ AdCreditPurchase: not signed in, cannot attribute a purchase');
       return false;
     }
 
@@ -122,14 +132,18 @@ class AdCreditPurchaseService {
       if (!await _ensureReady()) return const [];
 
       final offerings = await Purchases.getOfferings();
-      final offering = offerings.all[offeringId] ?? offerings.current;
+      final offering = offerings.all[offeringId];
 
       if (offering == null) {
         AppLogger.log('⚠️ AdCreditPurchase: offering "$offeringId" not found');
         return const [];
       }
 
-      final packages = [...offering.availablePackages]
+      final packages = offering.availablePackages
+          .where((package) => supportedProductIds.contains(
+                package.storeProduct.identifier.split(':').first,
+              ))
+          .toList()
         ..sort((a, b) => a.storeProduct.price.compareTo(b.storeProduct.price));
       return packages;
     } catch (e) {
@@ -150,28 +164,43 @@ class AdCreditPurchaseService {
     final balanceBefore = await _currentBalance();
 
     try {
+      await _walletService.recordPurchaseIntent(
+        package.storeProduct.identifier,
+      );
+    } catch (e) {
+      AppLogger.log('AdCreditPurchase: purchase intent failed: $e');
+      return const TopUpResult(
+        TopUpOutcome.failed,
+        'Could not safely start this purchase. Check your connection and try again.',
+      );
+    }
+
+    try {
       await Purchases.purchase(PurchaseParams.package(package));
     } on PlatformException catch (e) {
       final code = PurchasesErrorHelper.getErrorCode(e);
 
       switch (code) {
         case PurchasesErrorCode.purchaseCancelledError:
-          return const TopUpResult(TopUpOutcome.cancelled, 'Purchase cancelled.');
+          return const TopUpResult(
+              TopUpOutcome.cancelled, 'Purchase cancelled.');
 
         case PurchasesErrorCode.paymentPendingError:
           // Slow payment methods (UPI mandates, cash). The purchase completes
           // later and the webhook will credit it then.
-          return const TopUpResult(
+          return TopUpResult(
             TopUpOutcome.pending,
             'Payment is still processing. Your credits will appear once it clears.',
+            balanceBefore: balanceBefore,
           );
 
         case PurchasesErrorCode.productAlreadyPurchasedError:
           // Should not happen for consumables, but if the previous purchase was
           // never consumed the credits may simply be in flight.
-          return const TopUpResult(
+          return TopUpResult(
             TopUpOutcome.pending,
             'This purchase is already being processed.',
+            balanceBefore: balanceBefore,
           );
 
         case PurchasesErrorCode.purchaseNotAllowedError:
@@ -182,7 +211,8 @@ class AdCreditPurchaseService {
           );
 
         default:
-          AppLogger.log('❌ AdCreditPurchase: purchase failed ($code): ${e.message}');
+          AppLogger.log(
+              '❌ AdCreditPurchase: purchase failed ($code): ${e.message}');
           return TopUpResult(
             TopUpOutcome.failed,
             e.message ?? 'The purchase could not be completed.',
@@ -196,21 +226,27 @@ class AdCreditPurchaseService {
       );
     }
 
+    // If the webhook was delayed or dropped, ask RevenueCat from the backend.
+    // This never trusts the client purchase result to mint credits.
+    await _walletService.syncPurchases();
+
     // Paid. From here the only question is whether the webhook has landed —
     // never whether to credit, which is not this process's decision to make.
-    final credited = await _awaitCredit(balanceBefore);
+    final credited = await waitForCredit(balanceBefore);
 
     if (credited != null) {
       return TopUpResult(
         TopUpOutcome.credited,
         'Credits added to your wallet.',
         newBalance: credited,
+        balanceBefore: balanceBefore,
       );
     }
 
-    return const TopUpResult(
+    return TopUpResult(
       TopUpOutcome.pending,
       'Payment received. Your credits are on the way — this can take a minute.',
+      balanceBefore: balanceBefore,
     );
   }
 
@@ -230,10 +266,13 @@ class AdCreditPurchaseService {
   /// Comparing against the prior balance rather than a target amount means this
   /// stays correct if the server credits a different number than the client
   /// expected — the server's product map is the authority on that.
-  Future<int?> _awaitCredit(int? balanceBefore) async {
+  Future<int?> waitForCredit(
+    int? balanceBefore, {
+    List<Duration> backoff = _pollBackoff,
+  }) async {
     if (balanceBefore == null) return null;
 
-    for (final delay in _pollBackoff) {
+    for (final delay in backoff) {
       await Future<void>.delayed(delay);
 
       final balance = await _currentBalance();

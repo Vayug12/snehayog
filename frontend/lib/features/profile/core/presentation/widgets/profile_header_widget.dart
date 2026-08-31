@@ -59,6 +59,8 @@ class ProfileHeaderWidget extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _buildIdentity(stateManager),
+                    const SizedBox(height: 14),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -171,6 +173,21 @@ class ProfileHeaderWidget extends ConsumerWidget {
           const SizedBox(height: 16),
           _buildActionButtons(stateManager, ref),
         ],
+      ),
+    );
+  }
+
+  Widget _buildIdentity(ProfileStateManager stateManager) {
+    final name = stateManager.userData?['name']?.toString().trim();
+
+    return Text(
+      name?.isNotEmpty == true ? name! : AppText.get('profile_title'),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppTypography.titleLarge.copyWith(
+        color: AppColors.textPrimary,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.5,
       ),
     );
   }

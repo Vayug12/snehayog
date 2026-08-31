@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import User from '../../models/User.js';
 import walletService from '../../services/adServices/walletService.js';
 import { creditsForProduct } from '../../config/adCreditProducts.js';
+import { purchaseExternalId } from '../../services/adServices/revenueCatPurchaseSyncService.js';
 
 /**
  * RevenueCat webhook — the only path by which purchased credits enter a wallet.
@@ -48,6 +49,30 @@ const secretMatches = (provided, expected) => {
   return crypto.timingSafeEqual(a, b);
 };
 
+const signatureMatches = (rawBody, header, secret) => {
+  if (!Buffer.isBuffer(rawBody) || !header || !secret) return false;
+
+  const parts = Object.fromEntries(
+    String(header)
+      .split(',')
+      .map((part) => part.trim().split('='))
+      .filter(([key, value]) => key && value)
+  );
+  const timestamp = Number(parts.t);
+  if (!Number.isFinite(timestamp)) return false;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - timestamp) > 5 * 60) return false;
+
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(`${timestamp}.`)
+    .update(rawBody)
+    .digest('hex');
+
+  return secretMatches(parts.v1, expectedSignature);
+};
+
 /**
  * Resolve the buyer.
  *
@@ -88,6 +113,16 @@ router.post(
     if (!secretMatches(req.get('authorization'), expected)) {
       console.warn('⚠️ RevenueCat webhook rejected: bad Authorization header');
       return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const signingSecret = process.env.REVENUECAT_WEBHOOK_SIGNING_SECRET;
+    if (signingSecret && !signatureMatches(
+      req.body,
+      req.get('x-revenuecat-webhook-signature'),
+      signingSecret
+    )) {
+      console.warn('RevenueCat webhook rejected: invalid HMAC signature');
+      return res.status(401).json({ error: 'Invalid webhook signature' });
     }
 
     let payload;
@@ -147,8 +182,11 @@ router.post(
           amount: credits,
           type: 'purchase',
           source: 'revenuecat',
-          // The event id is the idempotency key; a retry re-inserts nothing.
-          externalId: `revenuecat:${eventId}`,
+          // Store transaction identity is shared with REST reconciliation, so
+          // either path can arrive first without minting the purchase twice.
+          externalId: purchaseExternalId(
+            event.transaction_id || event.original_transaction_id || eventId
+          ),
           productId: event.product_id,
           reason: eventType,
           metadata: {
@@ -167,7 +205,9 @@ router.post(
         userId: user._id,
         amount: credits,
         source: 'revenuecat',
-        externalId: `revenuecat:${eventId}`,
+        externalId: `revenuecat_reversal:${
+          event.transaction_id || event.original_transaction_id || eventId
+        }`,
         productId: event.product_id,
         reason: eventType,
         metadata: {

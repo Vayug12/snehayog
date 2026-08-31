@@ -11,6 +11,8 @@ class UserModel {
   final String? bio;
   final String? location;
   final String? websiteUrl;
+  final String? professionId;
+  final String? professionLabel;
 
   UserModel({
     required this.id,
@@ -25,6 +27,8 @@ class UserModel {
     this.bio,
     this.location,
     this.websiteUrl,
+    this.professionId,
+    this.professionLabel,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -62,6 +66,9 @@ class UserModel {
         bio: json['bio']?.toString(),
         location: json['location']?.toString(),
         websiteUrl: json['websiteUrl']?.toString(),
+        professionId: json['professionId']?.toString(),
+        professionLabel:
+            (json['profession'] as Map<String, dynamic>?)?['label']?.toString(),
       );
     } catch (e) {
       // Return a safe minimal fallback if parsing utterly fails
@@ -89,6 +96,10 @@ class UserModel {
       'bio': bio,
       'location': location,
       'websiteUrl': websiteUrl,
+      'professionId': professionId,
+      'profession': professionLabel == null
+          ? null
+          : {'id': professionId, 'label': professionLabel},
     };
   }
 
@@ -105,6 +116,8 @@ class UserModel {
     String? bio,
     String? location,
     String? websiteUrl,
+    String? professionId,
+    String? professionLabel,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -119,6 +132,8 @@ class UserModel {
       bio: bio ?? this.bio,
       location: location ?? this.location,
       websiteUrl: websiteUrl ?? this.websiteUrl,
+      professionId: professionId ?? this.professionId,
+      professionLabel: professionLabel ?? this.professionLabel,
     );
   }
 }

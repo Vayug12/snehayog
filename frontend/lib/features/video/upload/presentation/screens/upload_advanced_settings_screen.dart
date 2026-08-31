@@ -8,6 +8,11 @@ import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/features/video/quiz/presentation/screens/create_quiz_screen.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/features/video/upload/presentation/screens/subscriber_selection_screen.dart';
+import 'package:vayug/shared/services/app_remote_config_service.dart';
+import 'package:vayug/shared/services/profession_catalog_service.dart';
+import 'package:vayug/shared/utils/app_text.dart';
+import 'package:vayug/shared/widgets/profession_picker_sheet.dart';
+import 'package:vayug/shared/widgets/vayu_snackbar.dart';
 
 class UploadAdvancedSettingsScreen extends StatefulWidget {
   final TextEditingController linkController;
@@ -23,6 +28,7 @@ class UploadAdvancedSettingsScreen extends StatefulWidget {
   final ValueNotifier<List<QuizModel>> quizzes;
   final ValueNotifier<List<String>> selectedPlatforms;
   final ValueNotifier<List<String>> selectedSubscribers;
+  final ValueNotifier<List<String>> targetProfessionIds;
   final ValueNotifier<File?> selectedThumbnail;
   final double videoDuration;
   final double videoAspectRatio;
@@ -39,6 +45,7 @@ class UploadAdvancedSettingsScreen extends StatefulWidget {
     required this.quizzes,
     required this.selectedPlatforms,
     required this.selectedSubscribers,
+    required this.targetProfessionIds,
     required this.selectedThumbnail,
     this.videoDuration = 0.0,
     this.videoAspectRatio = 9/16,
@@ -49,6 +56,21 @@ class UploadAdvancedSettingsScreen extends StatefulWidget {
 }
 
 class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScreen> {
+  Map<String, String> _professionLabels = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    ProfessionCatalogService.instance.getProfessions().then((professions) {
+      if (!mounted) return;
+      setState(() {
+        _professionLabels = {
+          for (final profession in professions) profession.id: profession.label,
+        };
+      });
+    }).catchError((_) {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -143,6 +165,11 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
 
                     _buildSeriesRow(),
 
+                    if (AppRemoteConfigService.instance.config?.featureFlags
+                            .professionTargeting ??
+                        true)
+                      _buildTargetAudienceTile(),
+
                     _buildSubscriberOnlyTile(),
                     
                     const SizedBox(height: 24),
@@ -160,11 +187,8 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
 
   Widget _buildBottomBar() {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppColors.backgroundPrimary,
-        border: Border(
-          top: BorderSide(color: AppColors.borderPrimary.withValues(alpha: 0.4)),
-        ),
       ),
       child: SafeArea(
         top: false,
@@ -425,6 +449,107 @@ class _UploadAdvancedSettingsScreenState extends State<UploadAdvancedSettingsScr
           onTap: () => _navigateToSubscriberSelection(context),
         );
       },
+    );
+  }
+
+  Widget _buildTargetAudienceTile() {
+    return ValueListenableBuilder<List<String>>(
+      valueListenable: widget.selectedSubscribers,
+      builder: (context, subscribers, _) {
+        final isPrivate = subscribers.isNotEmpty;
+        return ValueListenableBuilder<List<String>>(
+          valueListenable: widget.targetProfessionIds,
+          builder: (context, selected, _) {
+            final String trailingLabel;
+            if (isPrivate) {
+              trailingLabel = AppText.get(
+                'profession_target_private',
+                fallback: 'Unavailable',
+              );
+            } else if (selected.isEmpty) {
+              trailingLabel = AppText.get(
+                'profession_everyone',
+                fallback: 'Everyone',
+              );
+            } else if (selected.length == 1) {
+              trailingLabel = _professionLabels[selected.first] ??
+                  AppText.get(
+                    'profession_single_count',
+                    fallback: '1 profession',
+                  );
+            } else {
+              trailingLabel = AppText.get(
+                'profession_multiple_count',
+                fallback: '{count} professions',
+              ).replaceAll('{count}', selected.length.toString());
+            }
+
+            return _buildSettingRow(
+              icon: Icons.groups_2_outlined,
+              title: AppText.get(
+                'upload_target_audience',
+                fallback: 'Target audience',
+              ),
+              subtitle: isPrivate
+                  ? AppText.get(
+                      'upload_target_private_hint',
+                      fallback: 'Private videos already use subscriber access',
+                    )
+                  : AppText.get(
+                      'upload_target_audience_hint',
+                      fallback: 'Only selected professions can receive this video',
+                    ),
+              trailing: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 110),
+                child: Text(
+                  trailingLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: selected.isEmpty || isPrivate
+                        ? AppColors.textTertiary
+                        : AppColors.primary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              onTap: () => isPrivate
+                  ? VayuSnackBar.showInfo(
+                      context,
+                      AppText.get(
+                        'upload_target_private_hint',
+                        fallback:
+                            'Private videos already use subscriber access.',
+                      ),
+                    )
+                  : _showTargetAudienceSheet(),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showTargetAudienceSheet() async {
+    final result = await ProfessionPickerSheet.show(
+      context: context,
+      initialSelection: widget.targetProfessionIds.value,
+      multiSelect: true,
+      title: AppText.get(
+        'upload_target_audience',
+        fallback: 'Target audience',
+      ),
+      emptySelectionLabel: AppText.get(
+        'profession_everyone',
+        fallback: 'Everyone',
+      ),
+    );
+    if (result == null) return;
+    widget.targetProfessionIds.value = List.unmodifiable(result);
+    AppLogger.log(
+      'ProfessionTargeting: creator selected ${result.length} profession(s)',
     );
   }
 

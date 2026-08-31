@@ -24,6 +24,7 @@ import { enforceDailyUploadAvailability } from '../../middleware/dailyUploadQuot
 
 import queueService from '../../services/yugFeedServices/queueService.js';
 import redisService from '../../services/caching/redisService.js';
+import { isValidProfessionId, normalizeProfessionIds } from '../../constants/professions.js';
 
 const router = express.Router();
 
@@ -193,12 +194,20 @@ router.post('/video/presigned', verifyToken, enforceDailyUploadAvailability, upl
 router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, res) => {
   let createdVideo = null;
   try {
-    const { key, videoName, description, link, size, category, tags, videoType, crossPostPlatforms, seriesId, episodeNumber, thumbnailKey, quizzes, allowedSubscribers } = req.body;
+    const { key, videoName, description, link, size, category, tags, videoType, crossPostPlatforms, seriesId, episodeNumber, thumbnailKey, quizzes, allowedSubscribers, targetProfessionIds } = req.body;
     const userId = req.user.id;
 
     if (!key || !videoName) {
       return res.status(400).json({ success: false, error: 'Key and VideoName are required' });
     }
+
+    if (targetProfessionIds != null && (
+      !Array.isArray(targetProfessionIds) ||
+      targetProfessionIds.some((id) => !isValidProfessionId(String(id).trim().toLowerCase()))
+    )) {
+      return res.status(400).json({ success: false, error: 'Invalid target profession' });
+    }
+    const normalizedTargetProfessionIds = normalizeProfessionIds(targetProfessionIds);
 
     console.log('🚀 Direct Upload Complete received for:', key);
 
@@ -232,6 +241,7 @@ router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, re
       description: description || '',
       category: category || 'others',
       tags: Array.isArray(tags) ? tags : [],
+      targetProfessionIds: normalizedTargetProfessionIds,
       videoType: videoType || 'yog',
       link: link || '',
       videoUrl: cloudflareR2Service.getPublicUrl(key),
@@ -261,6 +271,11 @@ router.post('/video/direct-complete', verifyToken, uploadLimiter, async (req, re
 
     await saveVideoWithDailyQuota(newVideo);
     createdVideo = newVideo;
+
+    console.info('[ProfessionTargeting] video_created', {
+      videoId: newVideo._id.toString(),
+      targetCount: normalizedTargetProfessionIds.length,
+    });
 
     // Lazy load hybrid service
     if (!hybridVideoService) {

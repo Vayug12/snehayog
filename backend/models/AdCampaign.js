@@ -33,11 +33,18 @@ const AdCampaignSchema = new mongoose.Schema({
   dailyBudget: {
     type: Number,
     required: true,
-    min: 100 // Minimum ₹100 per day
+    min: 1
   },
   totalBudget: {
     type: Number,
-    min: 1000 // Minimum ₹1000 total
+    min: 30
+  },
+  // Stable per advertiser. It lets a client safely retry after a timeout
+  // without paying for or creating the same campaign twice.
+  idempotencyKey: {
+    type: String,
+    trim: true,
+    maxlength: 128
   },
   // Running total of what this campaign has been charged for delivered views.
   // Accrued in batches by adStatsBuffer at the same CPM used to credit
@@ -184,6 +191,13 @@ const AdCampaignSchema = new mongoose.Schema({
 // would collection-scan on each boot; with it, the normal "nothing to settle"
 // case is an index lookup that matches no documents.
 AdCampaignSchema.index({ status: 1, endDate: 1, budgetRefundedAt: 1 });
+AdCampaignSchema.index(
+  { advertiserUserId: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $type: 'string' } }
+  }
+);
 
 // Calculate CTR
 AdCampaignSchema.virtual('calculatedCtr').get(function() {

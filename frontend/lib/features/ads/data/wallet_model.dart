@@ -78,6 +78,18 @@ class InsufficientCreditsException implements Exception {
       'InsufficientCreditsException(need $required, have $available)';
 }
 
+class AdCreationConflictException implements Exception {
+  final String code;
+  final String message;
+
+  const AdCreationConflictException(this.code, this.message);
+
+  bool get shouldResetIdempotencyKey => code == 'AD_CREATION_RETRY_REQUIRED';
+
+  @override
+  String toString() => message;
+}
+
 /// One row of the append-only credit ledger.
 class AdCreditTransaction {
   final String id;
@@ -130,8 +142,9 @@ class AdCreditTransaction {
       type: json['type'] as String? ?? 'unknown',
       amount: AdWallet._asInt(json['amount']),
       source: json['source'] as String? ?? 'system',
-      balanceAfter:
-          json['balanceAfter'] == null ? null : AdWallet._asInt(json['balanceAfter']),
+      balanceAfter: json['balanceAfter'] == null
+          ? null
+          : AdWallet._asInt(json['balanceAfter']),
       reason: json['reason'] as String?,
       campaignId: json['campaignId']?.toString(),
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
