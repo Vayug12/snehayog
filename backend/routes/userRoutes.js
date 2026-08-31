@@ -480,72 +480,21 @@ router.get('/top-earners-from-following', verifyToken, async (req, res) => {
       return res.json({ topEarners: [], message: 'Not following anyone' });
     }
 
-    // Calculate earnings for each user in following list
-    // **OPTIMIZED: Use a single aggregation to calculate earnings for ALL following users in one query**
-    const now = new Date();
-    const startOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
-
     // Import models
-    const AdImpression = (await import('../models/AdImpression.js')).default;
     const Video = (await import('../models/Video.js')).default;
 
-    // 1. Get user metadata and video count
+    // 1. Get user metadata with follower count
     const followingUsers = await User.find({
       _id: { $in: followingIds }
-    }).select('googleId name email profilePic videos').lean();
+    }).select('googleId name email profilePic videos followerCount').lean();
 
-    // 2. Aggregate earnings for all following users at once
-    const earningsStats = await AdImpression.aggregate([
-      { 
-        $match: { 
-          creatorId: { $in: followingIds },
-          ...billableMatch(),
-          timestamp: { $gte: startOfMonth }
-        } 
-      },
-      {
-        $group: {
-          _id: { creator: '$creatorId', adType: '$adType' },
-          totalViews: { 
-            $sum: { $cond: [{ $gt: ['$viewCount', 0] }, '$viewCount', 1] } 
-          }
-        }
-      },
-      {
-        $group: {
-          _id: '$_id.creator',
-          bannerViews: {
-            $sum: { $cond: [{ $eq: ['$_id.adType', 'banner'] }, '$totalViews', 0] }
-          },
-          carouselViews: {
-            $sum: { $cond: [{ $eq: ['$_id.adType', 'carousel'] }, '$totalViews', 0] }
-          }
-        }
-      }
-    ]);
-
-    // 3. Create a map for quick lookup
-    const bannerCpm = 10;
-    const carouselCpm = 30;
-    const creatorShare = 0.80;
-
-    const earningsMap = new Map();
-    earningsStats.forEach(stat => {
-      const earnings = (
-        (stat.bannerViews / 1000) * bannerCpm + 
-        (stat.carouselViews / 1000) * carouselCpm
-      ) * creatorShare;
-      earningsMap.set(stat._id.toString(), earnings);
-    });
-
-    // 4. Combine metadata with earnings
+    // 2. Combine metadata with subscriber count
     const topEarners = followingUsers.map(user => {
-      const earnings = earningsMap.get(user._id.toString()) || 0;
       return {
         userId: user.googleId,
         name: user.name,
         profilePic: user.profilePic || null,
-        totalEarnings: earnings,
+        totalEarnings: user.followerCount || 0,
         videoCount: user.videos?.length || 0
       };
     })
@@ -553,7 +502,7 @@ router.get('/top-earners-from-following', verifyToken, async (req, res) => {
     .map((earner, index) => ({
       ...earner,
       rank: index + 1,
-      // Mask actual earnings for privacy in this public-facing list
+      // Mask actual subscriber count for privacy in this public-facing list
       totalEarnings: 0
     }));
 

@@ -1359,6 +1359,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                 onSubscribersTap: _handleSubscribersTap,
                 onSaveProfile: _handleSaveProfile,
                 onCancelEdit: _handleCancelEdit,
+                onProfessionTap: isViewingOwnProfile
+                    ? () => _openProfessionPicker(manager)
+                    : null,
               ),
             );
           },
@@ -1570,9 +1573,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                       ),
                       autofocus: true,
                     )
-                  : _buildAppBarProfessionBadge(
-                      stateManager,
-                      isViewingOwnProfile,
+                  : Text(
+                      stateManager.userData?['name']?.toString() ?? '',
+                      style: AppTypography.titleMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     )),
       leading: isViewingOwnProfile
           ? IconButton(
@@ -1644,7 +1649,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         TextButton(
           onPressed: _showFAQDialog,
           style: TextButton.styleFrom(
-            foregroundColor: AppColors.textSecondary,
+            foregroundColor: AppColors.primary,
             minimumSize: const Size(56, 44),
             padding: const EdgeInsets.symmetric(horizontal: 12),
             tapTargetSize: MaterialTapTargetSize.padded,
@@ -1652,7 +1657,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           child: Text(
             'Monetize',
             style: AppTypography.labelMedium.copyWith(
-              color: AppColors.textSecondary,
+              color: AppColors.primary,
               fontWeight: FontWeight.w600,
             ),
           ),

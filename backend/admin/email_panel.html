@@ -196,7 +196,7 @@
                         <textarea id="htmlContent" rows="12" placeholder="<h1>Hello!</h1> <p>Your message here...</p>" onkeyup="updatePreview()" required></textarea>
                         <div class="template-tags">
                             <span class="tag" onclick="loadTemplate('welcome')">Welcome</span>
-                            <span class="tag" onclick="loadTemplate('update')">New Update</span>
+                            <span class="tag" onclick="loadTemplate('upi')">Add UPI</span>
                             <span class="tag" onclick="loadTemplate('payout')">Payout Success</span>
                         </div>
                     </div>
@@ -255,7 +255,7 @@
         function loadTemplate(type) {
             const templates = {
                 welcome: `<h1>Welcome to Vayug! 🎉</h1><p>We are thrilled to have you here. Exploring premium ad-free videos has never been easier.</p><br><p>Best,<br>The Vayug Team</p>`,
-                update: `<h2>New Features are Here! 🚀</h2><p>Check out our latest app update featuring improved recommendation algorithms and smoother playback.</p><br><a href="#" style="background:#667eea; color:white; padding:10px 20px; border-radius:5px; text-decoration:none;">Update Now</a>`,
+                upi: `<h2>Action Required: Add Your UPI ID</h2><p>Dear Creator,</p><p>To receive your monthly payouts, you need to add your UPI ID. Here's how:</p><br><p><strong>Steps:</strong></p><ol><li>Tap on the <strong>"Setup Billing"</strong> button in the app</li><li>To unlock Setup Billing, either <strong>share the app with 2 friends</strong> or <strong>upload 2 videos</strong></li><li>Once unlocked, enter your UPI ID and save</li></ol><br><p>Without a valid UPI ID, we won't be able to process your earnings for this month.</p><p>If you face any issues, feel free to reach out to our support team.</p><br><p>Best regards,<br>The Vayug Team</p>`,
                 payout: `<h3>Your Payout is on the way! 💸</h3><p>Congratulations! Your creator earnings for this month have been successfully processed and sent to your account.</p>`
             };
             document.getElementById('htmlContent').value = templates[type];

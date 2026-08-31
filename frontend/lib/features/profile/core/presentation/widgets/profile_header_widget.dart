@@ -11,6 +11,7 @@ import 'package:vayug/features/profile/core/presentation/widgets/new_subscribers
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/app_text.dart';
 import 'package:vayug/shared/utils/url_utils.dart';
+import 'package:vayug/shared/services/app_remote_config_service.dart';
 import 'package:vayug/shared/widgets/follow_button_widget.dart';
 
 class ProfileHeaderWidget extends ConsumerWidget {
@@ -25,6 +26,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
   final VoidCallback? onSubscribersTap;
   final VoidCallback? onSaveProfile;
   final VoidCallback? onCancelEdit;
+  final VoidCallback? onProfessionTap;
 
   const ProfileHeaderWidget({
     super.key,
@@ -39,6 +41,7 @@ class ProfileHeaderWidget extends ConsumerWidget {
     this.onSubscribersTap,
     this.onSaveProfile,
     this.onCancelEdit,
+    this.onProfessionTap,
   });
 
   @override
@@ -53,14 +56,18 @@ class ProfileHeaderWidget extends ConsumerWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _buildAvatar(stateManager),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildAvatar(stateManager),
+                  _buildProfessionBadge(stateManager),
+                ],
+              ),
               const SizedBox(width: 20),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildIdentity(stateManager),
-                    const SizedBox(height: 14),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -126,42 +133,51 @@ class ProfileHeaderWidget extends ConsumerWidget {
                                 mode: LaunchMode.externalApplication);
                           }
                         },
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const HugeIcon(
-                              icon: HugeIcons.strokeRoundedLink01,
-                              size: 14,
-                              color: AppColors.primary,
-                            ),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(
-                                () {
-                                  var domain = stateManager
-                                      .userData!['websiteUrl']
-                                      .toString()
-                                      .replaceFirst(RegExp(r'^https?://'), '')
-                                      .replaceFirst(RegExp(r'^www\.'), '')
-                                      .split('/')
-                                      .first
-                                      .replaceFirst(RegExp(r'\.com$'), '')
-                                      .replaceFirst(RegExp(r'\.in$'), '')
-                                      .replaceFirst(RegExp(r'\.org$'), '')
-                                      .replaceFirst(RegExp(r'\.net$'), '');
-                                  return domain;
-                                }(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTypography.bodySmall.copyWith(
-                                  color: AppColors.primary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  letterSpacing: 0.1,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.textSecondary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const HugeIcon(
+                                icon: HugeIcons.strokeRoundedLink01,
+                                size: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  () {
+                                    var domain = stateManager
+                                        .userData!['websiteUrl']
+                                        .toString()
+                                        .replaceFirst(
+                                            RegExp(r'^https?://'), '')
+                                        .replaceFirst(RegExp(r'^www\.'), '')
+                                        .split('/')
+                                        .first
+                                        .replaceFirst(RegExp(r'\.com$'), '')
+                                        .replaceFirst(RegExp(r'\.in$'), '')
+                                        .replaceFirst(RegExp(r'\.org$'), '')
+                                        .replaceFirst(RegExp(r'\.net$'), '');
+                                    return domain;
+                                  }(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.bodySmall.copyWith(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: 0.1,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -244,6 +260,43 @@ class ProfileHeaderWidget extends ConsumerWidget {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildProfessionBadge(ProfileStateManager stateManager) {
+    final profession = stateManager.userData?['profession'];
+    final professionLabel =
+        profession is Map ? profession['label']?.toString().trim() : null;
+    final professionFeatureEnabled = AppRemoteConfigService
+            .instance.config?.featureFlags.professionTargeting ??
+        true;
+    final showProfession = professionFeatureEnabled &&
+        (isViewingOwnProfile || (professionLabel?.isNotEmpty ?? false));
+
+    if (!showProfession) return const SizedBox.shrink();
+
+    final badgeLabel = professionLabel?.isNotEmpty == true
+        ? professionLabel!
+        : AppText.get('profile_add_profession', fallback: '+ Add profession');
+
+    final badge = Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        badgeLabel,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: AppTypography.labelSmall.copyWith(
+          color: AppColors.textSecondary,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+
+    if (!isViewingOwnProfile || onProfessionTap == null) return badge;
+
+    return GestureDetector(
+      onTap: onProfessionTap,
+      child: badge,
     );
   }
 
