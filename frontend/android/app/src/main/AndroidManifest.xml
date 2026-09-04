@@ -50,26 +50,28 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <intent-filter android:autoVerify="true">
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="snehayog" android:host="payment-callback" />
             </intent-filter>
-            <intent-filter android:autoVerify="true">
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="snehayog" android:host="video" />
             </intent-filter>
+
+            <!-- Video Deep Links / Android App Links -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="snehayog.site" android:pathPrefix="/video/" />
-                <data android:scheme="https" android:host="snehayog.site" android:pathPattern="/video/.*" />
-                <data android:scheme="https" android:host="www.snehayog.site" android:pathPrefix="/video/" />
-                <data android:scheme="https" android:host="www.snehayog.site" android:pathPattern="/video/.*" />
+                <data android:scheme="https" />
+                <data android:host="snehayog.site" />
+                <data android:host="www.snehayog.site" />
+                <data android:pathPrefix="/video" />
             </intent-filter>
 
             <!-- Referral & General App Links -->
@@ -77,8 +79,10 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="snehayog.site" />
-                <data android:scheme="https" android:host="www.snehayog.site" />
+                <data android:scheme="https" />
+                <data android:host="snehayog.site" />
+                <data android:host="www.snehayog.site" />
+                <data android:pathPrefix="/r" />
             </intent-filter>
         </activity>
 
@@ -88,6 +92,17 @@
             android:name="com.applovin.adview.AppLovinFullscreenActivity"
             tools:replace="android:screenOrientation"
             android:screenOrientation="unspecified" />
+        <!-- Custom FileProvider for direct Instagram/WhatsApp native sharing -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+        </provider>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -100,6 +115,9 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="com.instagram.android" />
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>

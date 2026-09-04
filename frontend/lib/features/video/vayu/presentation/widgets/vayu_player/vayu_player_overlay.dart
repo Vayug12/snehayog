@@ -15,6 +15,7 @@ class VayuPlayerOverlay extends StatelessWidget {
   final VoidCallback onMoreOptions;
   final VoidCallback onNext;
   final VoidCallback onPrevious;
+  final VoidCallback? onToggleFullScreen;
 
   const VayuPlayerOverlay({
     super.key,
@@ -28,6 +29,7 @@ class VayuPlayerOverlay extends StatelessWidget {
     required this.onMoreOptions,
     required this.onNext,
     required this.onPrevious,
+    this.onToggleFullScreen,
   });
 
   @override
@@ -60,6 +62,26 @@ class VayuPlayerOverlay extends StatelessWidget {
             ignoring: !showControls,
             child: Stack(
               children: [
+                // Top rail — Back button in landscape mode (^ up arrow)
+                if (!isPortrait && onToggleFullScreen != null)
+                  Positioned(
+                    top: topOffset,
+                    left: playerInsets.left,
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: isControlsLockedVN,
+                      builder: (context, isLocked, _) {
+                        if (isLocked) return const SizedBox.shrink();
+                        return _circleButton(
+                          onTap: onToggleFullScreen!,
+                          size: utilityControlSize,
+                          icon: Icons.keyboard_arrow_up_rounded,
+                          iconSize: utilityIconSize + 2,
+                          surfaceOpacity: 0.24,
+                        );
+                      },
+                    ),
+                  ),
+
                 // Top rail — single more-options control
                 Positioned(
                   top: topOffset,

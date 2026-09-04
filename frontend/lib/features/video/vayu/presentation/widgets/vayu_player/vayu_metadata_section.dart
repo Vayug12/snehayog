@@ -6,7 +6,7 @@ import 'package:vayug/core/design/spacing.dart';
 import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/utils/format_utils.dart';
 
-class VayuMetadataSection extends StatefulWidget {
+class VayuMetadataSection extends StatelessWidget {
   final VideoModel video;
   final bool isPortrait;
   final VoidCallback onShare;
@@ -31,25 +31,18 @@ class VayuMetadataSection extends StatefulWidget {
   });
 
   @override
-  State<VayuMetadataSection> createState() => _VayuMetadataSectionState();
-}
-
-class _VayuMetadataSectionState extends State<VayuMetadataSection> {
-  int? _expandedIndex;
-
-  @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      padding: EdgeInsets.symmetric(vertical: AppSpacing.spacing3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(
-            widget.video.videoName,
+            video.videoName,
             style: AppTypography.bodyLarge.copyWith(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? AppColors.textPrimary
-                  : Colors.black87,
+              color: isDark ? AppColors.textPrimary : Colors.black87,
               fontWeight: FontWeight.bold,
               height: 1.2,
             ),
@@ -58,19 +51,19 @@ class _VayuMetadataSectionState extends State<VayuMetadataSection> {
           ),
           SizedBox(height: AppSpacing.spacing1),
           Text(
-            '${FormatUtils.formatViews(widget.video.views)} views • ${FormatUtils.formatTimeAgo(widget.video.uploadedAt)}',
+            '${FormatUtils.formatViews(video.views)} views • ${FormatUtils.formatTimeAgo(video.uploadedAt)}',
             style: AppTypography.bodySmall.copyWith(
               color: AppColors.textTertiary,
-            fontSize: widget.isPortrait ? 11 : 12,
+              fontSize: isPortrait ? 11 : 12,
               fontWeight: FontWeight.w500,
             ),
           ),
-          if (widget.video.tags != null && widget.video.tags!.isNotEmpty) ...[
+          if (video.tags != null && video.tags!.isNotEmpty) ...[
             SizedBox(height: AppSpacing.spacing2),
             Wrap(
               spacing: AppSpacing.spacing1,
               runSpacing: AppSpacing.spacing1,
-              children: widget.video.tags!
+              children: video.tags!
                   .map((tag) => Text(
                         '#$tag',
                         style: const TextStyle(
@@ -83,64 +76,77 @@ class _VayuMetadataSectionState extends State<VayuMetadataSection> {
             ),
           ],
           SizedBox(height: AppSpacing.spacing3),
-          // ── ACTION BAR (Expanding Active Tab) ──────────
-          GestureDetector(
-            onTap: () => setState(() => _expandedIndex = null),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+          // ── ACTION BAR (Horizontally scrollable with Icons + Text) ──────────
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildActionButton(
+                  context,
+                  icon: Icon(
+                    video.isSaved
+                        ? Icons.bookmark_rounded
+                        : Icons.bookmark_outline_rounded,
+                    color: video.isSaved
+                        ? AppColors.primary
+                        : (isDark ? Colors.white70 : Colors.black87),
+                    size: 18,
+                  ),
+                  onPressed: onSave,
+                  label: video.isSaved ? 'Saved' : 'Save',
+                  labelColor: video.isSaved ? AppColors.primary : null,
+                ),
+                SizedBox(width: AppSpacing.spacing2),
+                _buildActionButton(
+                  context,
+                  icon: Icon(
+                    Icons.share_outlined,
+                    color: isDark ? Colors.white70 : Colors.black87,
+                    size: 18,
+                  ),
+                  onPressed: onShare,
+                  label: 'Share',
+                ),
+                if (video.episodes != null && video.episodes!.isNotEmpty) ...[
+                  SizedBox(width: AppSpacing.spacing2),
                   _buildActionButton(
                     context,
-                    index: 0,
                     icon: Icon(
-                      widget.video.isSaved ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
-                      color: widget.video.isSaved ? AppColors.primary : Colors.white70,
+                      Icons.playlist_play_rounded,
+                      color: isDark ? Colors.white70 : Colors.black87,
                       size: 18,
                     ),
-                    onPressed: widget.onSave,
-                    label: widget.video.isSaved ? 'Saved' : 'Save',
+                    onPressed: onEpisodes,
+                    label: 'Episodes',
                   ),
-                  SizedBox(width: AppSpacing.spacing2),
-                  _buildActionButton(
-                    context,
-                    index: 1,
-                    icon: const Icon(Icons.share_outlined, color: Colors.white70, size: 18),
-                    onPressed: widget.onShare,
-                    label: 'Share',
-                  ),
-                  if (widget.video.episodes != null && widget.video.episodes!.isNotEmpty) ...[
-                    SizedBox(width: AppSpacing.spacing2),
-                    _buildActionButton(
-                      context,
-                      index: 2,
-                      icon: const Icon(Icons.playlist_play_rounded, color: Colors.white70, size: 18),
-                      onPressed: widget.onEpisodes,
-                      label: 'Episodes',
-                    ),
-                  ],
-                  SizedBox(width: AppSpacing.spacing2),
-                  _buildActionButton(
-                    context,
-                    index: 3,
-                    icon: const Icon(Icons.tips_and_updates_outlined, color: Colors.white70, size: 18),
-                    onPressed: widget.onSuggestion,
-                    label: 'Suggest',
-                  ),
-                  if (widget.video.link?.isNotEmpty == true) ...[
-                    SizedBox(width: AppSpacing.spacing2),
-                    _buildActionButton(
-                      context,
-                      index: 4,
-                      icon: const Icon(Icons.open_in_new_rounded, color: Colors.white70, size: 18),
-                      onPressed: widget.onVisitLink,
-                      label: 'Visit',
-                    ),
-                  ],
                 ],
-              ),
+                SizedBox(width: AppSpacing.spacing2),
+                _buildActionButton(
+                  context,
+                  icon: Icon(
+                    Icons.tips_and_updates_outlined,
+                    color: isDark ? Colors.white70 : Colors.black87,
+                    size: 18,
+                  ),
+                  onPressed: onSuggestion,
+                  label: 'Suggest',
+                ),
+                if (video.link?.isNotEmpty == true) ...[
+                  SizedBox(width: AppSpacing.spacing2),
+                  _buildActionButton(
+                    context,
+                    icon: Icon(
+                      Icons.open_in_new_rounded,
+                      color: isDark ? Colors.white70 : Colors.black87,
+                      size: 18,
+                    ),
+                    onPressed: onVisitLink,
+                    label: 'Visit',
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -150,76 +156,58 @@ class _VayuMetadataSectionState extends State<VayuMetadataSection> {
 
   Widget _buildActionButton(
     BuildContext context, {
-    required int index,
     required Widget icon,
     required VoidCallback onPressed,
     required String label,
+    Color? labelColor,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isExpanded = _expandedIndex == index;
     return ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () {
-                setState(() {
-                  _expandedIndex = isExpanded ? null : index;
-                });
-                onPressed();
-              },
-              borderRadius: BorderRadius.circular(20),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeInOut,
-                padding: EdgeInsets.symmetric(
-                  horizontal: isExpanded ? AppSpacing.spacing3 : AppSpacing.spacing2,
-                  vertical: AppSpacing.spacing2,
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: AppSpacing.spacing3,
+                vertical: AppSpacing.spacing2,
+              ),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : Colors.black.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.12)
+                      : Colors.black.withValues(alpha: 0.08),
+                  width: 0.5,
                 ),
-                decoration: BoxDecoration(
-                  color: isExpanded
-                      ? (isDark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.08))
-                      : (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: isExpanded
-                        ? Colors.white.withValues(alpha: 0.2)
-                        : Colors.white.withValues(alpha: 0.1),
-                    width: 0.5,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    icon,
-                    AnimatedSize(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeInOut,
-                      child: isExpanded
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(width: AppSpacing.spacing1),
-                                Text(
-                                  label,
-                                  style: AppTypography.bodySmall.copyWith(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            )
-                          : const SizedBox.shrink(),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  icon,
+                  SizedBox(width: AppSpacing.spacing1 + 2),
+                  Text(
+                    label,
+                    style: AppTypography.bodySmall.copyWith(
+                      color: labelColor ??
+                          (isDark ? Colors.white70 : Colors.black87),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
         ),
-      );
+      ),
+    );
   }
 }

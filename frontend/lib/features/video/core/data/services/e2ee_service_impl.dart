@@ -15,8 +15,8 @@ import 'package:vayug/shared/exceptions/app_exceptions.dart';
 /// Handles RSA key generation, storage, and E2EE key distribution/chunk operations.
 class E2eeServiceImpl implements IE2eeService {
   final FlutterSecureStorage _secureStorage;
-  static const String _privateKeyStorageKey = 'e2ee_private_key';
-  static const String _publicKeyStorageKey = 'e2ee_public_key';
+  static const String _legacyPrivateKeyStorageKey = 'e2ee_private_key';
+  static const String _legacyPublicKeyStorageKey = 'e2ee_public_key';
 
   E2eeServiceImpl({
     FlutterSecureStorage? secureStorage,
@@ -24,6 +24,67 @@ class E2eeServiceImpl implements IE2eeService {
           aOptions: AndroidOptions(),
           iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
         );
+
+  String _getPrivateKeyStorageKey(String? userId) {
+    if (userId != null && userId.trim().isNotEmpty) {
+      return 'e2ee_private_key_${userId.trim()}';
+    }
+    return _legacyPrivateKeyStorageKey;
+  }
+
+  String _getPublicKeyStorageKey(String? userId) {
+    if (userId != null && userId.trim().isNotEmpty) {
+      return 'e2ee_public_key_${userId.trim()}';
+    }
+    return _legacyPublicKeyStorageKey;
+  }
+
+  Future<String?> _resolveCurrentUserId([String? userId]) async {
+    if (userId != null && userId.trim().isNotEmpty) {
+      return userId.trim();
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final googleId = prefs.getString('google_id');
+      if (googleId != null && googleId.trim().isNotEmpty) {
+        return googleId.trim();
+      }
+      final fallbackUser = prefs.getString('fallback_user');
+      if (fallbackUser != null && fallbackUser.isNotEmpty) {
+        final decoded = jsonDecode(fallbackUser);
+        final id = decoded['googleId'] ?? decoded['id'] ?? decoded['_id'];
+        if (id != null && id.toString().trim().isNotEmpty) {
+          return id.toString().trim();
+        }
+      }
+    } catch (e) {
+      AppLogger.log('⚠️ E2EE: Error resolving user ID: $e');
+    }
+    return null;
+  }
+
+  Future<void> _migrateLegacyKeysIfNeeded(String userId) async {
+    try {
+      final userPrivKey = _getPrivateKeyStorageKey(userId);
+      final existingUserKey = await _secureStorage.read(key: userPrivKey);
+      if (existingUserKey == null || existingUserKey.isEmpty) {
+        final legacyPriv = await _secureStorage.read(key: _legacyPrivateKeyStorageKey);
+        final legacyPub = await _secureStorage.read(key: _legacyPublicKeyStorageKey);
+        if (legacyPriv != null && legacyPriv.isNotEmpty) {
+          AppLogger.log('🔐 E2EE: Migrating legacy keys to user-scoped storage for $userId');
+          await _secureStorage.write(key: userPrivKey, value: legacyPriv);
+          if (legacyPub != null && legacyPub.isNotEmpty) {
+            await _secureStorage.write(key: _getPublicKeyStorageKey(userId), value: legacyPub);
+          }
+          // Clean up legacy keys so they don't leak or conflict with other users
+          await _secureStorage.delete(key: _legacyPrivateKeyStorageKey);
+          await _secureStorage.delete(key: _legacyPublicKeyStorageKey);
+        }
+      }
+    } catch (e) {
+      AppLogger.log('⚠️ E2EE: Error migrating legacy keys: $e');
+    }
+  }
 
   // ─────────────────────────────────────────────────
   // CRYPTOGRAPHIC HELPER FUNCTIONS
@@ -97,18 +158,22 @@ class E2eeServiceImpl implements IE2eeService {
   // ─────────────────────────────────────────────────
 
   @override
-  Future<String> generateAndStoreKeyPair() async {
+  Future<String> generateAndStoreKeyPair({String? userId}) async {
     try {
-      AppLogger.log('🔐 E2EE: Generating new RSA key pair...');
+      final resolvedUserId = await _resolveCurrentUserId(userId);
+      AppLogger.log('🔐 E2EE: Generating new RSA key pair for user: $resolvedUserId...');
       final pair = _generateRSAKeyPair();
       
       final pubStr = _serializePublicKey(pair.publicKey);
       final privStr = _serializePrivateKey(pair.privateKey);
 
-      await _secureStorage.write(key: _publicKeyStorageKey, value: pubStr);
-      await _secureStorage.write(key: _privateKeyStorageKey, value: privStr);
+      final pubKeyStorageKey = _getPublicKeyStorageKey(resolvedUserId);
+      final privKeyStorageKey = _getPrivateKeyStorageKey(resolvedUserId);
 
-      AppLogger.log('🔐 E2EE: Key pair successfully stored in Secure Storage.');
+      await _secureStorage.write(key: pubKeyStorageKey, value: pubStr);
+      await _secureStorage.write(key: privKeyStorageKey, value: privStr);
+
+      AppLogger.log('🔐 E2EE: Key pair successfully stored for user $resolvedUserId in Secure Storage.');
       return pubStr;
     } catch (e) {
       AppLogger.log('❌ E2EE: Error generating/storing key pair: $e');
@@ -117,8 +182,13 @@ class E2eeServiceImpl implements IE2eeService {
   }
 
   @override
-  Future<String?> getPublicKey() async {
-    return await _secureStorage.read(key: _publicKeyStorageKey);
+  Future<String?> getPublicKey({String? userId}) async {
+    final resolvedUserId = await _resolveCurrentUserId(userId);
+    if (resolvedUserId != null) {
+      await _migrateLegacyKeysIfNeeded(resolvedUserId);
+    }
+    final key = _getPublicKeyStorageKey(resolvedUserId);
+    return await _secureStorage.read(key: key);
   }
 
   @override
@@ -144,8 +214,8 @@ class E2eeServiceImpl implements IE2eeService {
   }
 
   @override
-  Future<bool> hasKeyPair() async {
-    final pubKey = await getPublicKey();
+  Future<bool> hasKeyPair({String? userId}) async {
+    final pubKey = await getPublicKey(userId: userId);
     return pubKey != null && pubKey.isNotEmpty;
   }
 
@@ -338,9 +408,17 @@ class E2eeServiceImpl implements IE2eeService {
   }
 
   @override
-  Future<Uint8List> decryptSymmetricKey(String encryptedSymmetricKey) async {
+  Future<Uint8List> decryptSymmetricKey(
+    String encryptedSymmetricKey, {
+    String? userId,
+  }) async {
     try {
-      final privKeyStr = await _secureStorage.read(key: _privateKeyStorageKey);
+      final resolvedUserId = await _resolveCurrentUserId(userId);
+      if (resolvedUserId != null) {
+        await _migrateLegacyKeysIfNeeded(resolvedUserId);
+      }
+      final privKeyStorageKey = _getPrivateKeyStorageKey(resolvedUserId);
+      final privKeyStr = await _secureStorage.read(key: privKeyStorageKey);
       if (privKeyStr == null) {
         throw const E2eeVideoAccessException(
           'This device does not have the encryption key needed for this video.',

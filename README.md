@@ -15,6 +15,7 @@ The project is currently built around a Flutter client, a Node.js/Express backen
 - Playback-position recovery, notifications, content reporting, and creator suggestions.
 - Series and episode navigation.
 - Interactive quizzes attached to supported videos.
+- External video player support: Viewers can open and stream long-form videos in any player installed on their device (e.g., VLC, MX Player) via native intent.
 - Public share pages for eligible videos at `/video/{id}/{slug}` and embeddable players at `/embed/{id}`.
 
 ### Creator publishing
@@ -22,6 +23,7 @@ The project is currently built around a Flutter client, a Node.js/Express backen
 - Google Sign-In and JWT-based account authentication.
 - Video upload from the Flutter client.
 - Video metadata, thumbnails, descriptions, categories, tags, keywords, visibility, and editing.
+- Optional target audience selection by profession for organic niche distribution (free alternative to paid audience boosting).
 - Background processing with FFmpeg, HLS playlists, quality variants, thumbnails, and processing progress.
 - Series/episode organization and video quizzes.
 - Creator analytics, views, watch time, engagement, and revenue-related views.

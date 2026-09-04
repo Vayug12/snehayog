@@ -1002,7 +1002,8 @@ class VideoService implements IVideoService {
           // Also encrypt the key for the creator (uploader) themselves so they can decrypt and watch it
           final userData = await _authService.getUserData();
           final creatorId = userData?['_id']?.toString() ?? userData?['id']?.toString();
-          final creatorPublicKey = await e2ee.getPublicKey();
+          final creatorIdentity = userData?['googleId']?.toString() ?? creatorId;
+          final creatorPublicKey = await e2ee.getPublicKey(userId: creatorIdentity);
           if (creatorId != null && creatorPublicKey != null) {
             AppLogger.log('🔐 E2EE: Encrypting symmetric key for creator $creatorId...');
             final creatorEncKey = await e2ee.encryptSymmetricKeyForSubscriber(symmetricKey, creatorPublicKey);

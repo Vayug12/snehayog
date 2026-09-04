@@ -43,7 +43,7 @@ class AuthSignInPrompt extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authController = ref.watch(googleSignInProvider);
-    final bool isLoading = authController.isLoading;
+    final bool isLoading = authController.isLoading || authController.isSigningIn;
 
     return Center(
       child: Padding(
@@ -73,10 +73,27 @@ class AuthSignInPrompt extends ConsumerWidget {
             AppSpacing.vSpace32,
             AppButton(
               onPressed: isLoading ? null : () => _handleSignIn(context, ref),
-              label: AppText.get('btn_sign_in_google'),
+              icon: isLoading
+                  ? null
+                  : Image.network(
+                      'https://www.google.com/favicon.ico',
+                      height: 20,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.account_circle_outlined,
+                        size: 20,
+                        color: Colors.white,
+                      ),
+                    ),
+              label: isLoading
+                  ? AppText.get(
+                      'profile_signing_in_label',
+                      fallback: 'Signing in...',
+                    )
+                  : AppText.get('btn_sign_in_google'),
               variant: AppButtonVariant.primary,
               isFullWidth: true,
               isLoading: isLoading,
+              isDisabled: isLoading,
             ),
           ],
         ),

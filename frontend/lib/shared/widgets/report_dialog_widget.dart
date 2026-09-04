@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:vayug/core/design/colors.dart';
-import 'package:vayug/core/design/typography.dart';
 import 'package:vayug/shared/services/report_service.dart';
 import 'package:vayug/shared/widgets/app_button.dart';
 import 'package:vayug/shared/widgets/vayu_snackbar.dart';
@@ -69,8 +68,9 @@ class _ReportDialogWidgetState extends State<ReportDialogWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-    
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+
     return Form(
       key: _formKey,
       child: Column(
@@ -79,24 +79,26 @@ class _ReportDialogWidgetState extends State<ReportDialogWidget> {
         children: [
           Text(
             'What is the issue?',
-            style: AppTypography.bodySmall.copyWith(
+            style: TextStyle(
               color: AppColors.textSecondary,
               fontWeight: FontWeight.w600,
-              fontSize: isLandscape ? 11.0 : null,
+              fontSize: isLandscape ? 12.0 : 13.0,
             ),
           ),
-          SizedBox(height: isLandscape ? 8 : 12),
+          SizedBox(height: isLandscape ? 6 : 10),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: isLandscape ? 6 : 8,
+            runSpacing: isLandscape ? 6 : 8,
             children: _reasons.map((reason) {
               final isSelected = _selectedReason == reason;
               return ChoiceChip(
                 label: Text(
                   reason[0].toUpperCase() + reason.substring(1),
-                  style: AppTypography.bodySmall.copyWith(
+                  style: TextStyle(
                     color: isSelected ? Colors.white : AppColors.textSecondary,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.w500,
+                    fontSize: isLandscape ? 11.5 : 12.5,
                   ),
                 ),
                 selected: isSelected,
@@ -106,54 +108,70 @@ class _ReportDialogWidgetState extends State<ReportDialogWidget> {
                 selectedColor: AppColors.primary,
                 backgroundColor: AppColors.backgroundSecondary,
                 checkmarkColor: Colors.white,
-                visualDensity: isLandscape ? VisualDensity.compact : null,
-                padding: isLandscape ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4) : null,
-                labelPadding: isLandscape ? EdgeInsets.zero : null,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: isLandscape
+                    ? const VisualDensity(horizontal: -3, vertical: -3)
+                    : VisualDensity.compact,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isLandscape ? 8 : 10,
+                  vertical: isLandscape ? 2 : 4,
+                ),
+                labelPadding: EdgeInsets.zero,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(100),
                   side: BorderSide(
-                    color: isSelected ? AppColors.primary : AppColors.borderPrimary,
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.borderPrimary,
                     width: 1,
                   ),
                 ),
               );
             }).toList(),
           ),
-          SizedBox(height: isLandscape ? 12 : 20),
+          SizedBox(height: isLandscape ? 10 : 16),
           Text(
             'Actionable details (optional)',
-            style: AppTypography.bodySmall.copyWith(
+            style: TextStyle(
               color: AppColors.textSecondary,
               fontWeight: FontWeight.w600,
-              fontSize: isLandscape ? 11.0 : null,
+              fontSize: isLandscape ? 12.0 : 13.0,
             ),
           ),
           SizedBox(height: isLandscape ? 4 : 8),
           TextFormField(
             controller: _detailsController,
-            minLines: isLandscape ? 2 : 3,
-            maxLines: isLandscape ? 3 : 5,
-            style: AppTypography.bodyMedium.copyWith(fontSize: isLandscape ? 12.0 : null),
+            minLines: isLandscape ? 1 : 2,
+            maxLines: isLandscape ? 2 : 4,
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: isLandscape ? 12.0 : 14.0,
+            ),
             decoration: InputDecoration(
               hintText: 'Describe the problem...',
-              hintStyle: AppTypography.bodyMedium.copyWith(
+              hintStyle: TextStyle(
                 color: AppColors.textTertiary,
-                fontSize: isLandscape ? 12.0 : null,
+                fontSize: isLandscape ? 12.0 : 14.0,
               ),
               filled: true,
               fillColor: AppColors.backgroundSecondary,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
                 borderSide: BorderSide.none,
               ),
-              contentPadding: EdgeInsets.all(isLandscape ? 12 : 16),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: isLandscape ? 8 : 12,
+              ),
             ),
           ),
-          SizedBox(height: isLandscape ? 16 : 24),
+          SizedBox(height: isLandscape ? 10 : 18),
           AppButton(
             onPressed: _submitting ? null : _submit,
             label: 'Submit Report',
             variant: AppButtonVariant.primary,
+            size: isLandscape ? AppButtonSize.small : AppButtonSize.medium,
+            fontSize: isLandscape ? 12.5 : 14.0,
             isLoading: _submitting,
             isFullWidth: true,
           ),

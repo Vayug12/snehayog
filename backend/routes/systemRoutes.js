@@ -78,16 +78,9 @@ router.get(["/app-ads.txt", "/ads.txt"], (req, res) => {
   res.sendFile(path.join(backendRoot, "ads.txt"));
 });
 
-// Serve the production APK
-router.get('/download/vayu-latest.apk', (req, res) => {
-  const apkPath = path.join(backendRoot, 'public/download/app-release.apk');
-  res.download(apkPath, 'vayu-latest.apk', (err) => {
-    if (err) {
-      if (!res.headersSent) {
-        res.status(404).send('APK not found. Please try again later.');
-      }
-    }
-  });
+// Redirect APK download requests to Google Play Store
+router.get(['/download/vayu-latest.apk', '/download/app-release.apk', '/download'], (req, res) => {
+  res.redirect(302, 'https://play.google.com/store/apps/details?id=com.snehayog.app');
 });
 
 // Root route handler - serves the landing page for APK distribution
@@ -154,42 +147,6 @@ router.get(['/video/:id', '/video/:id/:slug'], passiveVerifyToken, async (req, r
     const sharedTimestampQuery = sharedTimestampParams.toString();
     const sharedTimestampSuffix = sharedTimestampQuery ? `?${sharedTimestampQuery}` : '';
 
-    // App links constants
-    const appSchemeUrl = `snehayog://video/${id}${sharedTimestampSuffix}`;
-    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.snehayog.app';
-    const intentUrl = `intent://video/${id}${sharedTimestampSuffix}#Intent;scheme=snehayog;package=com.snehayog.app;end`;
-
-    if (!video) {
-        // **SMART FALLBACK**: Don't redirect! Serve a clean error page instead.
-        // This stops the Play Store from hijacking the user experience.
-        return res.status(200).send(`
-          <!doctype html>
-          <html>
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Video Not Found | Vayug</title>
-            <style>
-              body { margin:0; background:#000; color:#fff; font-family:system-ui; display:flex; align-items:center; justify-content:center; height:100vh; text-align:center; }
-              .card { padding:30px; border-radius:30px; border:1px solid #333; background:#0a0a0a; max-width:400px; width:90%; }
-              h1 { font-size:22px; margin-bottom:10px; }
-              p { color:#777; margin-bottom:30px; }
-              .btn { display:block; padding:15px; background:#2563eb; color:#fff; text-decoration:none; border-radius:15px; font-weight:700; }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <div style="font-size:50px; margin-bottom:20px;">🎬</div>
-              <h1>Video Unavailable</h1>
-              <p>This video link is invalid or the video has been removed.</p>
-              <a href="${playStoreUrl}" class="btn">Get Vayug App</a>
-              <a href="/" style="display:block; margin-top:20px; color:#555; text-decoration:none;">Go to Homepage</a>
-            </div>
-          </body>
-          </html>
-        `);
-    }
-
     const canonicalVideoPath = buildVideoPath(video._id, video.videoName);
     const expectedSlug = slugifyVideoTitle(video.videoName);
     if (slug !== expectedSlug || req.path !== canonicalVideoPath) {
@@ -197,6 +154,12 @@ router.get(['/video/:id', '/video/:id/:slug'], passiveVerifyToken, async (req, r
       const querySuffix = queryIndex >= 0 ? req.originalUrl.slice(queryIndex) : '';
       return res.redirect(301, `${canonicalVideoPath}${querySuffix}`);
     }
+
+    const canonicalVideoUrl = `${publicSiteUrl}${canonicalVideoPath}`;
+    // App links constants
+    const appSchemeUrl = `snehayog://video/${id}${sharedTimestampSuffix}`;
+    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.snehayog.app';
+    const intentUrl = `intent://video/${id}${sharedTimestampSuffix}#Intent;scheme=snehayog;package=com.snehayog.app;S.browser_fallback_url=${encodeURIComponent(canonicalVideoUrl)};end`;
 
     // Video Found: Serve the Premium Web Player
     video.incrementView(null, 2, 'embed').catch(err => console.error('Error tracking shared view:', err));
@@ -217,7 +180,6 @@ router.get(['/video/:id', '/video/:id/:slug'], passiveVerifyToken, async (req, r
       ? Math.min(Math.max(storedAspectRatio, 0.5625), 2.4)
       : 16 / 9;
     const isPortraitVideo = playerAspectRatio < 1;
-    const canonicalVideoUrl = `${publicSiteUrl}${canonicalVideoPath}`;
     const robotsDirective = isSubscriberOnly ? 'noindex, nofollow' : 'index, follow';
     const canonicalMarkup = isSubscriberOnly
       ? ''
@@ -379,6 +341,19 @@ router.get(['/video/:id', '/video/:id/:slug'], passiveVerifyToken, async (req, r
     if(Hls.isSupported() && src.includes('.m3u8')) {
       const hls = new Hls(); hls.loadSource(src); hls.attachMedia(video);
     } else { video.src = src; }
+
+    // Smart handoff: If opened on an Android device inside a browser/webview,
+    // automatically attempt opening the installed Vayug app via Android Intent.
+    (function() {
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const isEmbed = window !== window.top;
+      if (isAndroid && !isEmbed && !sessionStorage.getItem('vayu_intent_triggered')) {
+        sessionStorage.setItem('vayu_intent_triggered', '1');
+        setTimeout(function() {
+          window.location.href = '${intentUrl}';
+        }, 120);
+      }
+    })();
   </script>
 </body>
 </html>`;

@@ -378,7 +378,7 @@ class AuthService implements IAuthService {
     }
 
     // **NEW: Register E2EE Keys**
-    _registerE2eeKeysNonBlocking();
+    _registerE2eeKeysNonBlocking(googleUser.id);
 
     // **OPTIMIZED: Retry saving FCM token non-blocking (fire and forget)**
     unawaited(() async {
@@ -567,7 +567,7 @@ class AuthService implements IAuthService {
     _cachedProfile = result;
     _lastProfileFetch = DateTime.now();
 
-    _registerE2eeKeysNonBlocking();
+    _registerE2eeKeysNonBlocking(identityId);
     unawaited(() async {
       try {
         final notificationService = NotificationService();
@@ -619,7 +619,7 @@ class AuthService implements IAuthService {
   }
 
   // **NEW: Hook to register E2EE keys after successful login/registration**
-  void _registerE2eeKeysNonBlocking() {
+  void _registerE2eeKeysNonBlocking([String? userId]) {
     unawaited(() async {
       try {
         final prefs = await SharedPreferences.getInstance();
@@ -629,14 +629,15 @@ class AuthService implements IAuthService {
           return;
         }
 
-        AppLogger.log('🔐 AuthService: Checking/Registering E2EE keys...');
+        final effectiveUserId = userId ?? prefs.getString('google_id');
+        AppLogger.log('🔐 AuthService: Checking/Registering E2EE keys for user: $effectiveUserId...');
         final e2ee = serviceLocator.e2eeService;
-        final hasKeys = await e2ee.hasKeyPair();
+        final hasKeys = await e2ee.hasKeyPair(userId: effectiveUserId);
         String pubKey;
         if (!hasKeys) {
-          pubKey = await e2ee.generateAndStoreKeyPair();
+          pubKey = await e2ee.generateAndStoreKeyPair(userId: effectiveUserId);
         } else {
-          pubKey = (await e2ee.getPublicKey())!;
+          pubKey = (await e2ee.getPublicKey(userId: effectiveUserId))!;
         }
         await e2ee.uploadPublicKey(pubKey);
       } catch (e) {

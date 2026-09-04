@@ -53,6 +53,7 @@ import 'package:vayug/shared/widgets/episode_grid_widget.dart';
 import 'video_feed_advanced/widgets/throttled_progress_bar.dart';
 import 'package:vayug/shared/utils/app_logger.dart';
 import 'package:vayug/shared/utils/feed_page_alignment.dart';
+import 'package:vayug/shared/utils/page_scroll_physics.dart';
 import 'package:vayug/shared/utils/url_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vayug/features/onboarding/presentation/managers/app_initialization_manager.dart';

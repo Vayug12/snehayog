@@ -18,15 +18,18 @@ import android.util.Rational
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.annotation.Keep
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 @Keep
 class MainActivity : FlutterActivity() {
+    private val directShareChannel = "vayug/direct_share"
     private val installReferrerChannel = "vayug/install_referrer"
     private val pictureInPictureChannel = "vayug/picture_in_picture"
     private val pictureInPictureAction = "com.snehayog.app.PICTURE_IN_PICTURE_ACTION"
@@ -125,6 +128,95 @@ class MainActivity : FlutterActivity() {
             } else {
                 result.notImplemented()
             }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            directShareChannel
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "shareToWhatsApp" -> {
+                    val filePath = call.argument<String>("filePath") ?: ""
+                    val text = call.argument<String>("text") ?: ""
+                    shareToWhatsApp(filePath, text, result)
+                }
+                "shareToInstagramStory" -> {
+                    val filePath = call.argument<String>("filePath") ?: ""
+                    val contentUrl = call.argument<String>("contentUrl")
+                    shareToInstagramStory(filePath, contentUrl, result)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun shareToWhatsApp(filePath: String, text: String, result: MethodChannel.Result) {
+        try {
+            val file = File(filePath)
+            if (!file.exists()) {
+                result.success(false)
+                return
+            }
+            val contentUri = FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.provider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                putExtra(Intent.EXTRA_TEXT, text)
+                setPackage("com.whatsapp")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (packageManager.resolveActivity(intent, 0) != null) {
+                startActivity(intent)
+                result.success(true)
+            } else {
+                intent.setPackage("com.whatsapp.w4b")
+                if (packageManager.resolveActivity(intent, 0) != null) {
+                    startActivity(intent)
+                    result.success(true)
+                } else {
+                    result.success(false)
+                }
+            }
+        } catch (e: Exception) {
+            result.error("WHATSAPP_SHARE_ERROR", e.localizedMessage, null)
+        }
+    }
+
+    private fun shareToInstagramStory(filePath: String, contentUrl: String?, result: MethodChannel.Result) {
+        try {
+            val file = File(filePath)
+            if (!file.exists()) {
+                result.success(false)
+                return
+            }
+            val contentUri = FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.provider",
+                file
+            )
+            val intent = Intent("com.instagram.share.ADD_TO_STORY").apply {
+                setDataAndType(contentUri, "image/png")
+                putExtra("interactive_asset_uri", contentUri)
+                if (!contentUrl.isNullOrEmpty()) {
+                    putExtra("content_url", contentUrl)
+                }
+                setPackage("com.instagram.android")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (packageManager.resolveActivity(intent, 0) != null) {
+                startActivity(intent)
+                result.success(true)
+            } else {
+                result.success(false)
+            }
+        } catch (e: Exception) {
+            result.error("INSTAGRAM_SHARE_ERROR", e.localizedMessage, null)
         }
     }
 

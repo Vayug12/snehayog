@@ -109,6 +109,9 @@ export const TOPIC_BANK = [
   'push notifications versus newsletters for reaching subscribers',
   'notification fatigue and limits on how often creators broadcast',
   'the real cost of platform dependence for full-time creators',
+  'why organic target audience reach is paywalled behind Instagram boost ads',
+  'letting creators target relevant viewer professions without paying for ads',
+  'why creators must pay platforms just to reach their intended niche',
 
   // Short-form and long-form in one place
   'creators forced to split short-form and long-form audiences',
@@ -117,6 +120,8 @@ export const TOPIC_BANK = [
   'the creative cost of chasing short-form virality',
   'resuming a long video where you left off on mobile',
   'building a back catalogue that keeps earning after upload day',
+  'mobile video platforms trapping viewers inside proprietary media players',
+  'watching long-form videos inside your favorite external player on Android',
 
   // Discovery and recommendations
   'small creators being invisible in engagement-ranked feeds',

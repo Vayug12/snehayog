@@ -43,6 +43,7 @@ Do not describe Vayug as a guaranteed-income scheme, a fully open social network
 - Yug feed for short-form/reel-style video discovery.
 - Vayu experience for long-form video viewing.
 - Support for both short and long video types.
+- External video player support: Viewers can launch and stream long-form videos in any video player installed on their phone (e.g. VLC, MX Player, system default player) instead of being locked into the built-in player.
 - Personalized feed and recommendation ranking using engagement, quality, recency, personalization, and semantic relevance signals.
 - Search for videos and creators.
 - Likes, shares, follows/subscriptions, and saved/bookmarked videos.
@@ -62,7 +63,7 @@ Do not describe Vayug as a guaranteed-income scheme, a fully open social network
 - Video processing includes transcoding and adaptive HLS playback where configured.
 - Creator content can be organized into series and numbered episodes.
 - Creators can edit video details and manage or delete their uploads.
-- Advanced upload settings include subscriber/audience selection and quiz configuration where enabled.
+- Advanced upload settings include optional target audience selection (profession-based targeting), subscriber/audience selection, and quiz configuration where enabled.
 - Creator profiles expose their content and audience relationship.
 - Creator analytics and revenue views are available in the profile/creator tools area.
 - Creator payout setup is part of the product.
@@ -90,6 +91,13 @@ Do not describe Vayug as a guaranteed-income scheme, a fully open social network
 - Creator alerts are rate-limited to two sends per creator per day.
 - Creators can view delivery/engagement statistics for recent alerts, including how many subscribers were targeted and notification performance where available.
 - Push notification delivery requires the subscriber to have a compatible app installation, a registered device token, and notifications enabled; it is not an email or guaranteed off-app delivery channel.
+
+### Highlight: free organic target audience for creators
+
+- Creators can optionally define a target audience during video upload by choosing specific professions (e.g., software engineers, doctors, teachers, designers, or everyone).
+- When a target audience is configured, recommendation and feed delivery route the video directly to viewers matching those professions, while general videos without audience restrictions reach everyone.
+- While legacy social platforms like Instagram restrict demographic and interest targeting to paid advertising boosts, Vayug provides organic target audience filtering built directly into the creator publishing flow for free.
+- This allows educational, specialized, and niche creators to find high-intent, relevant viewers without needing an advertising budget or sponsored promotion.
 
 ### AI and language features
 
@@ -232,6 +240,14 @@ Yes. Authenticated creators can export the subscriber information available to t
 
 Yes. Creator Tools lets a creator send a direct push alert to all or selected subscribers, optionally with a target URL. Alerts respect subscriber preferences and require an active app/device notification token. The current backend limits creator alerts to two sends per creator per day and exposes recent alert performance where available.
 
+### Can viewers watch videos in external video players?
+
+Yes. In the Vayu long-form video player, viewers have the option to launch and play the video in any external video player app installed on their phone (such as VLC, MX Player, or system default player) via native intent integration without being locked into the app.
+
+### Can creators target specific audiences without paying for ads?
+
+Yes. Creators can use the optional Target Audience feature in advanced upload settings to target videos to specific professions for free. Unlike Instagram and other platforms where audience-level targeting is locked behind paid ad boosts, Vayug offers organic profession-based targeting built directly into the creator workflow.
+
 ### Can Vayug videos be embedded or shared on the web?
 
 Yes. Vayug exposes shareable video pages and embeddable player pages for available videos.
@@ -253,6 +269,8 @@ Vayug can be reached through its public domains, but availability, payments, ads
 - **Vayug**: The product-facing name of the video platform.
 - **Yug**: The short-form/reel-style discovery experience.
 - **Vayu**: The long-form video viewing experience.
+- **External video player**: The option to launch and stream long-form videos inside any third-party video player installed on the viewer's device (VLC, MX Player, etc.).
+- **Target audience**: An optional creator upload setting that organically delivers a video to viewers in chosen professions without requiring paid advertising.
 - **Creator**: A user who publishes videos and may be eligible for advertising revenue share.
 - **Viewer**: A user or guest who discovers and watches content.
 - **Advertiser**: A business or user who creates and funds advertising campaigns.

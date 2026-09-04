@@ -14,20 +14,20 @@ abstract class IE2eeService {
   // KEY PAIR MANAGEMENT (One-time setup per device)
   // ─────────────────────────────────────────────────
 
-  /// Generates an asymmetric key pair (Ed25519/X25519) and stores
-  /// the private key securely on the device.
+  /// Generates an asymmetric key pair (Ed25519/RSA) and stores
+  /// the private key securely on the device for the specified [userId].
   /// Returns the public key as a Base64 string.
-  Future<String> generateAndStoreKeyPair();
+  Future<String> generateAndStoreKeyPair({String? userId});
 
-  /// Retrieves the stored public key for this device.
+  /// Retrieves the stored public key for this device and [userId].
   /// Returns null if no key pair has been generated yet.
-  Future<String?> getPublicKey();
+  Future<String?> getPublicKey({String? userId});
 
   /// Uploads the public key to the Vayug backend.
   Future<bool> uploadPublicKey(String publicKey);
 
-  /// Checks if a key pair already exists on this device.
-  Future<bool> hasKeyPair();
+  /// Checks if a key pair already exists on this device for [userId].
+  Future<bool> hasKeyPair({String? userId});
 
   // ─────────────────────────────────────────────────
   // VIDEO ENCRYPTION (Creator Side)
@@ -67,9 +67,9 @@ abstract class IE2eeService {
   /// implementations and should be treated as an unavailable key.
   Future<String?> fetchEncryptedVideoKey(String videoId);
 
-  /// Decrypts the symmetric video key using the device's private key.
+  /// Decrypts the symmetric video key using the device/user's private key.
   /// Returns the raw symmetric key bytes.
-  Future<Uint8List> decryptSymmetricKey(String encryptedSymmetricKey);
+  Future<Uint8List> decryptSymmetricKey(String encryptedSymmetricKey, {String? userId});
 
   /// Decrypts a video chunk using the symmetric key.
   /// Returns the decrypted bytes.

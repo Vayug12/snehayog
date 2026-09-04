@@ -1795,77 +1795,205 @@ class _VayuLongFormPlayerScreenState
     VayuBottomSheet.show<void>(
       context: context,
       title: 'More Options',
-      maxWidth: isLandscape ? 380.0 : null,
+      maxWidth: isLandscape ? 310.0 : null,
+      padding: isLandscape
+          ? const EdgeInsets.fromLTRB(8, 0, 8, 8)
+          : const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(
-              dense: true,
-              leading: const Icon(Icons.speed_rounded),
-              title: const Text('Playback Speed'),
-              trailing: Text('${_playbackSpeed}x'),
-              onTap: () {
-                Navigator.pop(context);
-                _showPlaybackSpeedOptions();
-              }),
+          _buildMoreOptionTile(
+            isLandscape: isLandscape,
+            icon: Icons.speed_rounded,
+            title: 'Playback Speed',
+            trailingText: '${_playbackSpeed}x',
+            hasSubmenu: true,
+            onTap: () {
+              Navigator.pop(context);
+              _showPlaybackSpeedOptions();
+            },
+          ),
           if (_currentIndex < _videos.length)
-            ListTile(
-                dense: true,
-                leading: const Icon(Icons.language_rounded),
-                title: const Text('Audio Language'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showLanguageSelector(context, _videos[_currentIndex]);
-                }),
-          ListTile(
-              dense: true,
-              leading: Icon(isControlsLockedVN.value
-                  ? Icons.lock_rounded
-                  : Icons.lock_open_rounded),
-              title: Text(isControlsLockedVN.value ? 'Unlock' : 'Lock'),
+            _buildMoreOptionTile(
+              isLandscape: isLandscape,
+              icon: Icons.language_rounded,
+              title: 'Audio Language',
+              trailingText: _getLanguageDisplayName(
+                  _selectedAudioLanguage[_videos[_currentIndex].id] ??
+                      'default'),
+              hasSubmenu: true,
               onTap: () {
                 Navigator.pop(context);
-                isControlsLockedVN.value = !isControlsLockedVN.value;
-              }),
-          ListTile(
-              dense: true,
-              leading: const Icon(Icons.report_problem_rounded),
-              title: const Text('Report'),
-              onTap: () {
-                Navigator.pop(context);
-                _openReportDialog();
-              }),
+                _showLanguageSelector(context, _videos[_currentIndex]);
+              },
+            ),
+          _buildMoreOptionTile(
+            isLandscape: isLandscape,
+            icon: isControlsLockedVN.value
+                ? Icons.lock_rounded
+                : Icons.lock_open_rounded,
+            title: isControlsLockedVN.value ? 'Unlock' : 'Lock',
+            trailingText: isControlsLockedVN.value ? 'Locked' : null,
+            onTap: () {
+              Navigator.pop(context);
+              isControlsLockedVN.value = !isControlsLockedVN.value;
+            },
+          ),
+          _buildMoreOptionTile(
+            isLandscape: isLandscape,
+            icon: Icons.report_problem_rounded,
+            title: 'Report',
+            onTap: () {
+              Navigator.pop(context);
+              _openReportDialog();
+            },
+          ),
         ],
       ),
     );
   }
 
+  Widget _buildMoreOptionTile({
+    required bool isLandscape,
+    required IconData icon,
+    required String title,
+    String? trailingText,
+    bool hasSubmenu = false,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isLandscape ? 10 : 12,
+            vertical: isLandscape ? 8 : 11,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: isLandscape ? 18 : 20,
+                color: Colors.white70,
+              ),
+              SizedBox(width: isLandscape ? 10 : 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: isLandscape ? 13 : 14,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              if (trailingText != null)
+                Text(
+                  trailingText,
+                  style: TextStyle(
+                    fontSize: isLandscape ? 12 : 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              if (hasSubmenu) ...[
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: isLandscape ? 16 : 18,
+                  color: AppColors.textTertiary,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getLanguageDisplayName(String code) {
+    switch (code.toLowerCase()) {
+      case 'hindi':
+        return 'Hindi';
+      case 'english':
+        return 'English';
+      default:
+        return 'Default';
+    }
+  }
+
   void _openReportDialog() {
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     VayuBottomSheet.show(
-        context: context,
-        title: 'Report',
-        child: ReportDialogWidget(
-            targetType: 'video', targetId: _videos[_currentIndex].id));
+      context: context,
+      title: 'Report',
+      maxWidth: isLandscape ? 380.0 : null,
+      padding: isLandscape
+          ? const EdgeInsets.fromLTRB(14, 0, 14, 10)
+          : const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: ReportDialogWidget(
+          targetType: 'video', targetId: _videos[_currentIndex].id),
+    );
   }
 
   Future<void> _showPlaybackSpeedOptions() async {
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     VayuBottomSheet.show<void>(
       context: context,
       title: 'Speed',
+      maxWidth: isLandscape ? 300.0 : null,
+      padding: isLandscape
+          ? const EdgeInsets.fromLTRB(8, 0, 8, 8)
+          : const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: _playbackSpeedOptions
-              .map((s) => ListTile(
-                  title: Text('${s}x',
-                      style: AppTypography.bodyMedium.copyWith(
-                          color: s == _playbackSpeed
+        mainAxisSize: MainAxisSize.min,
+        children: _playbackSpeedOptions.map((s) {
+          final isSelected = s == _playbackSpeed;
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                Navigator.pop(context);
+                _setPlaybackSpeed(s);
+              },
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isLandscape ? 10 : 12,
+                  vertical: isLandscape ? 7 : 10,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${s}x${s == 1.0 ? ' (Normal)' : ''}',
+                        style: TextStyle(
+                          fontSize: isLandscape ? 13 : 14,
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.w500,
+                          color: isSelected
                               ? AppColors.primary
-                              : AppColors.textPrimary)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _setPlaybackSpeed(s);
-                  }))
-              .toList()),
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (isSelected)
+                      Icon(
+                        Icons.check_rounded,
+                        size: isLandscape ? 16 : 18,
+                        color: AppColors.primary,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -2121,42 +2249,80 @@ class _VayuLongFormPlayerScreenState
   }
 
   void _showLanguageSelector(BuildContext context, VideoModel video) {
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     VayuBottomSheet.show<void>(
       context: context,
-      title: 'Audio',
+      title: 'Audio Language',
+      maxWidth: isLandscape ? 300.0 : null,
+      padding: isLandscape
+          ? const EdgeInsets.fromLTRB(8, 0, 8, 8)
+          : const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        _buildLanguageOption(context, video, 'Default', 'default'),
+        _buildLanguageOption(context, video, 'Default', 'default',
+            isLandscape: isLandscape),
         _buildLanguageOption(context, video, 'English', 'english',
-            available: video.dubbedUrls?.containsKey('english') ?? false),
+            available: video.dubbedUrls?.containsKey('english') ?? false,
+            isLandscape: isLandscape),
         _buildLanguageOption(context, video, 'Hindi', 'hindi',
-            available: video.dubbedUrls?.containsKey('hindi') ?? false),
+            available: video.dubbedUrls?.containsKey('hindi') ?? false,
+            isLandscape: isLandscape),
       ]),
     );
   }
 
   Widget _buildLanguageOption(
       BuildContext context, VideoModel video, String title, String code,
-      {bool available = true}) {
+      {bool available = true, bool isLandscape = false}) {
     final selected = _selectedAudioLanguage[video.id] ?? 'default';
-    return ListTile(
-      title: Text(title,
-          style: AppTypography.bodyMedium.copyWith(
-              color: selected == code
-                  ? AppColors.primary
-                  : AppColors.textPrimary)),
-      trailing: selected == code
-          ? const Icon(Icons.check, color: AppColors.primary)
-          : (!available
-              ? const Icon(Icons.psychology_outlined, size: 16)
-              : null),
-      onTap: () {
-        Navigator.pop(context);
-        if (available || code == 'default') {
-          _handleLanguageSelection(video, code);
-        } else {
-          _onLocalSmartDubTap(video, code);
-        }
-      },
+    final isSelected = selected == code;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () {
+          Navigator.pop(context);
+          if (available || code == 'default') {
+            _handleLanguageSelection(video, code);
+          } else {
+            _onLocalSmartDubTap(video, code);
+          }
+        },
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isLandscape ? 10 : 12,
+            vertical: isLandscape ? 7 : 10,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: isLandscape ? 13 : 14,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              if (isSelected)
+                Icon(
+                  Icons.check_rounded,
+                  size: isLandscape ? 16 : 18,
+                  color: AppColors.primary,
+                )
+              else if (!available)
+                Icon(
+                  Icons.psychology_outlined,
+                  size: isLandscape ? 15 : 16,
+                  color: AppColors.textTertiary,
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2482,7 +2648,8 @@ class _VayuLongFormPlayerScreenState
               onTogglePlay: togglePlay,
               onMoreOptions: _showMoreOptions,
               onNext: _nextVideo,
-              onPrevious: _previousVideo),
+              onPrevious: _previousVideo,
+              onToggleFullScreen: _toggleFullScreen),
           dubbingOverlay: _buildDubbingOverlay(index),
         ));
   }

@@ -56,3 +56,7 @@ backend/temp/
 backend/uploads/temp/
 dist/
 backend/.cache/
+
+# --- Build Artifacts ---
+*.apk
+backend/public/download/*.apk

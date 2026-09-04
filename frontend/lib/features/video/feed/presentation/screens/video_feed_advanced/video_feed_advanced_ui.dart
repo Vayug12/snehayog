@@ -46,6 +46,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
       child: _openedFromProfile
           ? PageView.builder(
               controller: _pageController,
+              physics: const ReelsPageScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
               scrollDirection: Axis.vertical,
               onPageChanged: _onPageChanged,
               itemCount: _getTotalItemCount(),
@@ -57,6 +60,9 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
               onRefresh: refreshVideos,
               child: PageView.builder(
                 controller: _pageController,
+                physics: const ReelsPageScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
                 scrollDirection: Axis.vertical,
                 onPageChanged: _onPageChanged,
                 itemCount: _getTotalItemCount(),
@@ -1949,123 +1955,33 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
           return overlayContent;
         }
 
-        return ValueListenableBuilder<QuizModel?>(
-          valueListenable: _activeQuizVN,
-          builder: (context, activeQuiz, _) {
-            final bool isQuizVisible =
-                activeQuiz != null && index == _currentIndex;
-
-            return ValueListenableBuilder<bool>(
-              valueListenable: forceShowNotifier,
-              builder: (context, forceShow, _) {
-                // **CRASH-PROOF: Sequential safety check**
-                if (!sharedPool.isControllerValid(controller)) {
-                  Future.microtask(() {
-                    if (mounted) {
-                      _getController(index);
-                      safeSetState(() {});
-                    }
-                  });
-                  return overlayContent;
-                }
-
-                return ListenableBuilder(
-                  listenable: controller,
-                  builder: (context, _) {
-                    try {
-                      if (sharedPool.isControllerDisposed(controller)) {
-                        return overlayContent;
-                      }
-
-                      final value = controller.value;
-                      final bool isPlaying = value.isPlaying;
-
-                      // If quiz is visible, only hide overlay when video is playing.
-                      // If video is paused, we want all the action buttons to appear!
-                      final bool hideOverlayForQuiz =
-                          isQuizVisible && isPlaying;
-                      final bool shouldShow =
-                          (forceShow || !isPlaying) && !hideOverlayForQuiz;
-
-                      Widget contentWithVisibility = AnimatedOpacity(
-                        opacity: shouldShow ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                        child: IgnorePointer(
-                          ignoring: !shouldShow,
-                          child: overlayContent,
-                        ),
-                      );
-
-                      // Compact state when video is paused (to prevent overlapping the vertical actions bar on the right side)
-                      final bool isCompact = !isPlaying;
-
-                      final double targetBottom = isQuizVisible
-                          ? bottomPadding + (isCompact ? 10.0 : 20.0)
-                          : bottomPadding + 16.0;
-
-                      final double targetRight = isCompact ? 80.0 : 16.0;
-
-                      return Stack(
-                        children: [
-                          contentWithVisibility,
-
-                          // Unified Quiz & CTA Column positioned reactively at the bottom
-                          AnimatedPositioned(
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.fastOutSlowIn,
-                            left: 16,
-                            right: targetRight,
-                            bottom: targetBottom,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment
-                                  .stretch, // Matches both widths perfectly!
-                              children: [
-                                if (video.link?.isNotEmpty == true)
-                                  AppButton(
-                                    label: 'Visit Now',
-                                    onPressed: () => _handleVisitNow(video),
-                                    icon: const Icon(Icons.open_in_new,
-                                        size: 14, color: AppColors.white),
-                                    variant: AppButtonVariant.secondary,
-                                    size: AppButtonSize.small,
-                                  ),
-                                if (isQuizVisible) ...[
-                                  const SizedBox(height: 12.0),
-                                  QuizOverlay(
-                                    quiz: activeQuiz,
-                                    isCompact: isCompact, // Set compact mode
-                                    onDismiss: () => _activeQuizVN.value = null,
-                                    onBack: () {
-                                      final String videoId = video.id;
-                                      _quizEngine.removeLastHistory(videoId);
-                                      final history =
-                                          _quizEngine.getHistory(videoId);
-                                      if (history.isNotEmpty) {
-                                        _activeQuizVN.value = history.last;
-                                      } else {
-                                        _activeQuizVN.value = null;
-                                      }
-                                    },
-                                    onAnswered: (int answerIndex) {
-                                      _quizEngine.submitAnswer(
-                                          video.id, activeQuiz, answerIndex);
-                                    },
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      );
-                    } catch (e) {
-                      return overlayContent;
-                    }
-                  },
-                );
-              },
-            );
+        return _YugOverlayAutoHideHost(
+          video: video,
+          index: index,
+          currentIndex: _currentIndex,
+          controller: controller,
+          overlayContent: overlayContent,
+          visitNowButton: visitNowButton,
+          activeQuizVN: _activeQuizVN,
+          forceShowNotifier: forceShowNotifier,
+          bottomPadding: bottomPadding,
+          onVisitNow: () => _handleVisitNow(video),
+          onDismissQuiz: () => _activeQuizVN.value = null,
+          onBackQuiz: () {
+            final String videoId = video.id;
+            _quizEngine.removeLastHistory(videoId);
+            final history = _quizEngine.getHistory(videoId);
+            if (history.isNotEmpty) {
+              _activeQuizVN.value = history.last;
+            } else {
+              _activeQuizVN.value = null;
+            }
+          },
+          onAnsweredQuiz: (int answerIndex) {
+            final activeQuiz = _activeQuizVN.value;
+            if (activeQuiz != null) {
+              _quizEngine.submitAnswer(video.id, activeQuiz, answerIndex);
+            }
           },
         );
       },
@@ -2752,6 +2668,239 @@ extension _VideoFeedUI on _VideoFeedAdvancedState {
           AppSpacing.vSpace16,
         ],
       ),
+    );
+  }
+}
+
+class _YugOverlayAutoHideHost extends StatefulWidget {
+  final VideoModel video;
+  final int index;
+  final int currentIndex;
+  final VideoPlayerController controller;
+  final Widget overlayContent;
+  final Widget visitNowButton;
+  final ValueNotifier<QuizModel?> activeQuizVN;
+  final ValueNotifier<bool> forceShowNotifier;
+  final double bottomPadding;
+  final VoidCallback onVisitNow;
+  final VoidCallback onDismissQuiz;
+  final VoidCallback onBackQuiz;
+  final void Function(int) onAnsweredQuiz;
+
+  const _YugOverlayAutoHideHost({
+    Key? key,
+    required this.video,
+    required this.index,
+    required this.currentIndex,
+    required this.controller,
+    required this.overlayContent,
+    required this.visitNowButton,
+    required this.activeQuizVN,
+    required this.forceShowNotifier,
+    required this.bottomPadding,
+    required this.onVisitNow,
+    required this.onDismissQuiz,
+    required this.onBackQuiz,
+    required this.onAnsweredQuiz,
+  }) : super(key: key);
+
+  @override
+  State<_YugOverlayAutoHideHost> createState() =>
+      _YugOverlayAutoHideHostState();
+}
+
+class _YugOverlayAutoHideHostState extends State<_YugOverlayAutoHideHost> {
+  Timer? _autoHideTimer;
+  bool _isAutoHideExpired = false;
+  bool _wasPlaying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _wasPlaying = _safeIsPlaying();
+    widget.controller.addListener(_handleControllerChange);
+    // If already playing when widget mounts, start the 3-second auto-hide timer
+    if (_wasPlaying) {
+      _startAutoHideTimer();
+    }
+  }
+
+  bool _safeIsPlaying() {
+    try {
+      if (SharedVideoControllerPool()
+          .isControllerDisposed(widget.controller)) {
+        return false;
+      }
+      return widget.controller.value.isPlaying;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _handleControllerChange() {
+    final bool isPlaying = _safeIsPlaying();
+    if (isPlaying != _wasPlaying) {
+      _wasPlaying = isPlaying;
+      if (!isPlaying) {
+        // Paused -> cancel auto-hide timer and make overlay visible immediately
+        _autoHideTimer?.cancel();
+        _autoHideTimer = null;
+        if (_isAutoHideExpired) {
+          setState(() {
+            _isAutoHideExpired = false;
+          });
+        }
+      } else {
+        // Video started playing -> start 3-second countdown before auto-hiding
+        _startAutoHideTimer();
+      }
+    }
+  }
+
+  void _startAutoHideTimer() {
+    _autoHideTimer?.cancel();
+    if (_isAutoHideExpired) {
+      setState(() {
+        _isAutoHideExpired = false;
+      });
+    }
+    _autoHideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _safeIsPlaying()) {
+        setState(() {
+          _isAutoHideExpired = true;
+        });
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _YugOverlayAutoHideHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleControllerChange);
+      _autoHideTimer?.cancel();
+      _wasPlaying = _safeIsPlaying();
+      _isAutoHideExpired = false;
+      widget.controller.addListener(_handleControllerChange);
+      if (_wasPlaying) {
+        _startAutoHideTimer();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoHideTimer?.cancel();
+    widget.controller.removeListener(_handleControllerChange);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sharedPool = SharedVideoControllerPool();
+    if (!sharedPool.isControllerValid(widget.controller) ||
+        sharedPool.isControllerDisposed(widget.controller)) {
+      return widget.overlayContent;
+    }
+
+    return ValueListenableBuilder<QuizModel?>(
+      valueListenable: widget.activeQuizVN,
+      builder: (context, activeQuiz, _) {
+        final bool isQuizVisible =
+            activeQuiz != null && widget.index == widget.currentIndex;
+
+        return ValueListenableBuilder<bool>(
+          valueListenable: widget.forceShowNotifier,
+          builder: (context, forceShow, _) {
+            return ListenableBuilder(
+              listenable: widget.controller,
+              builder: (context, _) {
+                try {
+                  if (sharedPool.isControllerDisposed(widget.controller)) {
+                    return widget.overlayContent;
+                  }
+
+                  final isPlaying = widget.controller.value.isPlaying;
+
+                  // If quiz is visible, only hide overlay when video is playing.
+                  // If video is paused, we want all the action buttons to appear!
+                  final bool hideOverlayForQuiz = isQuizVisible && isPlaying;
+
+                  // Show overlay if:
+                  // 1. Force show is active (e.g. double-tap like confirmation)
+                  // 2. OR video is paused (!isPlaying)
+                  // 3. OR 3-second auto-hide timer has NOT yet expired (!_isAutoHideExpired)
+                  // And not hidden for quiz
+                  final bool shouldShow =
+                      (forceShow || !isPlaying || !_isAutoHideExpired) &&
+                          !hideOverlayForQuiz;
+
+                  Widget contentWithVisibility = AnimatedOpacity(
+                    opacity: shouldShow ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    child: IgnorePointer(
+                      ignoring: !shouldShow,
+                      child: widget.overlayContent,
+                    ),
+                  );
+
+                  // Compact state when video is paused (to prevent overlapping the vertical actions bar on the right side)
+                  final bool isCompact = !isPlaying;
+
+                  final double targetBottom = isQuizVisible
+                      ? widget.bottomPadding + (isCompact ? 10.0 : 20.0)
+                      : widget.bottomPadding + 16.0;
+
+                  final double targetRight = isCompact ? 80.0 : 16.0;
+
+                  return Stack(
+                    children: [
+                      contentWithVisibility,
+
+                      // Unified Quiz & CTA Column positioned reactively at the bottom
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.fastOutSlowIn,
+                        left: 16,
+                        right: targetRight,
+                        bottom: targetBottom,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (widget.video.link?.isNotEmpty == true)
+                              AppButton(
+                                label: 'Visit Now',
+                                onPressed: widget.onVisitNow,
+                                icon: const Icon(Icons.open_in_new,
+                                    size: 14, color: AppColors.white),
+                                variant: AppButtonVariant.secondary,
+                                size: AppButtonSize.small,
+                              ),
+                            if (isQuizVisible) ...[
+                              const SizedBox(height: 12.0),
+                              QuizOverlay(
+                                quiz: activeQuiz,
+                                isCompact: isCompact,
+                                onDismiss: widget.onDismissQuiz,
+                                onBack: widget.onBackQuiz,
+                                onAnswered: widget.onAnsweredQuiz,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                } catch (e) {
+                  return widget.overlayContent;
+                }
+              },
+            );
+          },
+        );
+      },
     );
   }
 }

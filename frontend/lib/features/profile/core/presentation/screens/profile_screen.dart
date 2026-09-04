@@ -44,6 +44,7 @@ import 'package:vayug/features/profile/core/presentation/widgets/profile_tabs_wi
 import 'package:vayug/features/profile/core/presentation/widgets/profile_dialogs_widget.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/profile_header_widget.dart';
 import 'package:vayug/features/profile/core/presentation/widgets/subscribers_bottom_sheet.dart';
+import 'package:vayug/features/profile/core/presentation/widgets/referral_share_bottom_sheet.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/yug_grid_tab.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/vayu_grid_tab.dart';
 import 'package:vayug/features/profile/content/presentation/screens/profile_tabs/about_user_tab.dart';
@@ -516,22 +517,42 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           }
         } catch (_) {}
       }
-      final String referralLink =
-          referralCode.isNotEmpty ? '$base/?ref=$referralCode' : base;
-      final String message =
-          'Monetize from your content. Enjoy ad-free videos $referralLink';
-      // Optimistically increment invite counter immediately on click
+      // Optimistically increment invite counter immediately on click (non-aggressive unlock)
       final prefs = await SharedPreferences.getInstance();
       if (mounted) {
         _invitedCount.value = (prefs.getInt('referral_invite_count') ?? 0) + 1;
       }
       await prefs.setInt('referral_invite_count', _invitedCount.value);
 
-      await sp.SharePlus.instance.share(
-        sp.ShareParams(
-          text: message,
-          subject: 'Vayug – Monetize from your content. Enjoy ad-free videos',
-        ),
+      const String playStoreUrl =
+          'https://play.google.com/store/apps/details?id=com.snehayog.app&hl=en_IN';
+      final String codeSnippet = referralCode.isNotEmpty
+          ? '\n🎁 Referral Code: $referralCode'
+          : '';
+      final String message =
+          '🚀 Create. Monetize. Scale — From Day 1 on Vayu!\n\n'
+          '💰 Zero 1K Subs Barrier: Monetize from your very first video (80% revenue split)\n'
+          '🔗 10x Conversion: Add your direct website/store link below every video\n'
+          '🔐 Private E2EE: Publish exclusive encrypted videos for subscribers\n'
+          '⚡ Instant UPI payouts directly to your bank$codeSnippet\n\n'
+          'Install Vayu from Play Store & start earning:\n'
+          '$playStoreUrl';
+
+      final creatorName =
+          _profileStateManager.nameController.text.trim().isNotEmpty
+              ? _profileStateManager.nameController.text.trim()
+              : (userData?['name']?.toString() ?? 'Vayug Creator');
+      final profilePicUrl = userData?['profilePic']?.toString();
+
+      if (!mounted) return;
+      await ReferralShareBottomSheet.show(
+        context: context,
+        creatorName: creatorName,
+        profilePicUrl: profilePicUrl,
+        referralCode: referralCode.isNotEmpty ? referralCode : null,
+        playStoreUrl: playStoreUrl,
+        shareMessage: message,
+        invitedCount: _invitedCount.value,
       );
       // **REMOVED: No setState needed, ValueNotifier automatically updates listeners**
     } catch (e) {

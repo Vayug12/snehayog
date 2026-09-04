@@ -264,7 +264,13 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
     if (_wasSignedIn != null && _wasSignedIn != isSignedIn) {
       _wasSignedIn = isSignedIn;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_isLoading) {
+        if (mounted) {
+          setState(() {
+            _videos = [];
+            _isGateLocked = false;
+            _requiresSignIn = false;
+            _isLoading = true;
+          });
           refreshVideos();
         }
       });
@@ -352,23 +358,13 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
   }
 
   List<Widget> _buildSliverBody() {
-    // **GATE takes priority: nothing else is meaningful until it is cleared**
-    if (_isGateLocked) {
-      return [
-        SliverFillRemaining(
-          hasScrollBody: true,
-          child: _requiresSignIn
-              ? _buildSignInPrompt()
-              : VayuSubscribeGate(
-                  followingCount: _followingCount,
-                  required: kMinSubscriptions,
-                  onUnlock: () => _loadVideos(refresh: true),
-                ),
-        ),
-      ];
-    }
+    final authController = ref.watch(googleSignInProvider);
+    final bool isSignedIn = authController.isSignedIn;
+    final bool isSigningIn =
+        authController.isSigningIn || authController.isLoading;
 
-    if (_isLoading && _videos.isEmpty) {
+    // 1. Shimmer skeleton feedback: If signing in or loading videos while list is empty
+    if ((_isLoading || isSigningIn) && _videos.isEmpty) {
       return [
         SliverList(
           delegate: SliverChildBuilderDelegate(
@@ -377,6 +373,30 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
               child: _buildShimmerItem(),
             ),
             childCount: 4,
+          ),
+        ),
+      ];
+    }
+
+    // 2. Sign-in required: Only when user is signed out
+    if (!isSignedIn && _requiresSignIn) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: true,
+          child: _buildSignInPrompt(),
+        ),
+      ];
+    }
+
+    // 3. Subscription gate: Locked for signed-in user with insufficient subscriptions
+    if (_isGateLocked) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: true,
+          child: VayuSubscribeGate(
+            followingCount: _followingCount,
+            required: kMinSubscriptions,
+            onUnlock: () => _loadVideos(refresh: true),
           ),
         ),
       ];
@@ -499,7 +519,15 @@ class VayuScreenState extends ConsumerState<VayuScreen> {
     return AuthSignInPrompt(
       icon: Icons.video_library_outlined,
       onSignedIn: () async {
-        if (mounted) await _loadVideos(refresh: true);
+        if (mounted) {
+          setState(() {
+            _videos = [];
+            _isGateLocked = false;
+            _requiresSignIn = false;
+            _isLoading = true;
+          });
+          await _loadVideos(refresh: true);
+        }
       },
     );
   }

@@ -155,7 +155,11 @@ class VayuBottomSheet extends StatelessWidget {
                 // so a corner control has somewhere to sit.
                 if (title != null || (actions?.isNotEmpty ?? false))
                   Padding(
-                    padding: EdgeInsets.fromLTRB(20, showHandle ? 0 : (isLandscape ? 8 : 20), 12, isLandscape ? 6 : 12),
+                    padding: EdgeInsets.fromLTRB(
+                        isLandscape ? 16 : 20,
+                        showHandle ? 0 : (isLandscape ? 6 : 20),
+                        8,
+                        isLandscape ? 4 : 12),
                     child: Row(
                       children: [
                         if (title != null) ...[
@@ -194,7 +198,7 @@ class VayuBottomSheet extends StatelessWidget {
                     : SingleChildScrollView(
                       controller: scrollController,
                       physics: const BouncingScrollPhysics(),
-                      padding: padding ?? const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      padding: padding ?? (isLandscape ? const EdgeInsets.fromLTRB(16, 0, 16, 10) : const EdgeInsets.fromLTRB(20, 0, 20, 20)),
                       child: child,
                     ),
                 ),
@@ -208,7 +212,7 @@ class VayuBottomSheet extends StatelessWidget {
     if (isFloating) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          padding: EdgeInsets.symmetric(horizontal: 24, vertical: isLandscape ? 8 : 16),
           child: Material(
             color: Colors.transparent,
             child: content,
